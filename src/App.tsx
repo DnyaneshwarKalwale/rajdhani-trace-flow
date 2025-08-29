@@ -6,9 +6,18 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "@/components/layout/Sidebar";
 import Dashboard from "./pages/Dashboard";
 import Orders from "./pages/Orders";
+import NewOrder from "./pages/orders/NewOrder";
+import AddItem from "./pages/orders/AddItem";
 import Inventory from "./pages/Inventory";
+import FinishedGoods from "./pages/inventory/FinishedGoods";
+import LowStocks from "./pages/inventory/LowStocks";
 import Production from "./pages/Production";
+import NewBatch from "./pages/production/NewBatch";
+import Planning from "./pages/production/Planning";
+import Complete from "./pages/production/Complete";
 import Materials from "./pages/Materials";
+import Customers from "./pages/Customers";
+import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -25,9 +34,18 @@ const App = () => (
             <Routes>
               <Route path="/" element={<Dashboard />} />
               <Route path="/orders" element={<Orders />} />
+              <Route path="/orders/new" element={<NewOrder />} />
+              <Route path="/orders/add-item" element={<AddItem />} />
               <Route path="/inventory" element={<Inventory />} />
+              <Route path="/inventory/finished-goods" element={<FinishedGoods />} />
+              <Route path="/inventory/low-stocks" element={<LowStocks />} />
               <Route path="/production" element={<Production />} />
+              <Route path="/production/new-batch" element={<NewBatch />} />
+              <Route path="/production/planning" element={<Planning />} />
+              <Route path="/production/complete" element={<Complete />} />
               <Route path="/materials" element={<Materials />} />
+              <Route path="/customers" element={<Customers />} />
+              <Route path="/analytics" element={<Analytics />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>
