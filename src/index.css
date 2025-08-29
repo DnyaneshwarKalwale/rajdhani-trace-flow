@@ -2,41 +2,76 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
-All colors MUST be HSL.
-*/
+/* Rajdhani Carpet ERP Design System - Professional Manufacturing Theme */
 
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    /* Core Background & Foreground */
+    --background: 220 15% 97%;
+    --foreground: 215 25% 15%;
 
+    /* Card System */
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 215 25% 15%;
 
+    /* Popover System */
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 215 25% 15%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Professional Manufacturing Primary (Deep Teal) */
+    --primary: 195 85% 25%;
+    --primary-foreground: 0 0% 98%;
+    --primary-hover: 195 85% 30%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    /* Manufacturing Secondary (Steel Blue) */
+    --secondary: 210 25% 88%;
+    --secondary-foreground: 215 25% 25%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Muted System */
+    --muted: 210 25% 93%;
+    --muted-foreground: 215 15% 45%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    /* Accent (Manufacturing Orange) */
+    --accent: 25 95% 55%;
+    --accent-foreground: 0 0% 98%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    /* Status Colors */
+    --success: 142 76% 36%;
+    --success-foreground: 0 0% 98%;
+    --warning: 45 93% 47%;
+    --warning-foreground: 0 0% 98%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    /* Interface Elements */
+    --border: 214 25% 85%;
+    --input: 214 25% 90%;
+    --ring: 195 85% 25%;
 
-    --radius: 0.5rem;
+    /* ERP Specific Colors */
+    --inventory: 120 60% 50%;
+    --inventory-foreground: 0 0% 98%;
+    --production: 280 60% 50%;
+    --production-foreground: 0 0% 98%;
+    --orders: 200 85% 45%;
+    --orders-foreground: 0 0% 98%;
+    --materials: 35 80% 50%;
+    --materials-foreground: 0 0% 98%;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(195 85% 25%), hsl(195 85% 35%));
+    --gradient-dashboard: linear-gradient(135deg, hsl(220 15% 97%), hsl(210 25% 93%));
+    --gradient-card: linear-gradient(145deg, hsl(0 0% 100%), hsl(210 25% 98%));
+
+    /* Shadows */
+    --shadow-card: 0 4px 12px -2px hsl(195 85% 25% / 0.08);
+    --shadow-elevated: 0 8px 24px -4px hsl(195 85% 25% / 0.12);
+    --shadow-floating: 0 16px 48px -8px hsl(195 85% 25% / 0.16);
+
+    /* Animation */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    --radius: 0.75rem;
 
     --sidebar-background: 0 0% 98%;
 

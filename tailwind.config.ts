@@ -26,7 +26,8 @@ export default {
 				foreground: 'hsl(var(--foreground))',
 				primary: {
 					DEFAULT: 'hsl(var(--primary))',
-					foreground: 'hsl(var(--primary-foreground))'
+					foreground: 'hsl(var(--primary-foreground))',
+					hover: 'hsl(var(--primary-hover))'
 				},
 				secondary: {
 					DEFAULT: 'hsl(var(--secondary))',
@@ -51,6 +52,30 @@ export default {
 				card: {
 					DEFAULT: 'hsl(var(--card))',
 					foreground: 'hsl(var(--card-foreground))'
+				},
+				success: {
+					DEFAULT: 'hsl(var(--success))',
+					foreground: 'hsl(var(--success-foreground))'
+				},
+				warning: {
+					DEFAULT: 'hsl(var(--warning))',
+					foreground: 'hsl(var(--warning-foreground))'
+				},
+				inventory: {
+					DEFAULT: 'hsl(var(--inventory))',
+					foreground: 'hsl(var(--inventory-foreground))'
+				},
+				production: {
+					DEFAULT: 'hsl(var(--production))',
+					foreground: 'hsl(var(--production-foreground))'
+				},
+				orders: {
+					DEFAULT: 'hsl(var(--orders))',
+					foreground: 'hsl(var(--orders-foreground))'
+				},
+				materials: {
+					DEFAULT: 'hsl(var(--materials))',
+					foreground: 'hsl(var(--materials-foreground))'
 				},
 				sidebar: {
 					DEFAULT: 'hsl(var(--sidebar-background))',
