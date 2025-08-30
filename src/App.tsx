@@ -16,9 +16,14 @@ import NewBatch from "./pages/production/NewBatch";
 import Planning from "./pages/production/Planning";
 import Complete from "./pages/production/Complete";
 import Materials from "./pages/Materials";
+import ManageStock from "./pages/ManageStock";
 import Customers from "./pages/Customers";
 import Analytics from "./pages/Analytics";
 import NotFound from "./pages/NotFound";
+import Products from "./pages/Products";
+import ProductDetail from "./pages/ProductDetail";
+import ProductStock from "./pages/ProductStock";
+import ProductionDetail from "./pages/ProductionDetail";
 
 const queryClient = new QueryClient();
 
@@ -44,8 +49,13 @@ const App = () => (
               <Route path="/production/planning" element={<Planning />} />
               <Route path="/production/complete" element={<Complete />} />
               <Route path="/materials" element={<Materials />} />
+              <Route path="/manage-stock" element={<ManageStock />} />
               <Route path="/customers" element={<Customers />} />
               <Route path="/analytics" element={<Analytics />} />
+                                <Route path="/products" element={<Products />} />
+                          <Route path="/product/:productId" element={<ProductDetail />} />
+        <Route path="/product-stock/:productId" element={<ProductStock />} />
+        <Route path="/production-detail/:productId" element={<ProductionDetail />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

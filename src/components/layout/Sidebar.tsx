@@ -8,7 +8,9 @@ import {
   Factory, 
   BarChart3,
   Settings,
-  Users
+  Users,
+  AlertTriangle,
+  Home
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
 
@@ -46,6 +48,18 @@ const sidebarItems = [
     icon: Factory,
     href: "/materials",
     color: "text-materials"
+  },
+  {
+    title: "Products",
+    icon: Package,
+    href: "/products",
+    color: "text-products"
+  },
+  {
+    title: "Manage Stock",
+    icon: AlertTriangle,
+    href: "/manage-stock",
+    color: "text-warning"
   },
   {
     title: "Analytics",

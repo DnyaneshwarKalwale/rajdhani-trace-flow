@@ -94,18 +94,19 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Main Content Grid */}
-      <div className="grid gap-6 lg:grid-cols-5">
-        <RecentActivity />
-        <ProductionOverview />
+      {/* Main Content Grid - Fixed Layout */}
+      <div className="grid gap-6 lg:grid-cols-12">
+        <div className="lg:col-span-4">
+          <RecentActivity />
+        </div>
+        <div className="lg:col-span-8">
+          <ProductionOverview />
+        </div>
       </div>
 
-      {/* Bottom Section */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      {/* Bottom Section - Full Width */}
+      <div className="w-full">
         <InventoryAlerts />
-        <div className="space-y-6">
-          {/* Additional widgets can be added here */}
-        </div>
       </div>
     </div>
   );

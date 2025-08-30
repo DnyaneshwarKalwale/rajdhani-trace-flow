@@ -2,6 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Package, AlertTriangle, TrendingDown, ShoppingCart } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface InventoryAlert {
   id: string;
@@ -67,14 +68,25 @@ const categoryIcons = {
 };
 
 export function InventoryAlerts() {
+  const navigate = useNavigate();
+
+  const handleManageStock = () => {
+    navigate("/manage-stock");
+  };
+
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <CardTitle className="flex items-center gap-2">
+      <CardHeader className="flex flex-row items-center justify-between pb-4">
+        <CardTitle className="flex items-center gap-2 text-lg">
           <AlertTriangle className="w-5 h-5 text-warning" />
           Inventory Alerts
         </CardTitle>
-        <Button variant="outline" size="sm">
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={handleManageStock}
+          className="hover:bg-warning/10 hover:text-warning"
+        >
           Manage Stock
         </Button>
       </CardHeader>
@@ -82,12 +94,12 @@ export function InventoryAlerts() {
         {inventoryAlerts.map((alert) => {
           const Icon = categoryIcons[alert.category];
           return (
-            <div key={alert.id} className="p-4 border rounded-lg space-y-3">
+            <div key={alert.id} className="p-4 border rounded-lg space-y-3 hover:bg-muted/50 transition-colors">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
                   <Icon className="w-5 h-5 text-muted-foreground" />
                   <div>
-                    <h4 className="font-medium text-foreground">{alert.productName}</h4>
+                    <h4 className="font-semibold text-foreground">{alert.productName}</h4>
                     <p className="text-sm text-muted-foreground capitalize">
                       {alert.category.replace("-", " ")}
                     </p>
