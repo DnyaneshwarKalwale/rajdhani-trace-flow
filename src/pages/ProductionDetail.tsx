@@ -784,6 +784,212 @@ export default function ProductionDetail() {
     return `QR-${product.batchNumber}-${customId.toUpperCase().replace(/\s+/g, '-')}`;
   };
 
+  // Step Form Component
+  function StepForm({ 
+    step, 
+    onSave, 
+    onCancel 
+  }: { 
+    step: ProductionStep | null; 
+    onSave: (data: { name: string; description: string }) => void; 
+    onCancel: () => void; 
+  }) {
+    const [stepData, setStepData] = useState({
+      name: step?.name || "",
+      description: step?.description || ""
+    });
+
+    return (
+      <div className="space-y-4">
+        <div>
+          <Label htmlFor="stepName">Step Name</Label>
+          <Input
+            id="stepName"
+            value={stepData.name}
+            onChange={(e) => setStepData(prev => ({ ...prev, name: e.target.value }))}
+            placeholder="e.g., Punching, Dyeing, Cutting"
+          />
+        </div>
+        <div>
+          <Label htmlFor="stepDescription">Description</Label>
+          <Textarea
+            id="stepDescription"
+            value={stepData.description}
+            onChange={(e) => setStepData(prev => ({ ...prev, description: e.target.value }))}
+            placeholder="Describe what happens in this step..."
+            className="min-h-[80px]"
+          />
+        </div>
+        
+        <DialogFooter>
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+          <Button 
+            onClick={() => onSave(stepData)}
+            disabled={!stepData.name.trim()}
+          >
+            {step ? 'Update Step' : 'Add Step'}
+          </Button>
+        </DialogFooter>
+      </div>
+    );
+  }
+
+  // Excel-like Table Component
+  function ExcelLikeTable({ 
+    data, 
+    onDataChange 
+  }: { 
+    data: IndividualProduct[]; 
+    onDataChange: (data: IndividualProduct[]) => void; 
+  }) {
+    const [editingCell, setEditingCell] = useState<{ row: number; col: string } | null>(null);
+    const [editValue, setEditValue] = useState("");
+
+    const handleCellClick = (rowIndex: number, field: keyof IndividualProduct) => {
+      setEditingCell({ row: rowIndex, col: field });
+      setEditValue(String(data[rowIndex][field] || ""));
+    };
+
+    const handleCellSave = () => {
+      if (editingCell) {
+        const newData = [...data];
+        const { row, col } = editingCell;
+        newData[row] = { ...newData[row], [col]: editValue };
+        onDataChange(newData);
+        setEditingCell(null);
+        setEditValue("");
+      }
+    };
+
+    const handleKeyDown = (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        handleCellSave();
+      } else if (e.key === 'Escape') {
+        setEditingCell(null);
+        setEditValue("");
+      }
+    };
+
+    const addRow = () => {
+      const newRow: IndividualProduct = {
+        id: `IND${Date.now()}_${data.length + 1}`,
+        qrCode: "",
+        productId: product?.productId || product?.id || "",
+        manufacturingDate: new Date().toISOString().split('T')[0],
+        materialsUsed: [],
+        finalDimensions: "",
+        finalWeight: "",
+        finalThickness: "",
+        finalPileHeight: "",
+        qualityGrade: "A",
+        inspector: "",
+        notes: "",
+        status: "available"
+      };
+      onDataChange([...data, newRow]);
+    };
+
+    const removeRow = (index: number) => {
+      const newData = data.filter((_, i) => i !== index);
+      onDataChange(newData);
+    };
+
+    const columns = [
+      { key: 'id', label: 'Custom ID', width: 'w-32' },
+      { key: 'qrCode', label: 'QR Code', width: 'w-40' },
+      { key: 'manufacturingDate', label: 'Date', width: 'w-32' },
+      { key: 'finalDimensions', label: 'Dimensions', width: 'w-40' },
+      { key: 'finalWeight', label: 'Weight', width: 'w-24' },
+      { key: 'finalThickness', label: 'Thickness', width: 'w-28' },
+      { key: 'finalPileHeight', label: 'Pile Height', width: 'w-28' },
+      { key: 'qualityGrade', label: 'Grade', width: 'w-20' },
+      { key: 'status', label: 'Status', width: 'w-24' },
+      { key: 'notes', label: 'Notes', width: 'w-40' }
+    ];
+
+    return (
+      <div className="border rounded-lg overflow-hidden">
+        {/* Table Header */}
+        <div className="bg-gray-100 border-b">
+          <div className="flex">
+            <div className="w-12 bg-gray-200 border-r flex items-center justify-center text-xs font-medium text-gray-600">
+              #
+            </div>
+            {columns.map((col) => (
+              <div key={col.key} className={`${col.width} p-2 border-r text-xs font-medium text-gray-700`}>
+                {col.label}
+              </div>
+            ))}
+            <div className="w-16 p-2 text-xs font-medium text-gray-700">
+              Actions
+            </div>
+          </div>
+        </div>
+
+        {/* Table Body */}
+        <div className="max-h-96 overflow-y-auto">
+          {data.map((row, rowIndex) => (
+            <div key={row.id} className="flex border-b hover:bg-gray-50">
+              <div className="w-12 bg-gray-50 border-r flex items-center justify-center text-xs text-gray-600">
+                {rowIndex + 1}
+              </div>
+              {columns.map((col) => (
+                <div key={col.key} className={`${col.width} p-2 border-r text-xs`}>
+                  {editingCell?.row === rowIndex && editingCell?.col === col.key ? (
+                    <Input
+                      value={editValue}
+                      onChange={(e) => setEditValue(e.target.value)}
+                      onBlur={handleCellSave}
+                      onKeyDown={handleKeyDown}
+                      className="h-6 text-xs p-1"
+                      autoFocus
+                    />
+                  ) : (
+                    <div 
+                      className="h-6 flex items-center cursor-pointer hover:bg-blue-50 px-1 rounded"
+                      onClick={() => handleCellClick(rowIndex, col.key as keyof IndividualProduct)}
+                    >
+                      {col.key === 'materialsUsed' 
+                        ? Array.isArray(row[col.key as keyof IndividualProduct]) 
+                          ? `${(row[col.key as keyof IndividualProduct] as ProductionMaterial[]).length} materials`
+                          : ""
+                        : String(row[col.key as keyof IndividualProduct] || "")}
+                    </div>
+                  )}
+                </div>
+              ))}
+              <div className="w-16 p-2 flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => removeRow(rowIndex)}
+                  className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                >
+                  <X className="w-3 h-3" />
+                </Button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Add Row Button */}
+        <div className="p-2 bg-gray-50 border-t">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={addRow}
+            className="flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add Row
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   // Add new step
   const handleAddStep = (stepData: { name: string; description: string }) => {
     if (!product) return;
@@ -969,77 +1175,49 @@ The product quantity has been updated in the main inventory.`;
 
   return (
     <div className="flex-1 space-y-6 p-6">
-      {/* Fixed Header Layout */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
-        <div className="flex items-center gap-4 flex-1 min-w-0">
-          <Button variant="outline" onClick={() => navigate('/production')} className="flex-shrink-0">
-            <ArrowLeft className="w-4 h-4 mr-2" />
-            Back to Production
+      {/* Clean Header Layout */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-4">
+          <Button 
+            variant="outline" 
+            onClick={() => navigate('/production')} 
+            size="sm"
+            className="flex items-center gap-2"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
           </Button>
-          <div className="min-w-0 flex-1">
-            <Header 
-              title={`Production Detail - ${product.productName}`}
-              subtitle={`Batch: ${product.batchNumber} • Status: ${product.status}`}
-            />
+          
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl font-semibold text-gray-900">
+              {product.productName}
+            </h1>
+            <Badge variant="outline" className="text-xs">
+              {product.batchNumber}
+            </Badge>
+            <Badge className={`text-xs ${
+              product.status === "completed" ? "bg-green-100 text-green-800" :
+              product.status === "active" ? "bg-blue-100 text-blue-800" :
+              product.status === "paused" ? "bg-yellow-100 text-yellow-800" :
+              "bg-gray-100 text-gray-800"
+            }`}>
+              {product.status}
+            </Badge>
           </div>
         </div>
+        
         <Button 
           variant="outline" 
           onClick={() => setIsStepManagementOpen(true)}
-          className="flex-shrink-0"
+          size="sm"
+          className="flex items-center gap-2"
         >
-          <Cog className="w-4 h-4 mr-2" />
+          <Cog className="w-4 h-4" />
           Manage Steps
         </Button>
       </div>
 
-      {/* Product Overview - Fixed Layout */}
-      <Card>
-        <CardHeader>
-          <div className="flex flex-col lg:flex-row items-start lg:items-center gap-4">
-            <div className="flex items-start gap-4 flex-1 min-w-0">
-              <div className="w-20 h-20 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                {product.imageUrl ? (
-                  <img 
-                    src={product.imageUrl} 
-                    alt={product.productName}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <Package className="w-10 h-10 text-muted-foreground" />
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <CardTitle className="flex flex-wrap items-center gap-2 mb-2">
-                  <span className="truncate">{product.productName}</span>
-                  <Badge className={`${statusStyles[product.status]} flex-shrink-0`}>
-                    {product.status}
-                  </Badge>
-                  {product.isNewProduct && (
-                    <Badge variant="outline" className="text-blue-600 border-blue-600 flex-shrink-0">
-                      New Product
-                    </Badge>
-                  )}
-                </CardTitle>
-                <div className="space-y-1 text-sm text-muted-foreground">
-                  <p className="truncate">
-                    {product.batchNumber} • {product.color} • {product.size} • {product.pattern}
-                  </p>
-                  <p className="truncate">
-                    Quantity: {product.quantity} {product.unit} • Location: {product.location}
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="text-right flex-shrink-0">
-              <div className="text-2xl font-bold">₹{product.sellingPrice.toLocaleString()}</div>
-              <div className="text-sm text-muted-foreground">per piece</div>
-            </div>
-          </div>
-        </CardHeader>
-      </Card>
+
 
       {/* Horizontal Progress Bar */}
       <Card>
