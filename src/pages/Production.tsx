@@ -10,7 +10,8 @@ import {
   Plus, Play, Pause, CheckCircle, Cog, AlertTriangle, Eye, 
   Package, Clock, Users, TrendingUp, Factory, ArrowRight,
   Edit, Trash2, Save, X, AlertCircle, FileText, Hash, Calendar,
-  MapPin, Ruler, Scale, Star
+  MapPin, Ruler, Scale, Star, ShoppingCart, Package2, Zap,
+  Target, BarChart3, Thermometer, Gauge, Timer
 } from "lucide-react";
 
 interface ProductionMaterial {
@@ -169,12 +170,12 @@ const rawMaterials: RawMaterial[] = [
   }
 ];
 
-// Default production steps
+// Enhanced default production steps with better descriptions and material requirements
 const defaultProductionSteps = [
   {
     id: 1,
     name: "Material Preparation",
-    description: "Prepare and organize raw materials for production",
+    description: "Prepare and organize raw materials for production. Check material quality and availability.",
     status: "pending" as const,
     progress: 0,
     materials: [],
@@ -184,7 +185,7 @@ const defaultProductionSteps = [
   {
     id: 2,
     name: "Punching/Weaving",
-    description: "Create the base carpet structure through punching or weaving",
+    description: "Create the base carpet structure through punching or weaving process. This is the foundation layer.",
     status: "pending" as const,
     progress: 0,
     materials: [],
@@ -194,7 +195,7 @@ const defaultProductionSteps = [
   {
     id: 3,
     name: "Dyeing Process",
-    description: "Apply color and dye treatments to the carpet",
+    description: "Apply color and dye treatments to the carpet. Ensure color consistency and quality.",
     status: "pending" as const,
     progress: 0,
     materials: [],
@@ -204,7 +205,7 @@ const defaultProductionSteps = [
   {
     id: 4,
     name: "Cutting & Finishing",
-    description: "Cut to size and apply final finishing touches",
+    description: "Cut to size and apply final finishing touches. Quality check for dimensions and finish.",
     status: "pending" as const,
     progress: 0,
     materials: [],
@@ -214,7 +215,7 @@ const defaultProductionSteps = [
   {
     id: 5,
     name: "Quality Inspection",
-    description: "Final quality check and inspection before completion",
+    description: "Final quality check and inspection before completion. Generate individual product IDs and QR codes.",
     status: "pending" as const,
     progress: 0,
     materials: [],
@@ -683,6 +684,9 @@ export default function Production() {
   const navigate = useNavigate();
   const location = useLocation();
   const [products, setProducts] = useState<ProductionProduct[]>(productionProducts);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState<"all" | "normal" | "high" | "urgent">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "planning" | "active" | "completed">("all");
 
   // Handle incoming products from Products page
   useEffect(() => {
@@ -746,31 +750,58 @@ export default function Production() {
     }
   }, [location.state, navigate]);
 
-  // Calculate statistics for each category
-  const planningProducts = products.filter(p => p.status === "planning");
-  const activeProducts = products.filter(p => p.status === "active");
-  const completedProducts = products.filter(p => p.status === "completed");
+  // Filter products based on search and filters
+  const filteredProducts = products.filter(product => {
+    const matchesSearch = product.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         product.batchNumber.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesPriority = priorityFilter === "all" || product.priority === priorityFilter;
+    const matchesStatus = statusFilter === "all" || product.status === statusFilter;
+    return matchesSearch && matchesPriority && matchesStatus;
+  });
 
-  const totalValue = products.reduce((sum, p) => sum + (p.quantity * p.sellingPrice), 0);
+  // Calculate statistics for each category
+  const planningProducts = filteredProducts.filter(p => p.status === "planning");
+  const activeProducts = filteredProducts.filter(p => p.status === "active");
+  const completedProducts = filteredProducts.filter(p => p.status === "completed");
+
+  const totalValue = filteredProducts.reduce((sum, p) => sum + (p.quantity * p.sellingPrice), 0);
+  const totalCost = filteredProducts.reduce((sum, p) => sum + p.totalCost, 0);
+  const profit = totalValue - totalCost;
+
+  // Calculate efficiency metrics
+  const averageProgress = activeProducts.length > 0 
+    ? activeProducts.reduce((sum, p) => sum + p.progress, 0) / activeProducts.length 
+    : 0;
+
+  const onTimeProducts = completedProducts.filter(p => {
+    if (!p.actualCompletion) return false;
+    const actualDate = new Date(p.actualCompletion);
+    const expectedDate = new Date(p.expectedCompletion);
+    return actualDate <= expectedDate;
+  });
+
+  const onTimeRate = completedProducts.length > 0 
+    ? (onTimeProducts.length / completedProducts.length) * 100 
+    : 0;
 
   // Handle product detail navigation
   const handleProductDetail = (product: ProductionProduct) => {
     navigate(`/production-detail/${product.id}`, { state: { product } });
   };
 
-  // Production Product Card Component
+  // Enhanced Production Product Card Component
   const ProductionCard = ({ product }: { product: ProductionProduct }) => (
-    <Card className="overflow-hidden hover:shadow-lg transition-shadow cursor-pointer" onClick={() => handleProductDetail(product)}>
+    <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer group" onClick={() => handleProductDetail(product)}>
       <div className="relative">
         <div className="w-full h-48 overflow-hidden">
           {product.imageUrl ? (
             <img 
               src={product.imageUrl} 
               alt={product.productName}
-              className="w-full h-full object-cover"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
             />
           ) : (
-            <div className="w-full h-full flex items-center justify-center bg-muted">
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
               <Package className="w-16 h-16 text-muted-foreground" />
             </div>
           )}
@@ -778,7 +809,12 @@ export default function Production() {
         
         {/* Priority Badge */}
         <div className="absolute top-2 left-2">
-          <Badge className={priorityStyles[product.priority]}>
+          <Badge className={`${
+            product.priority === "urgent" ? "bg-red-500 text-white" :
+            product.priority === "high" ? "bg-orange-500 text-white" :
+            "bg-gray-500 text-white"
+          }`}>
+            {product.priority === "urgent" && <Zap className="w-3 h-3 mr-1" />}
             {product.priority}
           </Badge>
         </div>
@@ -786,6 +822,8 @@ export default function Production() {
         {/* Status Badge */}
         <div className="absolute top-2 right-2">
           <Badge className={statusStyles[product.status]}>
+            {product.status === "active" && <Factory className="w-3 h-3 mr-1" />}
+            {product.status === "completed" && <CheckCircle className="w-3 h-3 mr-1" />}
             {product.status}
           </Badge>
         </div>
@@ -805,8 +843,8 @@ export default function Production() {
       <CardContent className="p-4">
         <div className="space-y-3">
           <div>
-            <h3 className="font-semibold text-lg line-clamp-2">{product.productName}</h3>
-            <p className="text-sm text-muted-foreground">{product.batchNumber}</p>
+            <h3 className="font-semibold text-lg line-clamp-2 group-hover:text-blue-600 transition-colors">{product.productName}</h3>
+            <p className="text-sm text-muted-foreground font-mono">{product.batchNumber}</p>
           </div>
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -814,20 +852,20 @@ export default function Production() {
             <span>{product.location}</span>
           </div>
 
-          <div className="flex items-center justify-between">
-            <div className="text-sm">
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div>
               <span className="text-muted-foreground">Quantity: </span>
               <span className="font-medium">{product.quantity} {product.unit}</span>
             </div>
-            <div className="text-sm">
-              <span className="text-muted-foreground">₹</span>
-              <span className="font-medium">{product.sellingPrice.toLocaleString()}</span>
+            <div>
+              <span className="text-muted-foreground">Value: </span>
+              <span className="font-medium">₹{(product.quantity * product.sellingPrice).toLocaleString()}</span>
             </div>
           </div>
 
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Calendar className="w-4 h-4" />
-            <span>Started: {product.startDate}</span>
+            <span>Started: {new Date(product.startDate).toLocaleDateString()}</span>
           </div>
 
           {product.status === "active" && (
@@ -840,7 +878,7 @@ export default function Production() {
           {product.status === "completed" && (
             <div className="flex items-center gap-2 text-sm text-green-600">
               <CheckCircle className="w-4 h-4" />
-              <span>Completed: {product.actualCompletion}</span>
+              <span>Completed: {product.actualCompletion ? new Date(product.actualCompletion).toLocaleDateString() : 'N/A'}</span>
             </div>
           )}
 
@@ -854,7 +892,7 @@ export default function Production() {
             <span>{product.category}</span>
           </div>
 
-          <Button className="w-full" variant="outline">
+          <Button className="w-full" variant="outline" size="sm">
             <Eye className="w-4 h-4 mr-2" />
             View Details
           </Button>
@@ -867,67 +905,164 @@ export default function Production() {
     <div className="flex-1 space-y-6 p-6">
       <Header 
         title="Production Management" 
-        subtitle="Track production batches, manage workflow steps, and monitor material usage"
+        subtitle="Track production batches, manage workflow steps, and monitor material usage with complete traceability"
       />
 
-      {/* Overview Cards */}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+      {/* Enhanced Overview Cards */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-l-4 border-l-blue-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Batches</CardTitle>
-            <Package className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-            <div className="text-2xl font-bold">{products.length}</div>
-                <p className="text-xs text-muted-foreground">
+            <Package className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{filteredProducts.length}</div>
+            <p className="text-xs text-muted-foreground">
               Production batches
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card className="border-l-4 border-l-green-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">In Process</CardTitle>
-            <Factory className="h-4 w-4 text-blue-500" />
-              </CardHeader>
-              <CardContent>
-            <div className="text-2xl font-bold text-blue-500">{activeProducts.length}</div>
-                <p className="text-xs text-muted-foreground">
+            <Factory className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">{activeProducts.length}</div>
+            <p className="text-xs text-muted-foreground">
               Currently running
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card className="border-l-4 border-l-purple-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            <CheckCircle className="h-4 w-4 text-success" />
-              </CardHeader>
-              <CardContent>
-            <div className="text-2xl font-bold text-success">{completedProducts.length}</div>
-                <p className="text-xs text-muted-foreground">
+            <CheckCircle className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-500">{completedProducts.length}</div>
+            <p className="text-xs text-muted-foreground">
               Finished batches
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card className="border-l-4 border-l-orange-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Value</CardTitle>
-            <TrendingUp className="h-4 w-4 text-success" />
-              </CardHeader>
-              <CardContent>
+            <TrendingUp className="h-4 w-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
             <div className="text-2xl font-bold">₹{totalValue.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Production value
-                </p>
-              </CardContent>
-            </Card>
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Enhanced Performance Metrics */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Average Progress</CardTitle>
+            <Gauge className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-500">{averageProgress.toFixed(1)}%</div>
+            <p className="text-xs text-muted-foreground">
+              Active batches
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">On-Time Rate</CardTitle>
+            <Target className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">{onTimeRate.toFixed(1)}%</div>
+            <p className="text-xs text-muted-foreground">
+              Completed on schedule
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Cost</CardTitle>
+            <BarChart3 className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-500">₹{totalCost.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">
+              Production costs
+            </p>
+          </CardContent>
+        </Card>
+        
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Profit Margin</CardTitle>
+            <TrendingUp className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">₹{profit.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">
+              Net profit
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Search and Filter Controls */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <input
+                type="text"
+                placeholder="Search by product name or batch number..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <select
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={priorityFilter}
+                onChange={(e) => setPriorityFilter(e.target.value as any)}
+              >
+                <option value="all">All Priorities</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+                <option value="urgent">Urgent</option>
+              </select>
+              <select
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as any)}
+              >
+                <option value="all">All Status</option>
+                <option value="planning">Planning</option>
+                <option value="active">Active</option>
+                <option value="completed">Completed</option>
+              </select>
+            </div>
           </div>
+        </CardContent>
+      </Card>
 
       {/* Production Categories */}
       <Tabs defaultValue="planning" className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="planning" className="flex items-center gap-2">
             <Clock className="w-4 h-4" />
-            Come for Production ({planningProducts.length})
+            Planning ({planningProducts.length})
           </TabsTrigger>
           <TabsTrigger value="active" className="flex items-center gap-2">
             <Factory className="w-4 h-4" />
@@ -940,10 +1075,10 @@ export default function Production() {
         </TabsList>
 
         <TabsContent value="planning" className="space-y-6">
-                  <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Come for Production</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold">Production Planning</h2>
             <p className="text-muted-foreground">Products waiting to start production</p>
-                  </div>
+          </div>
 
           {planningProducts.length === 0 ? (
             <Card className="p-8 text-center">
@@ -961,10 +1096,10 @@ export default function Production() {
         </TabsContent>
 
         <TabsContent value="active" className="space-y-6">
-                        <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">In Process</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-2xl font-bold">Active Production</h2>
             <p className="text-muted-foreground">Products currently in production</p>
-                        </div>
+          </div>
 
           {activeProducts.length === 0 ? (
             <Card className="p-8 text-center">
@@ -976,29 +1111,29 @@ export default function Production() {
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {activeProducts.map((product) => (
                 <ProductionCard key={product.id} product={product} />
-                          ))}
-                        </div>
+              ))}
+            </div>
           )}
         </TabsContent>
 
         <TabsContent value="completed" className="space-y-6">
           <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Completed</h2>
+            <h2 className="text-2xl font-bold">Completed Production</h2>
             <p className="text-muted-foreground">Successfully completed production batches</p>
-                          </div>
+          </div>
           
           {completedProducts.length === 0 ? (
             <Card className="p-8 text-center">
               <CheckCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
               <h3 className="text-lg font-semibold mb-2">No Completed Production</h3>
               <p className="text-muted-foreground">Completed batches will appear here</p>
-              </Card>
+            </Card>
           ) : (
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {completedProducts.map((product) => (
                 <ProductionCard key={product.id} product={product} />
-            ))}
-          </div>
+              ))}
+            </div>
           )}
         </TabsContent>
       </Tabs>

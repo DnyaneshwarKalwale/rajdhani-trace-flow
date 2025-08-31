@@ -506,19 +506,33 @@ export default function ProductionDetail() {
     return autoMaterials;
   };
 
-  // Handle step activation with material selection
+  // Enhanced step activation with material selection
   const handleStepActivate = (step: ProductionStep) => {
     setSelectedStep(step);
     
-    // Auto-fill materials based on production history
+    // Auto-fill materials based on production history and step requirements
     const autoMaterials = getAutoFillMaterials(step.id);
     setSelectedMaterials(autoMaterials);
     setIsMaterialSelectionOpen(true);
   };
 
-  // Handle material selection confirmation
+  // Enhanced material selection confirmation with better validation
   const handleMaterialSelectionConfirm = () => {
     if (!selectedStep) return;
+
+    // Validate material availability
+    const insufficientMaterials = Object.entries(selectedMaterials).filter(([materialId, quantity]) => {
+      const material = rawMaterials.find(m => m.id === materialId);
+      return material && quantity > material.currentStock;
+    });
+
+    if (insufficientMaterials.length > 0) {
+      alert(`Insufficient stock for the following materials:\n${insufficientMaterials.map(([id, qty]) => {
+        const material = rawMaterials.find(m => m.id === id);
+        return `• ${material?.name}: Required ${qty} ${material?.unit}, Available ${material?.currentStock} ${material?.unit}`;
+      }).join('\n')}\n\nPlease purchase additional materials or adjust quantities.`);
+      return;
+    }
 
     const updatedMaterials = Object.entries(selectedMaterials).map(([materialId, quantity]) => {
       const material = rawMaterials.find(m => m.id === materialId);
@@ -533,7 +547,7 @@ export default function ProductionDetail() {
       };
     });
 
-    // Calculate expected output based on step
+    // Calculate expected output based on step and previous step output
     let expectedOutput = product.quantity;
     if (selectedStep.id > 1) {
       const previousStep = product.steps.find(s => s.id === selectedStep.id - 1);
@@ -575,7 +589,7 @@ export default function ProductionDetail() {
     setSelectedMaterials({});
   };
 
-  // Handle step completion
+  // Enhanced step completion with waste management
   const handleStepComplete = (step: ProductionStep) => {
     setSelectedStep(step);
     setStepCompletionData({
@@ -587,7 +601,7 @@ export default function ProductionDetail() {
     setIsStepCompletionOpen(true);
   };
 
-  // Handle step completion confirmation
+  // Enhanced step completion confirmation with inventory updates
   const handleStepCompletionConfirm = () => {
     if (!selectedStep) return;
 
@@ -601,6 +615,11 @@ export default function ProductionDetail() {
         // For demo, we'll just log the reduction
       }
     });
+
+    // Calculate efficiency metrics
+    const efficiency = selectedStep.expectedOutput > 0 
+      ? (stepCompletionData.actualOutput / selectedStep.expectedOutput) * 100 
+      : 100;
 
     setProduct(prev => {
       if (!prev) return prev;
@@ -642,7 +661,7 @@ export default function ProductionDetail() {
     setStepCompletionData({ actualOutput: 0, waste: 0, defective: 0, notes: "" });
   };
 
-  // Handle inspection
+  // Enhanced inspection with individual product creation
   const handleInspection = (step: ProductionStep) => {
     setSelectedStep(step);
     setInspectionData({
@@ -693,7 +712,7 @@ export default function ProductionDetail() {
     }
   };
 
-  // Handle inspection confirmation
+  // Enhanced inspection confirmation with better quality control
   const handleInspectionConfirm = () => {
     if (!selectedStep) return;
 
@@ -777,11 +796,132 @@ export default function ProductionDetail() {
     });
   };
 
-  // Generate QR code from custom ID
+  // Enhanced QR code generation with better validation
   const generateQRFromID = (customId: string) => {
     if (!customId.trim()) return "";
-    // Create a unique QR code based on the custom ID
+    // Create a unique QR code based on the custom ID and batch number
     return `QR-${product.batchNumber}-${customId.toUpperCase().replace(/\s+/g, '-')}`;
+  };
+
+  // Enhanced individual product update with validation
+  const handleIndividualProductUpdate = (index: number, field: keyof IndividualProduct, value: any) => {
+    setIndividualProductsData(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      
+      // If updating the ID field, also update the QR code
+      if (field === 'id' && value) {
+        updated[index].qrCode = generateQRFromID(value);
+      }
+      
+      // Validate quality grade
+      if (field === 'qualityGrade' && value) {
+        const validGrades = ['A+', 'A', 'B', 'C'];
+        if (!validGrades.includes(value)) {
+          alert('Invalid quality grade. Please use A+, A, B, or C.');
+          return prev;
+        }
+      }
+      
+      return updated;
+    });
+  };
+
+  // Enhanced individual products completion with better inventory management
+  const handleIndividualProductsComplete = () => {
+    // Validate inspector assignment
+    if (!inspectionData.inspector.trim()) {
+      alert('Please assign an inspector before completing production.');
+      return;
+    }
+
+    // Calculate available pieces (excluding damaged ones)
+    const availablePieces = individualProductsData.filter(p => p.status === 'available').length;
+    const damagedPieces = individualProductsData.filter(p => p.status === 'damaged').length;
+
+    // Update the main Products page inventory
+    const productionResult = {
+      productId: product.productId || product.id,
+      productName: product.productName,
+      newQuantity: availablePieces, // Only count available pieces
+      totalProduced: individualProductsData.length, // Total pieces produced
+      damagedPieces: damagedPieces,
+      individualProducts: individualProductsData,
+      manufacturingDate: new Date().toISOString().split('T')[0],
+      batchNumber: product.batchNumber,
+      inspector: inspectionData.inspector,
+      inspectionDate: inspectionData.inspectionDate,
+      customSteps: product.steps.filter(step => step.isCustomStep) // Save custom steps
+    };
+
+    // Store in localStorage for demo purposes
+    const existingInventory = JSON.parse(localStorage.getItem('productionInventory') || '[]');
+    existingInventory.push(productionResult);
+    localStorage.setItem('productionInventory', JSON.stringify(existingInventory));
+
+    // Update product status to completed
+    setProduct(prev => {
+      if (!prev) return prev;
+      
+      const updatedSteps = prev.steps.map(step => {
+        if (step.id === 5) {
+          return {
+            ...step,
+            inspector: inspectionData.inspector,
+            inspectionDate: inspectionData.inspectionDate,
+            inspectionNotes: inspectionData.inspectionNotes
+          };
+        }
+        return step;
+      });
+
+      return {
+        ...prev,
+        steps: updatedSteps,
+        status: "completed" as const,
+        progress: 100,
+        actualCompletion: new Date().toISOString().split('T')[0],
+        individualProducts: individualProductsData
+      };
+    });
+
+    setShowIndividualProducts(false);
+    
+    // Show detailed success message
+    const successMessage = `Production completed successfully!
+
+📦 Production Summary:
+• Product: ${product.productName}
+• Batch: ${product.batchNumber}
+• Total Pieces Produced: ${individualProductsData.length}
+• Available for Sale: ${availablePieces}
+• Damaged/Defective: ${damagedPieces}
+• Inspector: ${inspectionData.inspector || 'Not assigned'}
+• Inspection Date: ${inspectionData.inspectionDate}
+
+✅ Individual products with QR codes have been generated and added to:
+• Main Products Inventory (quantity updated)
+• Individual Stock Management
+
+The product quantity has been updated in the main inventory.`;
+    
+    alert(successMessage);
+  };
+
+  // Enhanced purchase material with better navigation
+  const handlePurchaseMaterial = (material: RawMaterial) => {
+    // Navigate to Materials page to purchase
+    navigate('/materials', { 
+      state: { 
+        purchaseMaterial: {
+          materialId: material.id,
+          materialName: material.name,
+          supplier: material.supplier,
+          unit: material.unit,
+          requiredQuantity: selectedMaterials[material.id] || 0
+        }
+      }
+    });
   };
 
   // Step Form Component
@@ -836,7 +976,7 @@ export default function ProductionDetail() {
     );
   }
 
-  // Excel-like Table Component
+  // Enhanced Excel-like Table Component
   function ExcelLikeTable({ 
     data, 
     onDataChange 
@@ -856,7 +996,39 @@ export default function ProductionDetail() {
       if (editingCell) {
         const newData = [...data];
         const { row, col } = editingCell;
-        newData[row] = { ...newData[row], [col]: editValue };
+        
+        // Special handling for different field types
+        let processedValue = editValue;
+        
+        if (col === 'id' && editValue.trim()) {
+          // Auto-generate QR code when ID is entered
+          newData[row] = { 
+            ...newData[row], 
+            [col]: editValue,
+            qrCode: generateQRFromID(editValue)
+          };
+        } else if (col === 'qualityGrade') {
+          // Validate quality grade
+          const validGrades = ['A+', 'A', 'B', 'C'];
+          if (!validGrades.includes(editValue.toUpperCase())) {
+            alert('Invalid quality grade. Please use A+, A, B, or C.');
+            return;
+          }
+          processedValue = editValue.toUpperCase();
+          newData[row] = { ...newData[row], [col]: processedValue };
+        } else if (col === 'status') {
+          // Validate status
+          const validStatuses = ['available', 'damaged', 'sold'];
+          if (!validStatuses.includes(editValue.toLowerCase())) {
+            alert('Invalid status. Please use available, damaged, or sold.');
+            return;
+          }
+          processedValue = editValue.toLowerCase();
+          newData[row] = { ...newData[row], [col]: processedValue as "available" | "damaged" | "sold" };
+        } else {
+          newData[row] = { ...newData[row], [col]: processedValue };
+        }
+        
         onDataChange(newData);
         setEditingCell(null);
         setEditValue("");
@@ -866,9 +1038,28 @@ export default function ProductionDetail() {
     const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
         handleCellSave();
+        // Move to next cell
+        if (editingCell) {
+          const nextRow = editingCell.row + 1;
+          if (nextRow < data.length) {
+            setEditingCell({ row: nextRow, col: editingCell.col });
+            setEditValue(String(data[nextRow][editingCell.col as keyof IndividualProduct] || ""));
+          }
+        }
       } else if (e.key === 'Escape') {
         setEditingCell(null);
         setEditValue("");
+      } else if (e.key === 'Tab') {
+        e.preventDefault();
+        handleCellSave();
+        // Move to next column
+        if (editingCell) {
+          const currentColIndex = columns.findIndex(col => col.key === editingCell.col);
+          const nextColIndex = (currentColIndex + 1) % columns.length;
+          const nextCol = columns[nextColIndex].key;
+          setEditingCell({ row: editingCell.row, col: nextCol });
+          setEditValue(String(data[editingCell.row][nextCol as keyof IndividualProduct] || ""));
+        }
       }
     };
 
@@ -877,14 +1068,14 @@ export default function ProductionDetail() {
         id: `IND${Date.now()}_${data.length + 1}`,
         qrCode: "",
         productId: product?.productId || product?.id || "",
-        manufacturingDate: new Date().toISOString().split('T')[0],
+        manufacturingDate: "",
         materialsUsed: [],
-        finalDimensions: "",
-        finalWeight: "",
-        finalThickness: "",
-        finalPileHeight: "",
+        finalDimensions: product?.dimensions || product?.size || "",
+        finalWeight: product?.weight || "",
+        finalThickness: product?.thickness || "",
+        finalPileHeight: product?.pileHeight || "",
         qualityGrade: "A",
-        inspector: "",
+        inspector: inspectionData.inspector || "",
         notes: "",
         status: "available"
       };
@@ -892,21 +1083,25 @@ export default function ProductionDetail() {
     };
 
     const removeRow = (index: number) => {
+      if (data.length <= 1) {
+        alert('Cannot remove the last row. At least one product must be recorded.');
+        return;
+      }
       const newData = data.filter((_, i) => i !== index);
       onDataChange(newData);
     };
 
     const columns = [
-      { key: 'id', label: 'Custom ID', width: 'w-32' },
-      { key: 'qrCode', label: 'QR Code', width: 'w-40' },
-      { key: 'manufacturingDate', label: 'Date', width: 'w-32' },
-      { key: 'finalDimensions', label: 'Dimensions', width: 'w-40' },
-      { key: 'finalWeight', label: 'Weight', width: 'w-24' },
-      { key: 'finalThickness', label: 'Thickness', width: 'w-28' },
-      { key: 'finalPileHeight', label: 'Pile Height', width: 'w-28' },
-      { key: 'qualityGrade', label: 'Grade', width: 'w-20' },
-      { key: 'status', label: 'Status', width: 'w-24' },
-      { key: 'notes', label: 'Notes', width: 'w-40' }
+      { key: 'id', label: 'Custom ID', width: 'w-32', required: true },
+      { key: 'qrCode', label: 'QR Code', width: 'w-40', readonly: true },
+      { key: 'manufacturingDate', label: 'Manufacturing Date', width: 'w-32', required: true },
+      { key: 'finalDimensions', label: 'Dimensions', width: 'w-40', required: true },
+      { key: 'finalWeight', label: 'Weight', width: 'w-24', required: true },
+      { key: 'finalThickness', label: 'Thickness', width: 'w-28', required: true },
+      { key: 'finalPileHeight', label: 'Pile Height', width: 'w-28', required: true },
+      { key: 'qualityGrade', label: 'Grade', width: 'w-20', required: true },
+      { key: 'status', label: 'Status', width: 'w-24', required: true },
+      { key: 'notes', label: 'Notes', width: 'w-40', required: false }
     ];
 
     return (
@@ -918,8 +1113,10 @@ export default function ProductionDetail() {
               #
             </div>
             {columns.map((col) => (
-              <div key={col.key} className={`${col.width} p-2 border-r text-xs font-medium text-gray-700`}>
+              <div key={col.key} className={`${col.width} p-2 border-r text-xs font-medium text-gray-700 flex items-center gap-1`}>
                 {col.label}
+                {col.required && <span className="text-red-500">*</span>}
+                {col.readonly && <span className="text-gray-400">(Auto)</span>}
               </div>
             ))}
             <div className="w-16 p-2 text-xs font-medium text-gray-700">
@@ -945,16 +1142,36 @@ export default function ProductionDetail() {
                       onKeyDown={handleKeyDown}
                       className="h-6 text-xs p-1"
                       autoFocus
+                      placeholder={col.key === 'qualityGrade' ? 'A+, A, B, C' : 
+                                  col.key === 'status' ? 'available, damaged, sold' : 
+                                  col.key === 'manufacturingDate' ? 'YYYY-MM-DD' :
+                                  'Enter value...'}
                     />
                   ) : (
                     <div 
-                      className="h-6 flex items-center cursor-pointer hover:bg-blue-50 px-1 rounded"
-                      onClick={() => handleCellClick(rowIndex, col.key as keyof IndividualProduct)}
+                      className={`h-6 flex items-center px-1 rounded ${
+                        col.readonly 
+                          ? 'cursor-default bg-gray-100 text-gray-600' 
+                          : 'cursor-pointer hover:bg-blue-50'
+                      }`}
+                      onClick={() => !col.readonly && handleCellClick(rowIndex, col.key as keyof IndividualProduct)}
                     >
                       {col.key === 'materialsUsed' 
                         ? Array.isArray(row[col.key as keyof IndividualProduct]) 
                           ? `${(row[col.key as keyof IndividualProduct] as ProductionMaterial[]).length} materials`
                           : ""
+                        : col.key === 'qualityGrade'
+                        ? <Badge variant={row[col.key as keyof IndividualProduct] === 'A+' ? 'default' : 'secondary'} className="text-xs">
+                            {String(row[col.key as keyof IndividualProduct] || "")}
+                          </Badge>
+                        : col.key === 'status'
+                        ? <Badge variant={
+                            (row[col.key as keyof IndividualProduct] as string) === 'available' ? 'default' :
+                            (row[col.key as keyof IndividualProduct] as string) === 'damaged' ? 'destructive' :
+                            'secondary'
+                          } className="text-xs">
+                            {String(row[col.key as keyof IndividualProduct] || "")}
+                          </Badge>
                         : String(row[col.key as keyof IndividualProduct] || "")}
                     </div>
                   )}
@@ -966,6 +1183,7 @@ export default function ProductionDetail() {
                   size="sm"
                   onClick={() => removeRow(rowIndex)}
                   className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
+                  disabled={data.length <= 1}
                 >
                   <X className="w-3 h-3" />
                 </Button>
@@ -974,17 +1192,22 @@ export default function ProductionDetail() {
           ))}
         </div>
 
-        {/* Add Row Button */}
+        {/* Add Row Button and Instructions */}
         <div className="p-2 bg-gray-50 border-t">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={addRow}
-            className="flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" />
-            Add Row
-          </Button>
+          <div className="flex items-center justify-between">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={addRow}
+              className="flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" />
+              Add Row
+            </Button>
+            <div className="text-xs text-gray-600">
+              <span className="font-medium">Keyboard shortcuts:</span> Enter to save, Tab to next cell, Escape to cancel
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -1064,112 +1287,6 @@ export default function ProductionDetail() {
         ...prev,
         steps: reorderedSteps
       };
-    });
-  };
-
-  // Handle individual product update
-  const handleIndividualProductUpdate = (index: number, field: keyof IndividualProduct, value: any) => {
-    setIndividualProductsData(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      
-      // If updating the ID field, also update the QR code
-      if (field === 'id' && value) {
-        updated[index].qrCode = generateQRFromID(value);
-      }
-      
-      return updated;
-    });
-  };
-
-  // Handle individual products completion
-  const handleIndividualProductsComplete = () => {
-    // Calculate available pieces (excluding damaged ones)
-    const availablePieces = individualProductsData.filter(p => p.status === 'available').length;
-    const damagedPieces = individualProductsData.filter(p => p.status === 'damaged').length;
-
-    // Update the main Products page inventory
-    const productionResult = {
-      productId: product.productId || product.id,
-      productName: product.productName,
-      newQuantity: availablePieces, // Only count available pieces
-      totalProduced: individualProductsData.length, // Total pieces produced
-      damagedPieces: damagedPieces,
-      individualProducts: individualProductsData,
-      manufacturingDate: new Date().toISOString().split('T')[0],
-      batchNumber: product.batchNumber,
-      inspector: inspectionData.inspector,
-      inspectionDate: inspectionData.inspectionDate,
-      customSteps: product.steps.filter(step => step.isCustomStep) // Save custom steps
-    };
-
-    // Store in localStorage for demo purposes
-    const existingInventory = JSON.parse(localStorage.getItem('productionInventory') || '[]');
-    existingInventory.push(productionResult);
-    localStorage.setItem('productionInventory', JSON.stringify(existingInventory));
-
-    // Update product status to completed
-    setProduct(prev => {
-      if (!prev) return prev;
-      
-      const updatedSteps = prev.steps.map(step => {
-        if (step.id === 5) {
-          return {
-            ...step,
-            inspector: inspectionData.inspector,
-            inspectionDate: inspectionData.inspectionDate,
-            inspectionNotes: inspectionData.inspectionNotes
-          };
-        }
-        return step;
-      });
-
-      return {
-        ...prev,
-        steps: updatedSteps,
-        status: "completed" as const,
-        progress: 100,
-        actualCompletion: new Date().toISOString().split('T')[0],
-        individualProducts: individualProductsData
-      };
-    });
-
-    setShowIndividualProducts(false);
-    
-    // Show detailed success message
-    const successMessage = `Production completed successfully!
-
-📦 Production Summary:
-• Product: ${product.productName}
-• Batch: ${product.batchNumber}
-• Total Pieces Produced: ${individualProductsData.length}
-• Available for Sale: ${availablePieces}
-• Damaged/Defective: ${damagedPieces}
-• Inspector: ${inspectionData.inspector || 'Not assigned'}
-• Inspection Date: ${inspectionData.inspectionDate}
-
-✅ Individual products with QR codes have been generated and added to:
-• Main Products Inventory (quantity updated)
-• Individual Stock Management
-
-The product quantity has been updated in the main inventory.`;
-    
-    alert(successMessage);
-  };
-
-  // Handle purchase material
-  const handlePurchaseMaterial = (material: RawMaterial) => {
-    // Navigate to Materials page to purchase
-    navigate('/materials', { 
-      state: { 
-        purchaseMaterial: {
-          materialId: material.id,
-          materialName: material.name,
-          supplier: material.supplier,
-          unit: material.unit,
-          cost: material.cost
-        }
-      }
     });
   };
 
@@ -1953,7 +2070,7 @@ The product quantity has been updated in the main inventory.`;
                <CardTitle>Individual Product Details</CardTitle>
                <p className="text-sm text-muted-foreground">
                  Click on any cell to edit. Press Enter to save, Escape to cancel. 
-                 QR codes are auto-generated from Custom ID. Add or remove rows as needed.
+                 QR codes are auto-generated from Custom ID. Manufacturing dates can be customized. Add or remove rows as needed.
                </p>
              </CardHeader>
              <CardContent>

@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Calendar, Clock, Users, Package, AlertTriangle, Play, Pause, CheckCircle } from "lucide-react";
+import { Calendar, Clock, Users, Package, AlertTriangle, Play, Pause, CheckCircle, Factory, TrendingUp, Target, BarChart3 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface ProductionBatch {
   id: string;
@@ -19,9 +20,13 @@ interface ProductionBatch {
   assignedWorkers: string[];
   currentStep: number;
   totalSteps: number;
-  materials: { name: string; required: number; available: number }[];
+  materials: { name: string; required: number; available: number; unit: string }[];
+  location: string;
+  totalCost: number;
+  expectedCompletion: string;
 }
 
+// Enhanced production batches with more realistic data
 const productionBatches: ProductionBatch[] = [
   {
     id: "1",
@@ -34,11 +39,14 @@ const productionBatches: ProductionBatch[] = [
     estimatedDuration: 1080,
     assignedWorkers: ["John Doe", "Jane Smith"],
     currentStep: 0,
-    totalSteps: 3,
+    totalSteps: 5,
+    location: "Factory Floor 1",
+    totalCost: 45000,
+    expectedCompletion: "2024-01-25",
     materials: [
-      { name: "Cotton Yarn", required: 50, available: 500 },
-      { name: "Red Dye", required: 15, available: 50 },
-      { name: "Backing Cloth", required: 80, available: 200 }
+      { name: "Cotton Yarn (Premium)", required: 80, available: 500, unit: "rolls" },
+      { name: "Red Dye (Industrial)", required: 30, available: 85, unit: "liters" },
+      { name: "Backing Cloth", required: 120, available: 300, unit: "sqm" }
     ]
   },
   {
@@ -52,11 +60,14 @@ const productionBatches: ProductionBatch[] = [
     estimatedDuration: 960,
     assignedWorkers: ["Mike Johnson", "Sarah Wilson"],
     currentStep: 2,
-    totalSteps: 3,
+    totalSteps: 5,
+    location: "Factory Floor 2",
+    totalCost: 32000,
+    expectedCompletion: "2024-01-22",
     materials: [
-      { name: "Cotton Yarn", required: 40, available: 500 },
-      { name: "Blue Dye", required: 12, available: 45 },
-      { name: "Backing Cloth", required: 65, available: 200 }
+      { name: "Synthetic Yarn", required: 60, available: 300, unit: "rolls" },
+      { name: "Blue Dye (Industrial)", required: 25, available: 92, unit: "liters" },
+      { name: "Backing Cloth", required: 90, available: 300, unit: "sqm" }
     ]
   },
   {
@@ -70,11 +81,35 @@ const productionBatches: ProductionBatch[] = [
     estimatedDuration: 840,
     assignedWorkers: ["Tom Brown"],
     currentStep: 0,
-    totalSteps: 3,
+    totalSteps: 5,
+    location: "Factory Floor 1",
+    totalCost: 28000,
+    expectedCompletion: "2024-01-26",
     materials: [
-      { name: "Wool", required: 35, available: 100 },
-      { name: "Green Dye", required: 10, available: 25 },
-      { name: "Silk Backing", required: 40, available: 80 }
+      { name: "Wool Yarn (Premium)", required: 40, available: 150, unit: "rolls" },
+      { name: "Green Dye (Industrial)", required: 20, available: 0, unit: "liters" },
+      { name: "Premium Backing Cloth", required: 60, available: 150, unit: "sqm" }
+    ]
+  },
+  {
+    id: "4",
+    batchNumber: "PB-2024-004",
+    productName: "Traditional Persian Carpet 8x10ft",
+    quantity: 25,
+    priority: "high",
+    status: "scheduled",
+    scheduledDate: "2024-01-24",
+    estimatedDuration: 1200,
+    assignedWorkers: ["Ahmed Khan", "Priya Sharma"],
+    currentStep: 0,
+    totalSteps: 5,
+    location: "Factory Floor 3",
+    totalCost: 75000,
+    expectedCompletion: "2024-01-30",
+    materials: [
+      { name: "Wool Yarn (Premium)", required: 30, available: 150, unit: "rolls" },
+      { name: "Red Dye (Industrial)", required: 15, available: 85, unit: "liters" },
+      { name: "Premium Backing Cloth", required: 40, available: 150, unit: "sqm" }
     ]
   }
 ];
@@ -94,287 +129,349 @@ const statusStyles = {
 };
 
 export default function Planning() {
+  const navigate = useNavigate();
   const [filter, setFilter] = useState("all");
   const [sortBy, setSortBy] = useState("priority");
+  const [searchTerm, setSearchTerm] = useState("");
 
   const filteredBatches = productionBatches.filter(batch => {
-    if (filter === "all") return true;
-    return batch.status === filter;
+    const matchesFilter = filter === "all" || batch.status === filter;
+    const matchesSearch = batch.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         batch.batchNumber.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchesFilter && matchesSearch;
   });
 
   const sortedBatches = [...filteredBatches].sort((a, b) => {
-    if (sortBy === "priority") {
-      const priorityOrder = { urgent: 4, high: 3, normal: 2, low: 1 };
-      return priorityOrder[b.priority] - priorityOrder[a.priority];
+    switch (sortBy) {
+      case "priority":
+        const priorityOrder = { urgent: 4, high: 3, normal: 2, low: 1 };
+        return priorityOrder[b.priority] - priorityOrder[a.priority];
+      case "date":
+        return new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime();
+      case "quantity":
+        return b.quantity - a.quantity;
+      case "cost":
+        return b.totalCost - a.totalCost;
+      default:
+        return 0;
     }
-    if (sortBy === "date") {
-      return new Date(a.scheduledDate).getTime() - new Date(b.scheduledDate).getTime();
-    }
-    return 0;
   });
 
-  const formatDuration = (minutes: number) => {
-    const hours = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hours}h ${mins}m`;
+  const scheduledBatches = productionBatches.filter(b => b.status === "scheduled");
+  const inProgressBatches = productionBatches.filter(b => b.status === "in-progress");
+  const completedBatches = productionBatches.filter(b => b.status === "completed");
+
+  const totalValue = productionBatches.reduce((sum, b) => sum + b.totalCost, 0);
+  const averageDuration = productionBatches.reduce((sum, b) => sum + b.estimatedDuration, 0) / productionBatches.length;
+
+  const batchesWithMaterialIssues = productionBatches.filter(batch => 
+    batch.materials.some(material => material.required > material.available)
+  );
+
+  const handleStartProduction = (batch: ProductionBatch) => {
+    // Navigate to production detail page
+    navigate(`/production-detail/${batch.id}`, { 
+      state: { 
+        product: {
+          id: batch.id,
+          batchNumber: batch.batchNumber,
+          productName: batch.productName,
+          quantity: batch.quantity,
+          status: "active",
+          currentStep: 1,
+          totalSteps: batch.totalSteps,
+          progress: 0,
+          startDate: new Date().toISOString().split('T')[0],
+          expectedCompletion: batch.expectedCompletion,
+          location: batch.location,
+          notes: `Started from planning - ${batch.batchNumber}`,
+          totalCost: batch.totalCost,
+          sellingPrice: batch.totalCost * 1.5, // Estimate selling price
+          priority: batch.priority,
+          steps: []
+        }
+      }
+    });
   };
 
-  const getProgress = (current: number, total: number) => {
-    return Math.round((current / total) * 100);
-  };
-
-  const hasInsufficientMaterials = (materials: { name: string; required: number; available: number }[]) => {
-    return materials.some(material => material.required > material.available);
+  const handleViewDetails = (batch: ProductionBatch) => {
+    // Navigate to production detail page
+    navigate(`/production-detail/${batch.id}`, { 
+      state: { 
+        product: {
+          id: batch.id,
+          batchNumber: batch.batchNumber,
+          productName: batch.productName,
+          quantity: batch.quantity,
+          status: batch.status === "scheduled" ? "planning" : batch.status,
+          currentStep: batch.currentStep,
+          totalSteps: batch.totalSteps,
+          progress: (batch.currentStep / batch.totalSteps) * 100,
+          startDate: batch.scheduledDate,
+          expectedCompletion: batch.expectedCompletion,
+          location: batch.location,
+          notes: `Planned batch - ${batch.batchNumber}`,
+          totalCost: batch.totalCost,
+          sellingPrice: batch.totalCost * 1.5,
+          priority: batch.priority,
+          steps: []
+        }
+      }
+    });
   };
 
   return (
     <div className="flex-1 space-y-6 p-6">
       <Header 
         title="Production Planning" 
-        subtitle="Schedule and manage production batches"
+        subtitle="Schedule and manage production batches with material availability and resource allocation"
       />
 
-      {/* Filters and Controls */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between">
-        <div className="flex gap-4">
-          <Select value={filter} onValueChange={setFilter}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Filter by status" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Batches</SelectItem>
-              <SelectItem value="scheduled">Scheduled</SelectItem>
-              <SelectItem value="in-progress">In Progress</SelectItem>
-              <SelectItem value="paused">Paused</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-48">
-              <SelectValue placeholder="Sort by" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="priority">Priority</SelectItem>
-              <SelectItem value="date">Scheduled Date</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        <Button>
-          <Package className="w-4 h-4 mr-2" />
-          New Batch
-        </Button>
-      </div>
-
-      {/* Planning Overview */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <Calendar className="w-8 h-8 text-primary" />
-              <div>
-                <p className="text-2xl font-bold">
-                  {productionBatches.filter(b => b.status === "scheduled").length}
-                </p>
-                <p className="text-sm text-muted-foreground">Scheduled</p>
-              </div>
-            </div>
+      {/* Overview Cards */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-l-4 border-l-blue-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Scheduled</CardTitle>
+            <Calendar className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-500">{scheduledBatches.length}</div>
+            <p className="text-xs text-muted-foreground">
+              Waiting to start
+            </p>
           </CardContent>
         </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <Play className="w-8 h-8 text-production" />
-              <div>
-                <p className="text-2xl font-bold">
-                  {productionBatches.filter(b => b.status === "in-progress").length}
-                </p>
-                <p className="text-sm text-muted-foreground">In Progress</p>
-              </div>
-            </div>
+
+        <Card className="border-l-4 border-l-green-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+            <Factory className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">{inProgressBatches.length}</div>
+            <p className="text-xs text-muted-foreground">
+              Currently running
+            </p>
           </CardContent>
         </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <Pause className="w-8 h-8 text-warning" />
-              <div>
-                <p className="text-2xl font-bold">
-                  {productionBatches.filter(b => b.status === "paused").length}
-                </p>
-                <p className="text-sm text-muted-foreground">Paused</p>
-              </div>
-            </div>
+
+        <Card className="border-l-4 border-l-purple-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
+            <TrendingUp className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-500">₹{totalValue.toLocaleString()}</div>
+            <p className="text-xs text-muted-foreground">
+              Planned production
+            </p>
           </CardContent>
         </Card>
-        
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex items-center gap-4">
-              <CheckCircle className="w-8 h-8 text-success" />
-              <div>
-                <p className="text-2xl font-bold">
-                  {productionBatches.filter(b => b.status === "completed").length}
-                </p>
-                <p className="text-sm text-muted-foreground">Completed</p>
-              </div>
-            </div>
+
+        <Card className="border-l-4 border-l-orange-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Avg Duration</CardTitle>
+            <Clock className="h-4 w-4 text-orange-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-orange-500">{Math.round(averageDuration / 60)}h</div>
+            <p className="text-xs text-muted-foreground">
+              Per batch
+            </p>
           </CardContent>
         </Card>
       </div>
+
+      {/* Material Issues Alert */}
+      {batchesWithMaterialIssues.length > 0 && (
+        <Card className="border-l-4 border-l-red-500">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              <div>
+                <h3 className="font-medium text-red-900">Material Availability Issues</h3>
+                <p className="text-sm text-red-700">
+                  {batchesWithMaterialIssues.length} batches have insufficient materials. Please purchase additional materials before starting production.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={() => navigate('/materials')}>
+                View Materials
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Search and Filter Controls */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1">
+              <input
+                type="text"
+                placeholder="Search by product name or batch number..."
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+            </div>
+            <div className="flex gap-2">
+              <select
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={filter}
+                onChange={(e) => setFilter(e.target.value)}
+              >
+                <option value="all">All Status</option>
+                <option value="scheduled">Scheduled</option>
+                <option value="in-progress">In Progress</option>
+                <option value="paused">Paused</option>
+                <option value="completed">Completed</option>
+              </select>
+              <select
+                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+              >
+                <option value="priority">Sort by Priority</option>
+                <option value="date">Sort by Date</option>
+                <option value="quantity">Sort by Quantity</option>
+                <option value="cost">Sort by Cost</option>
+              </select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Production Batches */}
       <div className="space-y-4">
-        {sortedBatches.map((batch) => (
-          <Card key={batch.id} className={hasInsufficientMaterials(batch.materials) ? "border-warning" : ""}>
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-3">
-                    {batch.productName}
-                    <Badge className={priorityStyles[batch.priority]}>
-                      {batch.priority.toUpperCase()}
-                    </Badge>
-                    <Badge className={statusStyles[batch.status]}>
-                      {batch.status.replace("-", " ").toUpperCase()}
-                    </Badge>
-                    {hasInsufficientMaterials(batch.materials) && (
-                      <AlertTriangle className="w-5 h-5 text-warning" />
-                    )}
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Batch: {batch.batchNumber} • Quantity: {batch.quantity} pcs
-                  </p>
-                </div>
-                
-                <div className="flex gap-2">
-                  {batch.status === "scheduled" && (
-                    <Button size="sm">
-                      <Play className="w-4 h-4 mr-2" />
-                      Start
-                    </Button>
-                  )}
-                  {batch.status === "in-progress" && (
-                    <Button size="sm" variant="outline">
-                      <Pause className="w-4 h-4 mr-2" />
-                      Pause
-                    </Button>
-                  )}
-                  <Button size="sm" variant="outline">
-                    Edit
-                  </Button>
-                </div>
-              </div>
-            </CardHeader>
-            
-            <CardContent className="space-y-4">
-              {/* Progress */}
-              <div>
-                <div className="flex justify-between items-center mb-2">
-                  <span className="text-sm font-medium">Progress</span>
-                  <span className="text-sm text-muted-foreground">
-                    Step {batch.currentStep} of {batch.totalSteps}
-                  </span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2">
-                  <div 
-                    className="bg-production h-2 rounded-full transition-all"
-                    style={{ width: `${getProgress(batch.currentStep, batch.totalSteps)}%` }}
-                  />
-                </div>
-              </div>
+        {sortedBatches.map((batch) => {
+          const hasMaterialIssues = batch.materials.some(material => material.required > material.available);
+          
+          return (
+            <Card key={batch.id} className="hover:shadow-md transition-shadow">
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-3 mb-3">
+                      <h3 className="text-lg font-semibold">{batch.productName}</h3>
+                      <Badge className={priorityStyles[batch.priority]}>
+                        {batch.priority}
+                      </Badge>
+                      <Badge className={statusStyles[batch.status]}>
+                        {batch.status.replace("-", " ")}
+                      </Badge>
+                      {hasMaterialIssues && (
+                        <Badge variant="destructive">
+                          <AlertTriangle className="w-3 h-3 mr-1" />
+                          Material Issues
+                        </Badge>
+                      )}
+                    </div>
 
-              {/* Details Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div className="flex items-center gap-2">
-                  <Calendar className="w-4 h-4 text-muted-foreground" />
-                  <div>
-                    <span className="text-muted-foreground">Scheduled:</span>
-                    <p className="font-medium">{batch.scheduledDate}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-muted-foreground" />
-                  <div>
-                    <span className="text-muted-foreground">Duration:</span>
-                    <p className="font-medium">{formatDuration(batch.estimatedDuration)}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Users className="w-4 h-4 text-muted-foreground" />
-                  <div>
-                    <span className="text-muted-foreground">Workers:</span>
-                    <p className="font-medium">{batch.assignedWorkers.length}</p>
-                  </div>
-                </div>
-                
-                <div className="flex items-center gap-2">
-                  <Package className="w-4 h-4 text-muted-foreground" />
-                  <div>
-                    <span className="text-muted-foreground">Quantity:</span>
-                    <p className="font-medium">{batch.quantity} pcs</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Assigned Workers */}
-              <div>
-                <span className="text-sm text-muted-foreground">Assigned Workers:</span>
-                <div className="flex flex-wrap gap-1 mt-1">
-                  {batch.assignedWorkers.map((worker) => (
-                    <Badge key={worker} variant="outline" className="text-xs">
-                      {worker}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-
-              {/* Materials Status */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-sm font-medium">Materials</span>
-                  {hasInsufficientMaterials(batch.materials) && (
-                    <Badge variant="destructive" className="text-xs">
-                      Insufficient Stock
-                    </Badge>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                  {batch.materials.map((material) => {
-                    const isInsufficient = material.required > material.available;
-                    return (
-                      <div 
-                        key={material.name}
-                        className={`p-2 rounded border text-xs ${
-                          isInsufficient ? 'border-destructive bg-destructive/5' : 'border-border'
-                        }`}
-                      >
-                        <div className="font-medium">{material.name}</div>
-                        <div className="text-muted-foreground">
-                          Need: {material.required} | Available: {material.available}
-                        </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Batch Number</div>
+                        <div className="font-medium">{batch.batchNumber}</div>
                       </div>
-                    );
-                  })}
+                      <div>
+                        <div className="text-sm text-muted-foreground">Quantity</div>
+                        <div className="font-medium">{batch.quantity} pieces</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Location</div>
+                        <div className="font-medium">{batch.location}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Total Cost</div>
+                        <div className="font-medium">₹{batch.totalCost.toLocaleString()}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                      <div>
+                        <div className="text-sm text-muted-foreground">Scheduled Date</div>
+                        <div className="font-medium">{new Date(batch.scheduledDate).toLocaleDateString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Expected Completion</div>
+                        <div className="font-medium">{new Date(batch.expectedCompletion).toLocaleDateString()}</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Duration</div>
+                        <div className="font-medium">{Math.round(batch.estimatedDuration / 60)} hours</div>
+                      </div>
+                      <div>
+                        <div className="text-sm text-muted-foreground">Progress</div>
+                        <div className="font-medium">{batch.currentStep}/{batch.totalSteps} steps</div>
+                      </div>
+                    </div>
+
+                    {/* Material Requirements */}
+                    <div className="mb-4">
+                      <div className="text-sm font-medium text-muted-foreground mb-2">Material Requirements</div>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                        {batch.materials.map((material, index) => (
+                          <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                            <div>
+                              <div className="text-sm font-medium">{material.name}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {material.required} {material.unit} required
+                              </div>
+                            </div>
+                            <Badge variant={material.required > material.available ? "destructive" : "default"}>
+                              {material.available} available
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Assigned Workers */}
+                    <div>
+                      <div className="text-sm font-medium text-muted-foreground mb-2">Assigned Workers</div>
+                      <div className="flex flex-wrap gap-2">
+                        {batch.assignedWorkers.map((worker, index) => (
+                          <Badge key={index} variant="outline">
+                            <Users className="w-3 h-3 mr-1" />
+                            {worker}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 ml-4">
+                    {batch.status === "scheduled" && (
+                      <Button 
+                        onClick={() => handleStartProduction(batch)}
+                        disabled={hasMaterialIssues}
+                        className="w-full"
+                      >
+                        <Play className="w-4 h-4 mr-2" />
+                        Start Production
+                      </Button>
+                    )}
+                    <Button 
+                      variant="outline" 
+                      onClick={() => handleViewDetails(batch)}
+                      className="w-full"
+                    >
+                      <Package className="w-4 h-4 mr-2" />
+                      View Details
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
 
       {sortedBatches.length === 0 && (
-        <Card>
-          <CardContent className="p-8 text-center">
-            <Package className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
-            <h3 className="text-lg font-medium mb-2">No production batches found</h3>
-            <p className="text-muted-foreground">Create a new batch to start production planning</p>
-          </CardContent>
+        <Card className="p-8 text-center">
+          <Package className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
+          <h3 className="text-lg font-semibold mb-2">No Production Batches</h3>
+          <p className="text-muted-foreground">No batches match your current filters</p>
         </Card>
       )}
     </div>

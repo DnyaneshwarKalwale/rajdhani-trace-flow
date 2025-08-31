@@ -7,15 +7,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle, Package, Recycle, AlertTriangle, Plus, Minus } from "lucide-react";
+import { CheckCircle, Package, Recycle, AlertTriangle, Plus, Minus, Factory, TrendingUp, Target, BarChart3, Save, ArrowLeft } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useNavigate } from "react-router-dom";
 
 interface CompletedItem {
   id: string;
   uniqueId: string;
+  qrCode: string;
   dimensions: string;
-  grade: "A" | "B" | "C";
+  weight: string;
+  thickness: string;
+  pileHeight: string;
+  grade: "A+" | "A" | "B" | "C";
+  status: "available" | "damaged" | "sold";
   notes: string;
+  inspector: string;
+  inspectionDate: string;
 }
 
 interface WasteItem {
@@ -25,6 +33,7 @@ interface WasteItem {
   unit: string;
   wasteType: "recyclable" | "non-recyclable";
   notes: string;
+  estimatedValue: number;
 }
 
 interface BatchToComplete {
@@ -34,43 +43,80 @@ interface BatchToComplete {
   currentStep: number;
   totalSteps: number;
   expectedOutput: number;
-  materials: { name: string; used: number; unit: string }[];
+  materials: { name: string; used: number; unit: string; cost: number }[];
+  location: string;
+  startDate: string;
+  expectedCompletion: string;
 }
 
+// Enhanced batch data
 const batchToComplete: BatchToComplete = {
   id: "1",
   batchNumber: "PB-2024-002",
   productName: "Blue Standard Carpet 6x8ft",
-  currentStep: 3,
-  totalSteps: 3,
+  currentStep: 5,
+  totalSteps: 5,
   expectedOutput: 75,
+  location: "Factory Floor 2",
+  startDate: "2024-01-18",
+  expectedCompletion: "2024-01-22",
   materials: [
-    { name: "Cotton Yarn", used: 40, unit: "kg" },
-    { name: "Blue Dye", used: 12, unit: "liters" },
-    { name: "Backing Cloth", used: 65, unit: "sqm" },
-    { name: "Latex Solution", used: 8, unit: "liters" }
+    { name: "Synthetic Yarn", used: 60, unit: "rolls", cost: 22800 },
+    { name: "Blue Dye (Industrial)", used: 25, unit: "liters", cost: 4750 },
+    { name: "Backing Cloth", used: 90, unit: "sqm", cost: 2250 },
+    { name: "Latex Solution", used: 30, unit: "liters", cost: 9600 }
   ]
 };
 
 export default function Complete() {
   const { toast } = useToast();
+  const navigate = useNavigate();
   const [completedItems, setCompletedItems] = useState<CompletedItem[]>([]);
   const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
   const [completionNotes, setCompletionNotes] = useState("");
   const [qualityCheck, setQualityCheck] = useState({
     inspector: "",
-    overallGrade: "A" as "A" | "B" | "C",
+    overallGrade: "A" as "A+" | "A" | "B" | "C",
     defects: "",
     recommendations: ""
+  });
+
+  // Initialize with expected output
+  useState(() => {
+    const initialItems: CompletedItem[] = [];
+    for (let i = 1; i <= batchToComplete.expectedOutput; i++) {
+      initialItems.push({
+        id: `item-${i}`,
+        uniqueId: `BC-2024-${String(i).padStart(3, '0')}`,
+        qrCode: `QR-${batchToComplete.batchNumber}-${String(i).padStart(3, '0')}`,
+        dimensions: "6x8ft",
+        weight: "45kg",
+        thickness: "12mm",
+        pileHeight: "8mm",
+        grade: "A",
+        status: "available",
+        notes: "",
+        inspector: "",
+        inspectionDate: new Date().toISOString().split('T')[0]
+      });
+    }
+    setCompletedItems(initialItems);
   });
 
   const addCompletedItem = () => {
     const newItem: CompletedItem = {
       id: Date.now().toString(),
       uniqueId: `BC-2024-${String(completedItems.length + 1).padStart(3, '0')}`,
+      qrCode: `QR-${batchToComplete.batchNumber}-${String(completedItems.length + 1).padStart(3, '0')}`,
       dimensions: "6x8ft",
+      weight: "45kg",
+      thickness: "12mm",
+      pileHeight: "8mm",
       grade: "A",
-      notes: ""
+      status: "available",
+      notes: "",
+      inspector: "",
+      inspectionDate: new Date().toISOString().split('T')[0]
     };
     setCompletedItems([...completedItems, newItem]);
   };
@@ -82,6 +128,14 @@ export default function Complete() {
   };
 
   const removeCompletedItem = (id: string) => {
+    if (completedItems.length <= 1) {
+      toast({
+        title: "Cannot Remove",
+        description: "At least one completed item must be recorded",
+        variant: "destructive"
+      });
+      return;
+    }
     setCompletedItems(items => items.filter(item => item.id !== id));
   };
 
@@ -92,7 +146,8 @@ export default function Complete() {
       wasteQuantity: 0,
       unit: "kg",
       wasteType: "recyclable",
-      notes: ""
+      notes: "",
+      estimatedValue: 0
     };
     setWasteItems([...wasteItems, newWaste]);
   };
@@ -107,439 +162,502 @@ export default function Complete() {
     setWasteItems(items => items.filter(item => item.id !== id));
   };
 
-  const getGradeDistribution = () => {
-    const gradeA = completedItems.filter(item => item.grade === "A").length;
-    const gradeB = completedItems.filter(item => item.grade === "B").length;
-    const gradeC = completedItems.filter(item => item.grade === "C").length;
-    return { gradeA, gradeB, gradeC };
-  };
-
   const calculateEfficiency = () => {
-    if (batchToComplete.expectedOutput === 0) return 0;
-    return Math.round((completedItems.length / batchToComplete.expectedOutput) * 100);
+    const totalProduced = completedItems.length;
+    const availableItems = completedItems.filter(item => item.status === "available").length;
+    const damagedItems = completedItems.filter(item => item.status === "damaged").length;
+    const efficiency = (availableItems / batchToComplete.expectedOutput) * 100;
+    
+    return {
+      totalProduced,
+      availableItems,
+      damagedItems,
+      efficiency: Math.round(efficiency)
+    };
   };
 
-  const handleComplete = () => {
-    if (completedItems.length === 0) {
+  const calculateTotalCost = () => {
+    const materialCost = batchToComplete.materials.reduce((sum, material) => sum + material.cost, 0);
+    const wasteValue = wasteItems.reduce((sum, waste) => sum + waste.estimatedValue, 0);
+    return {
+      materialCost,
+      wasteValue,
+      totalCost: materialCost + wasteValue
+    };
+  };
+
+  const handleCompleteProduction = () => {
+    if (!qualityCheck.inspector.trim()) {
       toast({
-        title: "Error",
-        description: "Please add at least one completed item",
+        title: "Inspector Required",
+        description: "Please assign an inspector before completing production",
         variant: "destructive"
       });
       return;
     }
 
-    if (!qualityCheck.inspector) {
-      toast({
-        title: "Error", 
-        description: "Please assign a quality inspector",
-        variant: "destructive"
-      });
-      return;
-    }
+    const efficiency = calculateEfficiency();
+    const costs = calculateTotalCost();
+
+    // Create production completion record
+    const completionRecord = {
+      batchId: batchToComplete.id,
+      batchNumber: batchToComplete.batchNumber,
+      productName: batchToComplete.productName,
+      completionDate: new Date().toISOString().split('T')[0],
+      inspector: qualityCheck.inspector,
+      overallGrade: qualityCheck.overallGrade,
+      efficiency: efficiency.efficiency,
+      totalProduced: efficiency.totalProduced,
+      availableItems: efficiency.availableItems,
+      damagedItems: efficiency.damagedItems,
+      materialCost: costs.materialCost,
+      wasteValue: costs.wasteValue,
+      totalCost: costs.totalCost,
+      completedItems: completedItems,
+      wasteItems: wasteItems,
+      notes: completionNotes,
+      defects: qualityCheck.defects,
+      recommendations: qualityCheck.recommendations
+    };
+
+    // Store in localStorage for demo
+    const existingCompletions = JSON.parse(localStorage.getItem('productionCompletions') || '[]');
+    existingCompletions.push(completionRecord);
+    localStorage.setItem('productionCompletions', JSON.stringify(existingCompletions));
 
     toast({
-      title: "Success",
-      description: "Production batch completed successfully!",
+      title: "Production Completed",
+      description: `Batch ${batchToComplete.batchNumber} has been completed successfully`,
     });
+
+    // Navigate back to production page
+    navigate('/production');
   };
 
-  const { gradeA, gradeB, gradeC } = getGradeDistribution();
   const efficiency = calculateEfficiency();
+  const costs = calculateTotalCost();
 
   return (
     <div className="flex-1 space-y-6 p-6">
       <Header 
         title="Complete Production Batch" 
-        subtitle="Record completed items and manage waste materials"
+        subtitle="Final quality inspection, individual product tracking, and waste management"
       />
+
+      <div className="flex items-center gap-4 mb-6">
+        <Button 
+          variant="outline" 
+          onClick={() => navigate('/production')}
+          className="flex items-center gap-2"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Back to Production
+        </Button>
+      </div>
 
       {/* Batch Information */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-3">
+          <CardTitle className="flex items-center gap-2">
             <Package className="w-5 h-5" />
-            {batchToComplete.productName}
-            <Badge className="bg-success text-success-foreground">
-              Step {batchToComplete.currentStep}/{batchToComplete.totalSteps} - Final
-            </Badge>
+            Batch Information
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
-              <span className="text-muted-foreground">Batch Number:</span>
-              <p className="font-medium">{batchToComplete.batchNumber}</p>
+              <div className="text-sm text-muted-foreground">Batch Number</div>
+              <div className="font-medium">{batchToComplete.batchNumber}</div>
             </div>
             <div>
-              <span className="text-muted-foreground">Expected Output:</span>
-              <p className="font-medium">{batchToComplete.expectedOutput} pcs</p>
+              <div className="text-sm text-muted-foreground">Product</div>
+              <div className="font-medium">{batchToComplete.productName}</div>
             </div>
             <div>
-              <span className="text-muted-foreground">Actual Output:</span>
-              <p className="font-medium">{completedItems.length} pcs</p>
+              <div className="text-sm text-muted-foreground">Expected Output</div>
+              <div className="font-medium">{batchToComplete.expectedOutput} pieces</div>
             </div>
             <div>
-              <span className="text-muted-foreground">Efficiency:</span>
-              <p className={`font-medium ${efficiency >= 90 ? 'text-success' : efficiency >= 75 ? 'text-warning' : 'text-destructive'}`}>
-                {efficiency}%
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-4">
-            <span className="text-sm text-muted-foreground">Materials Used:</span>
-            <div className="flex flex-wrap gap-2 mt-1">
-              {batchToComplete.materials.map((material) => (
-                <Badge key={material.name} variant="outline" className="text-xs">
-                  {material.name}: {material.used} {material.unit}
-                </Badge>
-              ))}
+              <div className="text-sm text-muted-foreground">Location</div>
+              <div className="font-medium">{batchToComplete.location}</div>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* Efficiency Metrics */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+        <Card className="border-l-4 border-l-green-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Produced</CardTitle>
+            <Package className="h-4 w-4 text-green-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-500">{efficiency.totalProduced}</div>
+            <p className="text-xs text-muted-foreground">
+              pieces completed
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-blue-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Available</CardTitle>
+            <CheckCircle className="h-4 w-4 text-blue-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-blue-500">{efficiency.availableItems}</div>
+            <p className="text-xs text-muted-foreground">
+              ready for sale
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-red-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Damaged</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-red-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-red-500">{efficiency.damagedItems}</div>
+            <p className="text-xs text-muted-foreground">
+              quality issues
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-l-4 border-l-purple-500">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Efficiency</CardTitle>
+            <Target className="h-4 w-4 text-purple-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-purple-500">{efficiency.efficiency}%</div>
+            <p className="text-xs text-muted-foreground">
+              production yield
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
         {/* Completed Items */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>Completed Items</CardTitle>
-              <Button onClick={addCompletedItem}>
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                Completed Items
+              </CardTitle>
+              <Button onClick={addCompletedItem} variant="outline" size="sm">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Item
               </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
               {completedItems.map((item) => (
-                <div key={item.id} className="grid grid-cols-5 gap-4 items-end p-4 border rounded-lg">
-                  <div>
-                    <Label>Unique ID</Label>
-                    <Input 
-                      value={item.uniqueId}
-                      onChange={(e) => updateCompletedItem(item.id, 'uniqueId', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label>Dimensions</Label>
-                    <Input 
-                      value={item.dimensions}
-                      onChange={(e) => updateCompletedItem(item.id, 'dimensions', e.target.value)}
-                    />
-                  </div>
-                  <div>
-                    <Label>Grade</Label>
-                    <Select 
-                      value={item.grade} 
-                      onValueChange={(value: "A" | "B" | "C") => updateCompletedItem(item.id, 'grade', value)}
+                <div key={item.id} className="border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <div className="font-medium">{item.uniqueId}</div>
+                      <Badge variant={
+                        item.status === "available" ? "default" :
+                        item.status === "damaged" ? "destructive" :
+                        "secondary"
+                      }>
+                        {item.status}
+                      </Badge>
+                      <Badge variant={
+                        item.grade === "A+" ? "default" :
+                        item.grade === "A" ? "secondary" :
+                        item.grade === "B" ? "outline" :
+                        "destructive"
+                      }>
+                        Grade {item.grade}
+                      </Badge>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeCompletedItem(item.id)}
+                      className="text-red-600 hover:text-red-700"
                     >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="A">Grade A</SelectItem>
-                        <SelectItem value="B">Grade B</SelectItem>
-                        <SelectItem value="C">Grade C</SelectItem>
-                      </SelectContent>
-                    </Select>
+                      <Minus className="w-3 h-3" />
+                    </Button>
                   </div>
-                  <div>
-                    <Label>Notes</Label>
-                    <Input 
+                  
+                  <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div>
+                      <span className="text-muted-foreground">Dimensions:</span>
+                      <input
+                        type="text"
+                        value={item.dimensions}
+                        onChange={(e) => updateCompletedItem(item.id, 'dimensions', e.target.value)}
+                        className="ml-2 px-2 py-1 border rounded text-xs w-20"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Weight:</span>
+                      <input
+                        type="text"
+                        value={item.weight}
+                        onChange={(e) => updateCompletedItem(item.id, 'weight', e.target.value)}
+                        className="ml-2 px-2 py-1 border rounded text-xs w-16"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Thickness:</span>
+                      <input
+                        type="text"
+                        value={item.thickness}
+                        onChange={(e) => updateCompletedItem(item.id, 'thickness', e.target.value)}
+                        className="ml-2 px-2 py-1 border rounded text-xs w-16"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground">Pile Height:</span>
+                      <input
+                        type="text"
+                        value={item.pileHeight}
+                        onChange={(e) => updateCompletedItem(item.id, 'pileHeight', e.target.value)}
+                        className="ml-2 px-2 py-1 border rounded text-xs w-16"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="mt-2">
+                    <span className="text-muted-foreground text-sm">Notes:</span>
+                    <input
+                      type="text"
                       value={item.notes}
                       onChange={(e) => updateCompletedItem(item.id, 'notes', e.target.value)}
+                      className="ml-2 px-2 py-1 border rounded text-xs w-full"
                       placeholder="Quality notes..."
                     />
                   </div>
-                  <div>
-                    <Button 
-                      variant="outline" 
-                      size="icon"
-                      onClick={() => removeCompletedItem(item.id)}
-                    >
-                      <Minus className="w-4 h-4" />
-                    </Button>
-                  </div>
                 </div>
               ))}
-            </CardContent>
-          </Card>
+            </div>
+          </CardContent>
+        </Card>
 
-          {/* Waste Management */}
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
+        {/* Waste Management */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <Recycle className="w-5 h-5" />
                 Waste Management
               </CardTitle>
-              <Button onClick={addWasteItem} variant="outline">
+              <Button onClick={addWasteItem} variant="outline" size="sm">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Waste
               </Button>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {wasteItems.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  No waste items recorded. Add waste materials to track recycling.
-                </p>
-              ) : (
-                wasteItems.map((waste) => (
-                  <div key={waste.id} className="grid grid-cols-6 gap-4 items-end p-4 border rounded-lg">
-                    <div>
-                      <Label>Material</Label>
-                      <Select 
-                        value={waste.materialName} 
-                        onValueChange={(value) => updateWasteItem(waste.id, 'materialName', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select material" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="Cotton Yarn">Cotton Yarn</SelectItem>
-                          <SelectItem value="Backing Cloth">Backing Cloth</SelectItem>
-                          <SelectItem value="Dye">Dye</SelectItem>
-                          <SelectItem value="Latex">Latex</SelectItem>
-                        </SelectContent>
-                      </Select>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3 max-h-96 overflow-y-auto">
+              {wasteItems.map((waste) => (
+                <div key={waste.id} className="border rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={waste.wasteType === "recyclable" ? "default" : "destructive"}>
+                        {waste.wasteType}
+                      </Badge>
                     </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => removeWasteItem(waste.id)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Minus className="w-3 h-3" />
+                    </Button>
+                  </div>
+                  
+                  <div className="space-y-2">
                     <div>
-                      <Label>Quantity</Label>
-                      <Input 
-                        type="number"
-                        value={waste.wasteQuantity}
-                        onChange={(e) => updateWasteItem(waste.id, 'wasteQuantity', parseFloat(e.target.value) || 0)}
+                      <span className="text-muted-foreground text-sm">Material:</span>
+                      <input
+                        type="text"
+                        value={waste.materialName}
+                        onChange={(e) => updateWasteItem(waste.id, 'materialName', e.target.value)}
+                        className="ml-2 px-2 py-1 border rounded text-xs w-32"
+                        placeholder="Material name"
                       />
                     </div>
-                    <div>
-                      <Label>Unit</Label>
-                      <Select 
-                        value={waste.unit} 
-                        onValueChange={(value) => updateWasteItem(waste.id, 'unit', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="kg">kg</SelectItem>
-                          <SelectItem value="liters">liters</SelectItem>
-                          <SelectItem value="sqm">sqm</SelectItem>
-                        </SelectContent>
-                      </Select>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <span className="text-muted-foreground text-sm">Quantity:</span>
+                        <input
+                          type="number"
+                          value={waste.wasteQuantity}
+                          onChange={(e) => updateWasteItem(waste.id, 'wasteQuantity', parseFloat(e.target.value) || 0)}
+                          className="ml-2 px-2 py-1 border rounded text-xs w-16"
+                        />
+                        <select
+                          value={waste.unit}
+                          onChange={(e) => updateWasteItem(waste.id, 'unit', e.target.value)}
+                          className="ml-1 px-1 py-1 border rounded text-xs"
+                        >
+                          <option value="kg">kg</option>
+                          <option value="liters">liters</option>
+                          <option value="sqm">sqm</option>
+                          <option value="rolls">rolls</option>
+                        </select>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground text-sm">Value:</span>
+                        <input
+                          type="number"
+                          value={waste.estimatedValue}
+                          onChange={(e) => updateWasteItem(waste.id, 'estimatedValue', parseFloat(e.target.value) || 0)}
+                          className="ml-2 px-2 py-1 border rounded text-xs w-20"
+                          placeholder="₹"
+                        />
+                      </div>
                     </div>
                     <div>
-                      <Label>Type</Label>
-                      <Select 
-                        value={waste.wasteType} 
-                        onValueChange={(value: "recyclable" | "non-recyclable") => updateWasteItem(waste.id, 'wasteType', value)}
-                      >
-                        <SelectTrigger>
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="recyclable">Recyclable</SelectItem>
-                          <SelectItem value="non-recyclable">Non-recyclable</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div>
-                      <Label>Notes</Label>
-                      <Input 
+                      <span className="text-muted-foreground text-sm">Notes:</span>
+                      <input
+                        type="text"
                         value={waste.notes}
                         onChange={(e) => updateWasteItem(waste.id, 'notes', e.target.value)}
-                        placeholder="Waste notes..."
+                        className="ml-2 px-2 py-1 border rounded text-xs w-full"
+                        placeholder="Waste description..."
                       />
-                    </div>
-                    <div>
-                      <Button 
-                        variant="outline" 
-                        size="icon"
-                        onClick={() => removeWasteItem(waste.id)}
-                      >
-                        <Minus className="w-4 h-4" />
-                      </Button>
                     </div>
                   </div>
-                ))
-              )}
-            </CardContent>
-          </Card>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-          {/* Quality Check */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Quality Assessment</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <Label htmlFor="inspector">Quality Inspector</Label>
-                  <Input 
-                    id="inspector"
-                    value={qualityCheck.inspector}
-                    onChange={(e) => setQualityCheck(prev => ({ ...prev, inspector: e.target.value }))}
-                    placeholder="Inspector name"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="overallGrade">Overall Grade</Label>
-                  <Select 
-                    value={qualityCheck.overallGrade} 
-                    onValueChange={(value: "A" | "B" | "C") => setQualityCheck(prev => ({ ...prev, overallGrade: value }))}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="A">Grade A</SelectItem>
-                      <SelectItem value="B">Grade B</SelectItem>
-                      <SelectItem value="C">Grade C</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              
-              <div>
-                <Label htmlFor="defects">Defects Found</Label>
-                <Textarea 
-                  id="defects"
-                  value={qualityCheck.defects}
-                  onChange={(e) => setQualityCheck(prev => ({ ...prev, defects: e.target.value }))}
-                  placeholder="Describe any defects or quality issues..."
-                />
-              </div>
-              
-              <div>
-                <Label htmlFor="recommendations">Recommendations</Label>
-                <Textarea 
-                  id="recommendations"
-                  value={qualityCheck.recommendations}
-                  onChange={(e) => setQualityCheck(prev => ({ ...prev, recommendations: e.target.value }))}
-                  placeholder="Quality improvement recommendations..."
-                />
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Summary Panel */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle>Completion Summary</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Expected Output:</span>
-                  <span className="font-medium">{batchToComplete.expectedOutput} pcs</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Actual Output:</span>
-                  <span className="font-medium">{completedItems.length} pcs</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Efficiency:</span>
-                  <span className={`font-medium ${efficiency >= 90 ? 'text-success' : efficiency >= 75 ? 'text-warning' : 'text-destructive'}`}>
-                    {efficiency}%
-                  </span>
-                </div>
-              </div>
-
-              {efficiency < 75 && (
-                <div className="flex items-center gap-2 p-2 bg-warning/10 rounded">
-                  <AlertTriangle className="w-4 h-4 text-warning" />
-                  <span className="text-sm text-warning">Low efficiency detected</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Quality Distribution</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Grade A:</span>
-                  <span className="font-medium text-success">{gradeA} pcs</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Grade B:</span>
-                  <span className="font-medium text-warning">{gradeB} pcs</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Grade C:</span>
-                  <span className="font-medium text-destructive">{gradeC} pcs</span>
-                </div>
-              </div>
-
-              <div className="w-full bg-muted rounded-full h-3">
-                <div className="flex h-3 rounded-full overflow-hidden">
-                  {completedItems.length > 0 && (
-                    <>
-                      <div 
-                        className="bg-success"
-                        style={{ width: `${(gradeA / completedItems.length) * 100}%` }}
-                      />
-                      <div 
-                        className="bg-warning"
-                        style={{ width: `${(gradeB / completedItems.length) * 100}%` }}
-                      />
-                      <div 
-                        className="bg-destructive"
-                        style={{ width: `${(gradeC / completedItems.length) * 100}%` }}
-                      />
-                    </>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Waste Summary</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2">
-                <div className="flex justify-between">
-                  <span>Total Waste Items:</span>
-                  <span className="font-medium">{wasteItems.length}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Recyclable:</span>
-                  <span className="font-medium text-success">
-                    {wasteItems.filter(w => w.wasteType === "recyclable").length}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Non-recyclable:</span>
-                  <span className="font-medium text-destructive">
-                    {wasteItems.filter(w => w.wasteType === "non-recyclable").length}
-                  </span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <div>
-            <Label htmlFor="completionNotes">Completion Notes</Label>
-            <Textarea 
-              id="completionNotes"
-              value={completionNotes}
-              onChange={(e) => setCompletionNotes(e.target.value)}
-              placeholder="Additional notes about the batch completion..."
-              className="mt-2"
+      {/* Quality Control */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Target className="w-5 h-5" />
+            Quality Control
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <Label htmlFor="inspector">Inspector Name *</Label>
+              <Input
+                id="inspector"
+                value={qualityCheck.inspector}
+                onChange={(e) => setQualityCheck(prev => ({ ...prev, inspector: e.target.value }))}
+                placeholder="Enter inspector name"
+              />
+            </div>
+            <div>
+              <Label htmlFor="overallGrade">Overall Grade</Label>
+              <Select
+                value={qualityCheck.overallGrade}
+                onValueChange={(value: any) => setQualityCheck(prev => ({ ...prev, overallGrade: value }))}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="A+">A+ (Excellent)</SelectItem>
+                  <SelectItem value="A">A (Very Good)</SelectItem>
+                  <SelectItem value="B">B (Good)</SelectItem>
+                  <SelectItem value="C">C (Average)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <div className="mt-4">
+            <Label htmlFor="defects">Defects Found</Label>
+            <Textarea
+              id="defects"
+              value={qualityCheck.defects}
+              onChange={(e) => setQualityCheck(prev => ({ ...prev, defects: e.target.value }))}
+              placeholder="Describe any defects found during inspection..."
+              rows={3}
             />
           </div>
+          
+          <div className="mt-4">
+            <Label htmlFor="recommendations">Recommendations</Label>
+            <Textarea
+              id="recommendations"
+              value={qualityCheck.recommendations}
+              onChange={(e) => setQualityCheck(prev => ({ ...prev, recommendations: e.target.value }))}
+              placeholder="Any recommendations for improvement..."
+              rows={3}
+            />
+          </div>
+        </CardContent>
+      </Card>
 
-          <Button onClick={handleComplete} className="w-full">
-            <CheckCircle className="w-4 h-4 mr-2" />
-            Complete Batch
-          </Button>
-        </div>
+      {/* Cost Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="w-5 h-5" />
+            Cost Summary
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="text-center p-4 bg-blue-50 rounded-lg">
+              <div className="text-2xl font-bold text-blue-600">₹{costs.materialCost.toLocaleString()}</div>
+              <div className="text-sm text-blue-700">Material Cost</div>
+            </div>
+            <div className="text-center p-4 bg-red-50 rounded-lg">
+              <div className="text-2xl font-bold text-red-600">₹{costs.wasteValue.toLocaleString()}</div>
+              <div className="text-sm text-red-700">Waste Value</div>
+            </div>
+            <div className="text-center p-4 bg-green-50 rounded-lg">
+              <div className="text-2xl font-bold text-green-600">₹{costs.totalCost.toLocaleString()}</div>
+              <div className="text-sm text-green-700">Total Cost</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Completion Notes */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Completion Notes</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Textarea
+            value={completionNotes}
+            onChange={(e) => setCompletionNotes(e.target.value)}
+            placeholder="Additional notes about the production completion..."
+            rows={3}
+          />
+        </CardContent>
+      </Card>
+
+      {/* Action Buttons */}
+      <div className="flex gap-4">
+        <Button 
+          variant="outline" 
+          onClick={() => navigate('/production')}
+          className="flex-1"
+        >
+          Cancel
+        </Button>
+        <Button 
+          onClick={handleCompleteProduction}
+          disabled={!qualityCheck.inspector.trim()}
+          className="flex-1"
+        >
+          <Save className="w-4 h-4 mr-2" />
+          Complete Production
+        </Button>
       </div>
     </div>
   );
