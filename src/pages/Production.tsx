@@ -39,7 +39,13 @@ import {
   ArrowRight,
   ArrowLeft,
   Lock,
-  Unlock
+  Unlock,
+  Factory,
+  Zap,
+  Target,
+  Calendar,
+  Users,
+  BarChart3
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { rawMaterialsStorage } from "@/utils/localStorage";
@@ -76,6 +82,11 @@ interface ProductionProduct {
   materials: ProductionMaterial[];
   steps: ProductionStep[];
   imageUrl?: string;
+  batchNumber: string;
+  location: string;
+  operator?: string;
+  totalCost: number;
+  sellingPrice: number;
 }
 
 interface ProductionMaterial {
@@ -106,6 +117,7 @@ interface ProductionStep {
   defects: number;
   qualityGrade: "A+" | "A" | "B" | "C" | "rejected";
   notes: string;
+  progress: number;
 }
 
 const defaultProductionSteps = [
@@ -119,7 +131,8 @@ const defaultProductionSteps = [
     waste: 0,
     defects: 0,
     qualityGrade: "A" as const,
-    notes: ""
+    notes: "",
+    progress: 0
   },
   {
     id: "2",
@@ -131,7 +144,8 @@ const defaultProductionSteps = [
     waste: 0,
     defects: 0,
     qualityGrade: "A" as const,
-    notes: ""
+    notes: "",
+    progress: 0
   },
   {
     id: "3",
@@ -143,7 +157,8 @@ const defaultProductionSteps = [
     waste: 0,
     defects: 0,
     qualityGrade: "A" as const,
-    notes: ""
+    notes: "",
+    progress: 0
   },
   {
     id: "4",
@@ -155,7 +170,8 @@ const defaultProductionSteps = [
     waste: 0,
     defects: 0,
     qualityGrade: "A" as const,
-    notes: ""
+    notes: "",
+    progress: 0
   },
   {
     id: "5",
@@ -167,7 +183,8 @@ const defaultProductionSteps = [
     waste: 0,
     defects: 0,
     qualityGrade: "A" as const,
-    notes: ""
+    notes: "",
+    progress: 0
   }
 ];
 
@@ -178,6 +195,7 @@ export default function Production() {
   const [productionProducts, setProductionProducts] = useState<ProductionProduct[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<ProductionProduct | null>(null);
   const [newProduct, setNewProduct] = useState({
@@ -187,7 +205,10 @@ export default function Production() {
     targetQuantity: "",
     priority: "medium" as const,
     expectedCompletion: "",
-    imageUrl: ""
+    imageUrl: "",
+    location: "",
+    operator: "",
+    sellingPrice: ""
   });
 
   // Load raw materials from localStorage
@@ -211,9 +232,11 @@ export default function Production() {
   const filteredProducts = productionProducts
     .filter(product => {
       const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           product.category.toLowerCase().includes(searchTerm.toLowerCase());
+                           product.category.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           product.batchNumber.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesStatus = statusFilter === "all" || product.status === statusFilter;
-      return matchesSearch && matchesStatus;
+      const matchesPriority = priorityFilter === "all" || product.priority === priorityFilter;
+      return matchesSearch && matchesStatus && matchesPriority;
     })
     .sort((a, b) => {
       // Sort by priority first, then by status
@@ -225,17 +248,6 @@ export default function Production() {
       
       return statusOrder[a.status] - statusOrder[b.status];
     });
-
-  // Get priority score for sorting
-  const getPriorityScore = (priority: string) => {
-    switch (priority) {
-      case "urgent": return 0;
-      case "high": return 1;
-      case "medium": return 2;
-      case "low": return 3;
-      default: return 4;
-    }
-  };
 
   // Get status color
   const getStatusColor = (status: string) => {
@@ -266,6 +278,15 @@ export default function Production() {
     return (completedSteps / product.totalSteps) * 100;
   };
 
+  // Generate batch number
+  const generateBatchNumber = () => {
+    const year = new Date().getFullYear();
+    const month = String(new Date().getMonth() + 1).padStart(2, '0');
+    const day = String(new Date().getDate()).padStart(2, '0');
+    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+    return `PROD-${year}${month}${day}-${random}`;
+  };
+
   // Handle adding new production product
   const handleAddProduct = () => {
     if (!newProduct.name || !newProduct.category || !newProduct.targetQuantity) {
@@ -291,7 +312,12 @@ export default function Production() {
       expectedCompletion: newProduct.expectedCompletion,
       materials: [],
       steps: defaultProductionSteps.map(step => ({ ...step, id: `${Date.now()}_${step.stepNumber}` })),
-      imageUrl: newProduct.imageUrl
+      imageUrl: newProduct.imageUrl,
+      batchNumber: generateBatchNumber(),
+      location: newProduct.location,
+      operator: newProduct.operator,
+      totalCost: 0,
+      sellingPrice: parseFloat(newProduct.sellingPrice) || 0
     };
 
     setProductionProducts(prev => [product, ...prev]);
@@ -303,7 +329,10 @@ export default function Production() {
       targetQuantity: "",
       priority: "medium",
       expectedCompletion: "",
-      imageUrl: ""
+      imageUrl: "",
+      location: "",
+      operator: "",
+      sellingPrice: ""
     });
 
     toast({
@@ -354,7 +383,7 @@ export default function Production() {
 
           {/* Production Overview Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
-        <Card>
+        <Card className="border-l-4 border-l-blue-500">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Products</CardTitle>
             <Package className="h-4 w-4 text-blue-600" />
@@ -366,7 +395,7 @@ export default function Production() {
             </p>
           </CardContent>
         </Card>
-            <Card>
+        <Card className="border-l-4 border-l-blue-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Planning</CardTitle>
             <Clock className="h-4 w-4 text-blue-600" />
@@ -378,10 +407,10 @@ export default function Production() {
                 </p>
               </CardContent>
             </Card>
-            <Card>
+        <Card className="border-l-4 border-l-yellow-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-            <Play className="h-4 w-4 text-yellow-600" />
+            <Factory className="h-4 w-4 text-yellow-600" />
               </CardHeader>
               <CardContent>
             <div className="text-2xl font-bold">{stats.inProgress}</div>
@@ -390,7 +419,7 @@ export default function Production() {
                 </p>
               </CardContent>
             </Card>
-            <Card>
+        <Card className="border-l-4 border-l-green-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Completed</CardTitle>
             <CheckCircle className="h-4 w-4 text-green-600" />
@@ -402,7 +431,7 @@ export default function Production() {
                 </p>
               </CardContent>
             </Card>
-            <Card>
+        <Card className="border-l-4 border-l-red-500">
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">On Hold</CardTitle>
             <Pause className="h-4 w-4 text-red-600" />
@@ -440,43 +469,45 @@ export default function Production() {
               <SelectItem value="on-hold">On Hold</SelectItem>
             </SelectContent>
           </Select>
+          <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All Priority" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Priority</SelectItem>
+              <SelectItem value="urgent">Urgent</SelectItem>
+              <SelectItem value="high">High</SelectItem>
+              <SelectItem value="medium">Medium</SelectItem>
+              <SelectItem value="low">Low</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex gap-2 shrink-0">
           <Dialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen}>
             <DialogTrigger asChild>
-              <Button className="flex items-center gap-2">
+              <Button className="flex items-center gap-2 bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700">
                 <Plus className="w-4 h-4" />
                 Add Production Product
               </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-md">
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Add New Production Product</DialogTitle>
+                <DialogTitle className="text-2xl">Create New Production Product</DialogTitle>
                 <DialogDescription>
-                  Create a new product for production with workflow steps
+                  Set up a new production batch with workflow steps and material requirements
                 </DialogDescription>
               </DialogHeader>
-              <div className="space-y-4">
-                <div>
-                  <Label htmlFor="productName">Product Name *</Label>
-                  <Input
-                    id="productName"
-                    value={newProduct.name}
-                    onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
-                    placeholder="e.g., Traditional Persian Carpet"
-                  />
-                </div>
-                <div>
-                  <Label htmlFor="productDescription">Description</Label>
-                  <Textarea
-                    id="productDescription"
-                    value={newProduct.description}
-                    onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
-                    placeholder="Product description and specifications"
-                    rows={3}
-                  />
-                </div>
+          <div className="space-y-6">
                 <div className="grid grid-cols-2 gap-4">
+                    <div>
+                    <Label htmlFor="productName">Product Name *</Label>
+                    <Input
+                      id="productName"
+                      value={newProduct.name}
+                      onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
+                      placeholder="e.g., Traditional Persian Carpet"
+                    />
+                    </div>
                   <div>
                     <Label htmlFor="productCategory">Category *</Label>
                     <Select value={newProduct.category} onValueChange={(value) => setNewProduct({...newProduct, category: value})}>
@@ -491,6 +522,31 @@ export default function Production() {
                         <SelectItem value="Other">Other</SelectItem>
                       </SelectContent>
                     </Select>
+                    </div>
+                  </div>
+                
+                <div>
+                  <Label htmlFor="productDescription">Description</Label>
+                  <Textarea
+                    id="productDescription"
+                    value={newProduct.description}
+                    onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
+                    placeholder="Product description and specifications"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <Label htmlFor="targetQuantity">Target Quantity *</Label>
+                    <Input
+                      id="targetQuantity"
+                      type="number"
+                      value={newProduct.targetQuantity}
+                      onChange={(e) => setNewProduct({...newProduct, targetQuantity: e.target.value})}
+                      placeholder="100"
+                      min="1"
+                    />
                   </div>
                   <div>
                     <Label htmlFor="productPriority">Priority *</Label>
@@ -505,20 +561,21 @@ export default function Production() {
                         <SelectItem value="urgent">Urgent</SelectItem>
                       </SelectContent>
                     </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                    <Label htmlFor="targetQuantity">Target Quantity *</Label>
+                    </div>
+                  <div>
+                    <Label htmlFor="sellingPrice">Selling Price (₹)</Label>
                     <Input
-                      id="targetQuantity"
+                      id="sellingPrice"
                       type="number"
-                      value={newProduct.targetQuantity}
-                      onChange={(e) => setNewProduct({...newProduct, targetQuantity: e.target.value})}
-                      placeholder="100"
-                      min="1"
+                      value={newProduct.sellingPrice}
+                      onChange={(e) => setNewProduct({...newProduct, sellingPrice: e.target.value})}
+                      placeholder="5000"
+                      min="0"
                     />
                     </div>
+                  </div>
+
+                <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="expectedCompletion">Expected Completion</Label>
                     <Input
@@ -528,49 +585,79 @@ export default function Production() {
                       onChange={(e) => setNewProduct({...newProduct, expectedCompletion: e.target.value})}
                       min={new Date().toISOString().split('T')[0]}
                     />
-                    </div>
-                  </div>
-                    </div>
+                            </div>
+                            <div>
+                    <Label htmlFor="location">Production Location</Label>
+                    <Input
+                      id="location"
+                      value={newProduct.location}
+                      onChange={(e) => setNewProduct({...newProduct, location: e.target.value})}
+                      placeholder="e.g., Factory Floor A"
+                    />
+                            </div>
+                          </div>
+
+                <div>
+                  <Label htmlFor="operator">Assigned Operator</Label>
+                  <Input
+                    id="operator"
+                    value={newProduct.operator}
+                    onChange={(e) => setNewProduct({...newProduct, operator: e.target.value})}
+                    placeholder="e.g., John Smith"
+                  />
+                            </div>
+              </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>
                   Cancel
                 </Button>
-                <Button onClick={handleAddProduct}>
-                  Create Product
+                <Button onClick={handleAddProduct} className="bg-gradient-to-r from-blue-600 to-purple-600">
+                  Create Production Product
                 </Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
-                    </div>
-                  </div>
+                          </div>
+                        </div>
 
       {/* Production Products List */}
       <div className="space-y-6">
         {filteredProducts.map((product) => (
-          <Card key={product.id} className="hover:shadow-lg transition-shadow">
+          <Card key={product.id} className="hover:shadow-xl transition-all duration-300 border-l-4 border-l-blue-500">
             <CardContent className="p-6">
               <div className="flex flex-col lg:flex-row gap-6">
                 {/* Product Info */}
                 <div className="flex-1">
                   <div className="flex items-start justify-between mb-4">
                     <div>
-                      <h3 className="text-xl font-semibold text-foreground mb-2">{product.name}</h3>
+                      <div className="flex items-center gap-3 mb-2">
+                        <h3 className="text-xl font-semibold text-foreground">{product.name}</h3>
+                        <Badge variant="outline" className="font-mono text-xs">
+                          {product.batchNumber}
+                        </Badge>
+                      </div>
                       <p className="text-muted-foreground mb-3">{product.description}</p>
                       <div className="flex items-center gap-4 text-sm">
                         <span className="text-muted-foreground">Category: {product.category}</span>
                         <span className="text-muted-foreground">Target: {product.targetQuantity} units</span>
                         <span className="text-muted-foreground">Started: {new Date(product.startDate).toLocaleDateString()}</span>
+                        {product.location && (
+                          <span className="text-muted-foreground">Location: {product.location}</span>
+                        )}
                       </div>
-                            </div>
+                    </div>
                     <div className="flex items-center gap-2">
                       <Badge className={getPriorityColor(product.priority)}>
+                        {product.priority === "urgent" && <Zap className="w-3 h-3 mr-1" />}
                         {product.priority.charAt(0).toUpperCase() + product.priority.slice(1)}
                       </Badge>
                       <Badge className={getStatusColor(product.status)}>
+                        {product.status === "in-progress" && <Factory className="w-3 h-3 mr-1" />}
+                        {product.status === "completed" && <CheckCircle className="w-3 h-3 mr-1" />}
                         {product.status.replace("-", " ")}
-                              </Badge>
+                      </Badge>
+                              </div>
                             </div>
-                          </div>
 
                   {/* Progress Bar */}
                   <div className="mb-4">
@@ -578,15 +665,15 @@ export default function Production() {
                       <span>Production Progress</span>
                       <span>{Math.round(getProgressPercentage(product))}%</span>
                     </div>
-                    <Progress value={getProgressPercentage(product)} className="h-2" />
-                            </div>
+                    <Progress value={getProgressPercentage(product)} className="h-3" />
+                        </div>
 
                   {/* Action Buttons */}
                   <div className="flex items-center gap-2">
                     {product.status === "planning" && (
                       <Button 
                         onClick={() => handleStartProduction(product)}
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-700 hover:to-emerald-700"
                       >
                         <Play className="w-4 h-4" />
                         Start Production
@@ -596,7 +683,7 @@ export default function Production() {
                       <Button 
                         variant="outline"
                         onClick={() => handleViewDetails(product)}
-                        className="flex items-center gap-2"
+                        className="flex items-center gap-2 border-blue-500 text-blue-600 hover:bg-blue-50"
                       >
                         <Edit className="w-4 h-4" />
                         Manage Production
@@ -610,20 +697,23 @@ export default function Production() {
                       <Eye className="w-4 h-4" />
                       View Details
                     </Button>
-                          </div>
-                        </div>
+                  </div>
+                </div>
 
                 {/* Production Steps Flow */}
                 <div className="lg:w-96">
-                  <h4 className="font-medium text-foreground mb-3">Production Steps</h4>
-                  <div className="space-y-2">
+                  <h4 className="font-medium text-foreground mb-3 flex items-center gap-2">
+                    <Target className="w-4 h-4 text-blue-600" />
+                    Production Steps
+                  </h4>
+                  <div className="space-y-3">
                     {product.steps.map((step, index) => (
                       <div key={step.id} className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium transition-all duration-300 ${
                           step.status === "completed" 
-                            ? "bg-green-500 text-white" 
+                            ? "bg-green-500 text-white shadow-lg" 
                             : step.status === "in-progress"
-                            ? "bg-yellow-500 text-white"
+                            ? "bg-yellow-500 text-white shadow-lg animate-pulse"
                             : "bg-gray-200 text-gray-600"
                         }`}>
                           {step.status === "completed" ? (
@@ -633,11 +723,11 @@ export default function Production() {
                           ) : (
                             step.stepNumber
                           )}
-                              </div>
+                        </div>
                         <div className="flex-1">
                           <div className="text-sm font-medium text-foreground">{step.name}</div>
                           <div className="text-xs text-muted-foreground">{step.description}</div>
-                            </div>
+                          </div>
                         {index < product.steps.length - 1 && (
                           <ArrowRight className="w-4 h-4 text-muted-foreground" />
                         )}
@@ -651,18 +741,16 @@ export default function Production() {
             ))}
 
         {filteredProducts.length === 0 && (
-          <Card>
-            <CardContent className="text-center py-12">
-              <Package className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-2">No Production Products</h3>
-              <p className="text-muted-foreground mb-6">
-                Start by adding your first production product to begin manufacturing.
-              </p>
-              <Button onClick={() => setIsAddProductOpen(true)}>
-                <Plus className="w-4 h-4 mr-2" />
-                Add Production Product
-              </Button>
-            </CardContent>
+          <Card className="p-12 text-center border-dashed">
+            <Factory className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-foreground mb-2">No Production Products</h3>
+            <p className="text-muted-foreground mb-6">
+              Start by adding your first production product to begin manufacturing.
+            </p>
+            <Button onClick={() => setIsAddProductOpen(true)} className="bg-gradient-to-r from-blue-600 to-purple-600">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Production Product
+            </Button>
           </Card>
         )}
           </div>

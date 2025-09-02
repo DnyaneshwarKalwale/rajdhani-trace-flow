@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -18,44 +19,27 @@ interface ProductionBatch {
   expectedCompletion: string;
 }
 
-const productionBatches: ProductionBatch[] = [
-  {
-    id: "1",
-    productName: "Red Premium Carpet",
-    batchNumber: "PROD-2024-046",
-    quantity: 100,
-    currentStep: 2,
-    totalSteps: 3,
-    stepName: "Dyeing Process",
-    progress: 75,
-    status: "on-track",
-    expectedCompletion: "Today 4:30 PM"
-  },
-  {
-    id: "2",
-    productName: "Blue Standard Carpet",
-    batchNumber: "PROD-2024-047",
-    quantity: 150,
-    currentStep: 1,
-    totalSteps: 3,
-    stepName: "Punching (Weaving)",
-    progress: 45,
-    status: "delayed",
-    expectedCompletion: "Tomorrow 10:00 AM"
-  },
-  {
-    id: "3",
-    productName: "Green Luxury Carpet",
-    batchNumber: "PROD-2024-048",
-    quantity: 75,
-    currentStep: 3,
-    totalSteps: 3,
-    stepName: "Cutting & Finishing",
-    progress: 90,
-    status: "on-track",
-    expectedCompletion: "Today 6:00 PM"
-  }
-];
+// Load from localStorage
+const loadProductionBatches = (): ProductionBatch[] => {
+  const saved = localStorage.getItem('rajdhani_production_products');
+  if (!saved) return [];
+  
+  const products = JSON.parse(saved);
+  return products.slice(0, 3).map((product: any) => ({
+    id: product.id,
+    productName: product.name,
+    batchNumber: product.batchNumber,
+    quantity: product.targetQuantity,
+    currentStep: product.currentStep,
+    totalSteps: product.totalSteps,
+    stepName: product.steps[product.currentStep - 1]?.name || "Not Started",
+    progress: product.steps.filter((s: any) => s.status === "completed").length / product.totalSteps * 100,
+    status: product.status === "in-progress" ? "on-track" : 
+            product.status === "completed" ? "completed" :
+            product.status === "on-hold" ? "delayed" : "on-track",
+    expectedCompletion: new Date(product.expectedCompletion).toLocaleDateString()
+  }));
+};
 
 const statusStyles = {
   "on-track": "bg-success text-success-foreground",
@@ -66,6 +50,11 @@ const statusStyles = {
 
 export function ProductionOverview() {
   const navigate = useNavigate();
+  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
+
+  useEffect(() => {
+    setProductionBatches(loadProductionBatches());
+  }, []);
 
   const handleViewAll = () => {
     navigate("/production");
