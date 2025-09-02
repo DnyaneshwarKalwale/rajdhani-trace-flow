@@ -3,6 +3,7 @@ import { StatsCard } from "@/components/dashboard/StatsCard";
 import { RecentActivity } from "@/components/dashboard/RecentActivity";
 import { ProductionOverview } from "@/components/dashboard/ProductionOverview";
 import { InventoryAlerts } from "@/components/dashboard/InventoryAlerts";
+import { RealTimeDashboard } from "@/components/dashboard/RealTimeDashboard";
 import { 
   Package, 
   ShoppingCart, 
@@ -102,6 +103,11 @@ export default function Dashboard() {
         <div className="lg:col-span-8">
           <ProductionOverview />
         </div>
+      </div>
+
+      {/* Real-Time Dashboard Section */}
+      <div className="w-full">
+        <RealTimeDashboard />
       </div>
 
       {/* Bottom Section - Full Width */}

@@ -1,1142 +1,671 @@
 import { useState, useEffect } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
+import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
-  Plus, Play, Pause, CheckCircle, Cog, AlertTriangle, Eye, 
-  Package, Clock, Users, TrendingUp, Factory, ArrowRight,
-  Edit, Trash2, Save, X, AlertCircle, FileText, Hash, Calendar,
-  MapPin, Ruler, Scale, Star, ShoppingCart, Package2, Zap,
-  Target, BarChart3, Thermometer, Gauge, Timer
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Progress } from "@/components/ui/progress";
+import { 
+  Play, 
+  Pause, 
+  CheckCircle, 
+  Clock, 
+  Package, 
+  TrendingUp, 
+  AlertTriangle,
+  Plus,
+  Search,
+  Eye,
+  Edit,
+  ArrowRight,
+  ArrowLeft,
+  Lock,
+  Unlock
 } from "lucide-react";
-
-interface ProductionMaterial {
-  materialId: string;
-  materialName: string;
-  requiredQuantity: number;
-  usedQuantity: number;
-  unit: string;
-  cost: number;
-  supplier?: string;
-}
-
-interface ProductionStep {
-  id: number;
-  name: string;
-  description: string;
-  status: "pending" | "active" | "completed" | "issue";
-  progress: number;
-  materials: ProductionMaterial[];
-  expectedOutput: number;
-  actualOutput?: number;
-  waste?: number;
-  defective?: number;
-  startDate?: string;
-  completionDate?: string;
-  notes: string;
-  inspector?: string;
-  inspectionDate?: string;
-  inspectionNotes?: string;
-}
-
-interface ProductionProduct {
-  id: string;
-  batchNumber: string;
-  productName: string;
-  productId?: string; // For existing products
-  isNewProduct: boolean;
-  category: string;
-  color: string;
-  size: string;
-  pattern: string;
-  quantity: number;
-  unit: string;
-  status: "planning" | "active" | "paused" | "completed" | "issue";
-  currentStep: number;
-  totalSteps: number;
-  progress: number;
-  startDate: string;
-  expectedCompletion: string;
-  actualCompletion?: string;
-  steps: ProductionStep[];
-  location: string;
-  notes: string;
-  totalCost: number;
-  sellingPrice: number;
-  imageUrl?: string;
-  priority: "normal" | "high" | "urgent";
-  // For new products
-  dimensions?: string;
-  weight?: string;
-  thickness?: string;
-  pileHeight?: string;
-  materialComposition?: string;
-  // For completed products
-  individualProducts?: IndividualProduct[];
-}
-
-interface IndividualProduct {
-  id: string;
-  qrCode: string;
-  productId: string;
-  manufacturingDate: string;
-  materialsUsed: ProductionMaterial[];
-  finalDimensions: string;
-  finalWeight: string;
-  finalThickness: string;
-  finalPileHeight: string;
-  qualityGrade: string;
-  inspector: string;
-  notes: string;
-  status: "available" | "sold" | "damaged";
-}
+import { useNavigate } from "react-router-dom";
+import { rawMaterialsStorage } from "@/utils/localStorage";
+import { useToast } from "@/hooks/use-toast";
 
 interface RawMaterial {
   id: string;
   name: string;
+  brand: string;
   category: string;
   currentStock: number;
   unit: string;
-  cost: number;
+  minThreshold: number;
+  maxCapacity: number;
   supplier: string;
-  location: string;
+  costPerUnit: number;
+  batchNumber: string;
+  imageUrl?: string;
 }
 
-// Sample raw materials for production
-const rawMaterials: RawMaterial[] = [
-  {
-    id: "RM001",
-    name: "Cotton Yarn (Premium)",
-    category: "Yarn",
-    currentStock: 150,
-    unit: "rolls",
-    cost: 450,
-    supplier: "Premium Textiles Ltd",
-    location: "Warehouse A - Section 1"
-  },
-  {
-    id: "RM002",
-    name: "Synthetic Yarn",
-    category: "Yarn",
-    currentStock: 200,
-    unit: "rolls",
-    cost: 380,
-    supplier: "Synthetic Solutions",
-    location: "Warehouse A - Section 2"
-  },
-  {
-    id: "RM003",
-    name: "Red Dye (Industrial)",
-    category: "Dye",
-    currentStock: 85,
-    unit: "liters",
-    cost: 180,
-    supplier: "ColorChem Industries",
-    location: "Warehouse B - Section 1"
-  },
-  {
-    id: "RM004",
-    name: "Blue Dye (Industrial)",
-    category: "Dye",
-    currentStock: 92,
-    unit: "liters",
-    cost: 190,
-    supplier: "ColorChem Industries",
-    location: "Warehouse B - Section 1"
-  },
-  {
-    id: "RM005",
-    name: "Latex Solution",
-    category: "Chemical",
-    currentStock: 120,
-    unit: "liters",
-    cost: 320,
-    supplier: "ChemCorp Ltd",
-    location: "Warehouse B - Section 2"
-  },
-  {
-    id: "RM006",
-    name: "Backing Cloth",
-    category: "Fabric",
-    currentStock: 300,
-    unit: "sqm",
-    cost: 25,
-    supplier: "FabricWorld",
-    location: "Warehouse C - Section 1"
-  }
-];
+interface ProductionProduct {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  targetQuantity: number;
+  currentStep: number;
+  totalSteps: number;
+  status: "planning" | "in-progress" | "completed" | "on-hold";
+  priority: "low" | "medium" | "high" | "urgent";
+  startDate: string;
+  expectedCompletion: string;
+  actualCompletion?: string;
+  materials: ProductionMaterial[];
+  steps: ProductionStep[];
+  imageUrl?: string;
+}
 
-// Enhanced default production steps with better descriptions and material requirements
+interface ProductionMaterial {
+  id: string;
+  materialId: string;
+  materialName: string;
+  category: string;
+  requiredQuantity: number;
+  consumedQuantity: number;
+  wasteQuantity: number;
+  unit: string;
+  costPerUnit: number;
+  totalCost: number;
+  status: "available" | "insufficient" | "consumed";
+}
+
+interface ProductionStep {
+  id: string;
+  stepNumber: number;
+  name: string;
+  description: string;
+  status: "pending" | "in-progress" | "completed" | "on-hold";
+  startTime?: string;
+  completionTime?: string;
+  operator?: string;
+  materials: ProductionMaterial[];
+  waste: number;
+  defects: number;
+  qualityGrade: "A+" | "A" | "B" | "C" | "rejected";
+  notes: string;
+}
+
 const defaultProductionSteps = [
   {
-    id: 1,
+    id: "1",
+    stepNumber: 1,
     name: "Material Preparation",
-    description: "Prepare and organize raw materials for production. Check material quality and availability.",
+    description: "Prepare and organize raw materials for production",
     status: "pending" as const,
-    progress: 0,
     materials: [],
-    expectedOutput: 0,
+    waste: 0,
+    defects: 0,
+    qualityGrade: "A" as const,
     notes: ""
   },
   {
-    id: 2,
-    name: "Punching/Weaving",
-    description: "Create the base carpet structure through punching or weaving process. This is the foundation layer.",
-    status: "pending" as const,
-    progress: 0,
-    materials: [],
-    expectedOutput: 0,
-    notes: ""
-  },
-  {
-    id: 3,
+    id: "2",
+    stepNumber: 2,
     name: "Dyeing Process",
-    description: "Apply color and dye treatments to the carpet. Ensure color consistency and quality.",
+    description: "Apply dyes and color treatments to materials",
     status: "pending" as const,
-    progress: 0,
     materials: [],
-    expectedOutput: 0,
+    waste: 0,
+    defects: 0,
+    qualityGrade: "A" as const,
     notes: ""
   },
   {
-    id: 4,
-    name: "Cutting & Finishing",
-    description: "Cut to size and apply final finishing touches. Quality check for dimensions and finish.",
+    id: "3",
+    stepNumber: 3,
+    name: "Cutting & Shaping",
+    description: "Cut materials to required dimensions and shapes",
     status: "pending" as const,
-    progress: 0,
     materials: [],
-    expectedOutput: 0,
+    waste: 0,
+    defects: 0,
+    qualityGrade: "A" as const,
     notes: ""
   },
   {
-    id: 5,
+    id: "4",
+    stepNumber: 4,
+    name: "Assembly",
+    description: "Assemble components into final product",
+    status: "pending" as const,
+    materials: [],
+    waste: 0,
+    defects: 0,
+    qualityGrade: "A" as const,
+    notes: ""
+  },
+  {
+    id: "5",
+    stepNumber: 5,
     name: "Quality Inspection",
-    description: "Final quality check and inspection before completion. Generate individual product IDs and QR codes.",
+    description: "Final quality check and grading",
     status: "pending" as const,
-    progress: 0,
     materials: [],
-    expectedOutput: 0,
+    waste: 0,
+    defects: 0,
+    qualityGrade: "A" as const,
     notes: ""
   }
 ];
-
-// Sample production products
-const productionProducts: ProductionProduct[] = [
-  {
-    id: "PROD001",
-    batchNumber: "BATCH-2024-001",
-    productName: "Wool Blend Carpet",
-    productId: "PROD003", // Existing product ID
-    isNewProduct: false,
-    category: "Handmade",
-    color: "Green & Brown",
-    size: "10x12 feet",
-    pattern: "Tribal",
-    quantity: 3,
-    unit: "pieces",
-    status: "active",
-    currentStep: 3,
-    totalSteps: 5,
-    progress: 60,
-    startDate: "2024-01-15",
-    expectedCompletion: "2024-01-25",
-    location: "Factory Floor 1",
-    notes: "Premium wool blend production for luxury market",
-    totalCost: 17130,
-    sellingPrice: 35000,
-    priority: "high",
-    imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
-    steps: [
-      {
-        id: 1,
-        name: "Material Preparation",
-        description: "Prepare and organize raw materials for production",
-        status: "completed",
-        progress: 100,
-        materials: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 25, usedQuantity: 25, unit: "rolls", cost: 11250, supplier: "Premium Textiles Ltd" },
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 6, usedQuantity: 6, unit: "liters", cost: 1080, supplier: "ColorChem Industries" }
-        ],
-        expectedOutput: 3,
-        actualOutput: 3,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-15",
-        completionDate: "2024-01-16",
-        notes: "All materials prepared successfully",
-        inspector: "Ahmed Khan",
-        inspectionDate: "2024-01-16",
-        inspectionNotes: "Materials meet quality standards"
-      },
-      {
-        id: 2,
-        name: "Punching/Weaving",
-        description: "Create the base carpet structure through punching or weaving",
-        status: "completed",
-        progress: 100,
-        materials: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 25, usedQuantity: 24, unit: "rolls", cost: 10800, supplier: "Premium Textiles Ltd" }
-        ],
-        expectedOutput: 3,
-        actualOutput: 3,
-        waste: 1,
-        defective: 0,
-        startDate: "2024-01-17",
-        completionDate: "2024-01-19",
-        notes: "Weaving completed with minimal waste",
-        inspector: "Priya Sharma",
-        inspectionDate: "2024-01-19",
-        inspectionNotes: "Weaving quality excellent, no defects found"
-      },
-      {
-        id: 3,
-        name: "Dyeing Process",
-        description: "Apply color and dye treatments to the carpet",
-        status: "active",
-        progress: 75,
-        materials: [
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 6, usedQuantity: 4.5, unit: "liters", cost: 810, supplier: "ColorChem Industries" },
-          { materialId: "RM005", materialName: "Latex Solution", requiredQuantity: 15, usedQuantity: 12, unit: "liters", cost: 3840, supplier: "ChemCorp Ltd" }
-        ],
-        expectedOutput: 3,
-        actualOutput: 2,
-        waste: 0.5,
-        defective: 1,
-        startDate: "2024-01-20",
-        notes: "Dyeing in progress, one piece found defective",
-        inspector: "Ahmed Khan",
-        inspectionDate: "2024-01-21",
-        inspectionNotes: "One piece has color variation, needs rework"
-      },
-      {
-        id: 4,
-        name: "Cutting & Finishing",
-        description: "Cut to size and apply final finishing touches",
-        status: "pending",
-        progress: 0,
-        materials: [],
-        expectedOutput: 2,
-        notes: ""
-      },
-      {
-        id: 5,
-        name: "Quality Inspection",
-        description: "Final quality check and inspection before completion",
-        status: "pending",
-        progress: 0,
-        materials: [],
-        expectedOutput: 2,
-        notes: ""
-      }
-    ]
-  },
-  {
-    id: "PROD002",
-    batchNumber: "BATCH-2024-002",
-    productName: "Kids Room Carpet",
-    productId: "PROD004", // Existing product ID
-    isNewProduct: false,
-    category: "Machine Made",
-    color: "Rainbow",
-    size: "5x7 feet",
-    pattern: "Cartoon Characters",
-    quantity: 5,
-    unit: "pieces",
-    status: "active",
-    currentStep: 2,
-    totalSteps: 5,
-    progress: 40,
-    startDate: "2024-01-18",
-    expectedCompletion: "2024-01-28",
-    location: "Factory Floor 2",
-    notes: "Child-safe materials, vibrant colors for kids rooms",
-    totalCost: 6040,
-    sellingPrice: 12000,
-    priority: "normal",
-    imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
-    steps: [
-      {
-        id: 1,
-        name: "Material Preparation",
-        description: "Prepare and organize raw materials for production",
-        status: "completed",
-        progress: 100,
-        materials: [
-          { materialId: "RM002", materialName: "Synthetic Yarn", requiredQuantity: 12, usedQuantity: 12, unit: "rolls", cost: 4560, supplier: "Synthetic Solutions" },
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 4, usedQuantity: 4, unit: "liters", cost: 720, supplier: "ColorChem Industries" },
-          { materialId: "RM004", materialName: "Blue Dye (Industrial)", requiredQuantity: 4, usedQuantity: 4, unit: "liters", cost: 760, supplier: "ColorChem Industries" }
-        ],
-        expectedOutput: 5,
-        actualOutput: 5,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-18",
-        completionDate: "2024-01-19",
-        notes: "All materials prepared successfully",
-        inspector: "Priya Sharma",
-        inspectionDate: "2024-01-19",
-        inspectionNotes: "Materials meet child safety standards"
-      },
-      {
-        id: 2,
-        name: "Punching/Weaving",
-        description: "Create the base carpet structure through punching or weaving",
-        status: "active",
-        progress: 60,
-        materials: [
-          { materialId: "RM002", materialName: "Synthetic Yarn", requiredQuantity: 12, usedQuantity: 8, unit: "rolls", cost: 3040, supplier: "Synthetic Solutions" }
-        ],
-        expectedOutput: 5,
-        actualOutput: 3,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-20",
-        notes: "Weaving in progress, 3 pieces completed",
-        inspector: "Ahmed Khan",
-        inspectionDate: "2024-01-21",
-        inspectionNotes: "Completed pieces meet quality standards"
-      },
-      {
-        id: 3,
-        name: "Dyeing Process",
-        description: "Apply color and dye treatments to the carpet",
-        status: "pending",
-        progress: 0,
-        materials: [],
-        expectedOutput: 5,
-        notes: ""
-      },
-      {
-        id: 4,
-        name: "Cutting & Finishing",
-        description: "Cut to size and apply final finishing touches",
-        status: "pending",
-        progress: 0,
-        materials: [],
-        expectedOutput: 5,
-        notes: ""
-      },
-      {
-        id: 5,
-        name: "Quality Inspection",
-        description: "Final quality check and inspection before completion",
-        status: "pending",
-        progress: 0,
-        materials: [],
-        expectedOutput: 5,
-        notes: ""
-      }
-    ]
-  },
-  {
-    id: "PROD003",
-    batchNumber: "BATCH-2024-003",
-    productName: "Custom Persian Carpet",
-    isNewProduct: true,
-    category: "Handmade",
-    color: "Burgundy & Gold",
-    size: "9x12 feet",
-    pattern: "Persian Medallion",
-    quantity: 2,
-    unit: "pieces",
-    status: "planning",
-    currentStep: 1,
-    totalSteps: 5,
-    progress: 0,
-    startDate: "2024-01-22",
-    expectedCompletion: "2024-02-05",
-    location: "Factory Floor 1",
-    notes: "Custom order for luxury client, premium materials required",
-    totalCost: 0,
-    sellingPrice: 45000,
-    priority: "urgent",
-    imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
-    dimensions: "9' x 12' (2.74m x 3.66m)",
-    weight: "75 kg",
-    thickness: "18 mm",
-    pileHeight: "15 mm",
-    materialComposition: "70% Wool, 30% Silk",
-    steps: defaultProductionSteps.map(step => ({ ...step }))
-  },
-  {
-    id: "PROD004",
-    batchNumber: "BATCH-2024-004",
-    productName: "Traditional Persian Carpet",
-    productId: "PROD001",
-    isNewProduct: false,
-    category: "Handmade",
-    color: "Red & Gold",
-    size: "8x10 feet",
-    pattern: "Persian Medallion",
-    quantity: 4,
-    unit: "pieces",
-    status: "completed",
-    currentStep: 5,
-    totalSteps: 5,
-    progress: 100,
-    startDate: "2024-01-10",
-    expectedCompletion: "2024-01-20",
-    actualCompletion: "2024-01-18",
-    location: "Factory Floor 1",
-    notes: "Successfully completed traditional Persian carpet production",
-    totalCost: 12030,
-    sellingPrice: 25000,
-    priority: "normal",
-    imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
-    individualProducts: [
-      {
-        id: "IND001",
-        qrCode: "QR-CARPET-001-001",
-        productId: "PROD001",
-        manufacturingDate: "2024-01-18",
-        materialsUsed: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 3, usedQuantity: 3, unit: "rolls", cost: 1350, supplier: "Premium Textiles Ltd" },
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 1.6, usedQuantity: 1.6, unit: "liters", cost: 288, supplier: "ColorChem Industries" }
-        ],
-        finalDimensions: "8'2\" x 10'1\" (2.49m x 3.07m)",
-        finalWeight: "46.2 kg",
-        finalThickness: "12.5 mm",
-        finalPileHeight: "8.2 mm",
-        qualityGrade: "A+",
-        inspector: "Ahmed Khan",
-        notes: "Perfect finish, no defects",
-        status: "available"
-      },
-      {
-        id: "IND002",
-        qrCode: "QR-CARPET-001-002",
-        productId: "PROD001",
-        manufacturingDate: "2024-01-18",
-        materialsUsed: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 3, usedQuantity: 3, unit: "rolls", cost: 1350, supplier: "Premium Textiles Ltd" },
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 1.6, usedQuantity: 1.6, unit: "liters", cost: 288, supplier: "ColorChem Industries" }
-        ],
-        finalDimensions: "8'0\" x 10'0\" (2.44m x 3.05m)",
-        finalWeight: "45.0 kg",
-        finalThickness: "12.0 mm",
-        finalPileHeight: "8.0 mm",
-        qualityGrade: "A",
-        inspector: "Ahmed Khan",
-        notes: "Minor color variation",
-        status: "available"
-      },
-      {
-        id: "IND003",
-        qrCode: "QR-CARPET-001-003",
-        productId: "PROD001",
-        manufacturingDate: "2024-01-18",
-        materialsUsed: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 3, usedQuantity: 3, unit: "rolls", cost: 1350, supplier: "Premium Textiles Ltd" },
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 1.6, usedQuantity: 1.6, unit: "liters", cost: 288, supplier: "ColorChem Industries" }
-        ],
-        finalDimensions: "8'1\" x 10'0\" (2.46m x 3.05m)",
-        finalWeight: "45.5 kg",
-        finalThickness: "12.2 mm",
-        finalPileHeight: "8.1 mm",
-        qualityGrade: "A+",
-        inspector: "Ahmed Khan",
-        notes: "Excellent quality, premium finish",
-        status: "available"
-      },
-      {
-        id: "IND004",
-        qrCode: "QR-CARPET-001-004",
-        productId: "PROD001",
-        manufacturingDate: "2024-01-18",
-        materialsUsed: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 3, usedQuantity: 3, unit: "rolls", cost: 1350, supplier: "Premium Textiles Ltd" },
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 1.6, usedQuantity: 1.6, unit: "liters", cost: 288, supplier: "ColorChem Industries" }
-        ],
-        finalDimensions: "8'0\" x 10'1\" (2.44m x 3.07m)",
-        finalWeight: "45.8 kg",
-        finalThickness: "12.3 mm",
-        finalPileHeight: "8.0 mm",
-        qualityGrade: "A",
-        inspector: "Ahmed Khan",
-        notes: "Standard quality, good finish",
-        status: "available"
-      }
-    ],
-    steps: [
-      {
-        id: 1,
-        name: "Material Preparation",
-        description: "Prepare and organize raw materials for production",
-        status: "completed",
-        progress: 100,
-        materials: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 12, usedQuantity: 12, unit: "rolls", cost: 5400, supplier: "Premium Textiles Ltd" },
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 6.4, usedQuantity: 6.4, unit: "liters", cost: 1152, supplier: "ColorChem Industries" }
-        ],
-        expectedOutput: 4,
-        actualOutput: 4,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-10",
-        completionDate: "2024-01-11",
-        notes: "All materials prepared successfully",
-        inspector: "Ahmed Khan",
-        inspectionDate: "2024-01-11",
-        inspectionNotes: "Materials meet quality standards"
-      },
-      {
-        id: 2,
-        name: "Punching/Weaving",
-        description: "Create the base carpet structure through punching or weaving",
-        status: "completed",
-        progress: 100,
-        materials: [
-          { materialId: "RM001", materialName: "Cotton Yarn (Premium)", requiredQuantity: 12, usedQuantity: 12, unit: "rolls", cost: 5400, supplier: "Premium Textiles Ltd" }
-        ],
-        expectedOutput: 4,
-        actualOutput: 4,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-12",
-        completionDate: "2024-01-14",
-        notes: "Weaving completed successfully",
-        inspector: "Priya Sharma",
-        inspectionDate: "2024-01-14",
-        inspectionNotes: "Weaving quality excellent"
-      },
-      {
-        id: 3,
-        name: "Dyeing Process",
-        description: "Apply color and dye treatments to the carpet",
-        status: "completed",
-        progress: 100,
-        materials: [
-          { materialId: "RM003", materialName: "Red Dye (Industrial)", requiredQuantity: 6.4, usedQuantity: 6.4, unit: "liters", cost: 1152, supplier: "ColorChem Industries" },
-          { materialId: "RM005", materialName: "Latex Solution", requiredQuantity: 12, usedQuantity: 12, unit: "liters", cost: 3840, supplier: "ChemCorp Ltd" }
-        ],
-        expectedOutput: 4,
-        actualOutput: 4,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-15",
-        completionDate: "2024-01-16",
-        notes: "Dyeing completed successfully",
-        inspector: "Ahmed Khan",
-        inspectionDate: "2024-01-16",
-        inspectionNotes: "Color consistency excellent"
-      },
-      {
-        id: 4,
-        name: "Cutting & Finishing",
-        description: "Cut to size and apply final finishing touches",
-        status: "completed",
-        progress: 100,
-        materials: [
-          { materialId: "RM006", materialName: "Backing Cloth", requiredQuantity: 32, usedQuantity: 32, unit: "sqm", cost: 800, supplier: "FabricWorld" }
-        ],
-        expectedOutput: 4,
-        actualOutput: 4,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-17",
-        completionDate: "2024-01-17",
-        notes: "Cutting and finishing completed",
-        inspector: "Priya Sharma",
-        inspectionDate: "2024-01-17",
-        inspectionNotes: "Dimensions and finish perfect"
-      },
-      {
-        id: 5,
-        name: "Quality Inspection",
-        description: "Final quality check and inspection before completion",
-        status: "completed",
-        progress: 100,
-        materials: [],
-        expectedOutput: 4,
-        actualOutput: 4,
-        waste: 0,
-        defective: 0,
-        startDate: "2024-01-18",
-        completionDate: "2024-01-18",
-        notes: "Final inspection completed, all pieces approved",
-        inspector: "Ahmed Khan",
-        inspectionDate: "2024-01-18",
-        inspectionNotes: "All pieces meet quality standards, ready for inventory"
-      }
-    ]
-  }
-];
-
-const statusStyles = {
-  "planning": "bg-muted text-muted-foreground",
-  "active": "bg-blue-500 text-white",
-  "paused": "bg-yellow-500 text-white",
-  "completed": "bg-green-500 text-white",
-  "issue": "bg-red-500 text-white"
-};
-
-const priorityStyles = {
-  "normal": "bg-gray-100 text-gray-800",
-  "high": "bg-orange-100 text-orange-800",
-  "urgent": "bg-red-100 text-red-800"
-};
 
 export default function Production() {
   const navigate = useNavigate();
-  const location = useLocation();
-  const [products, setProducts] = useState<ProductionProduct[]>(productionProducts);
+  const { toast } = useToast();
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [productionProducts, setProductionProducts] = useState<ProductionProduct[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [priorityFilter, setPriorityFilter] = useState<"all" | "normal" | "high" | "urgent">("all");
-  const [statusFilter, setStatusFilter] = useState<"all" | "planning" | "active" | "completed">("all");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<ProductionProduct | null>(null);
+  const [newProduct, setNewProduct] = useState({
+    name: "",
+    description: "",
+    category: "",
+    targetQuantity: "",
+    priority: "medium" as const,
+    expectedCompletion: "",
+    imageUrl: ""
+  });
 
-  // Handle incoming products from Products page
+  // Load raw materials from localStorage
   useEffect(() => {
-    if (location.state?.addToProduction) {
-      const { product, quantity, priority, isNewProduct } = location.state.addToProduction;
-      
-      // Load custom steps if this product has been produced before
-      let customSteps: ProductionStep[] = [];
-      if (!isNewProduct && product.id) {
-        const savedSteps = localStorage.getItem(`productSteps_${product.id}`);
-        if (savedSteps) {
-          customSteps = JSON.parse(savedSteps);
-        }
-      }
-      
-      // Combine default steps with custom steps
-      const allSteps = [
-        ...defaultProductionSteps.map(step => ({ ...step })),
-        ...customSteps.map(step => ({ 
-          ...step, 
-          status: "pending" as const,
-          progress: 0,
-          materials: [],
-          expectedOutput: 0,
-          notes: ""
-        }))
-      ];
-      
-      // Create new production batch
-      const newBatch: ProductionProduct = {
-        id: `PROD${Date.now()}`,
-        batchNumber: `BATCH-2024-${String(products.length + 1).padStart(3, '0')}`,
-        productName: product.name,
-        productId: isNewProduct ? undefined : product.id,
-        isNewProduct,
-        category: product.category,
-        color: product.color,
-        size: product.size,
-        pattern: product.pattern,
-        quantity: quantity,
-        unit: product.unit,
-        status: "planning",
-        currentStep: 1,
-        totalSteps: allSteps.length,
-        progress: 0,
-        startDate: new Date().toISOString().split('T')[0],
-        expectedCompletion: new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // 10 days from now
-        location: "Factory Floor 1",
-        notes: `Production batch for ${product.name}. Priority: ${priority}`,
-        totalCost: 0,
-        sellingPrice: product.sellingPrice,
-        priority,
-        imageUrl: product.imageUrl,
-        steps: allSteps
-      };
-      
-      setProducts(prev => [newBatch, ...prev]);
-      
-      // Clear the state to prevent re-adding on refresh
-      navigate('/production', { replace: true });
+    const materials = rawMaterialsStorage.getAll();
+    setRawMaterials(materials);
+    
+    // Load production products from localStorage
+    const savedProducts = localStorage.getItem('rajdhani_production_products');
+    if (savedProducts) {
+      setProductionProducts(JSON.parse(savedProducts));
     }
-  }, [location.state, navigate]);
+  }, []);
 
-  // Filter products based on search and filters
-  const filteredProducts = products.filter(product => {
-    const matchesSearch = product.productName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         product.batchNumber.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesPriority = priorityFilter === "all" || product.priority === priorityFilter;
-    const matchesStatus = statusFilter === "all" || product.status === statusFilter;
-    return matchesSearch && matchesPriority && matchesStatus;
-  });
+  // Save production products to localStorage
+  useEffect(() => {
+    localStorage.setItem('rajdhani_production_products', JSON.stringify(productionProducts));
+  }, [productionProducts]);
 
-  // Calculate statistics for each category
-  const planningProducts = filteredProducts.filter(p => p.status === "planning");
-  const activeProducts = filteredProducts.filter(p => p.status === "active");
-  const completedProducts = filteredProducts.filter(p => p.status === "completed");
+  // Filter and sort production products
+  const filteredProducts = productionProducts
+    .filter(product => {
+      const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           product.category.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesStatus = statusFilter === "all" || product.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    })
+    .sort((a, b) => {
+      // Sort by priority first, then by status
+      const priorityOrder = { urgent: 0, high: 1, medium: 2, low: 3 };
+      const statusOrder = { "in-progress": 0, planning: 1, "on-hold": 2, completed: 3 };
+      
+      const priorityDiff = priorityOrder[a.priority] - priorityOrder[b.priority];
+      if (priorityDiff !== 0) return priorityDiff;
+      
+      return statusOrder[a.status] - statusOrder[b.status];
+    });
 
-  const totalValue = filteredProducts.reduce((sum, p) => sum + (p.quantity * p.sellingPrice), 0);
-  const totalCost = filteredProducts.reduce((sum, p) => sum + p.totalCost, 0);
-  const profit = totalValue - totalCost;
-
-  // Calculate efficiency metrics
-  const averageProgress = activeProducts.length > 0 
-    ? activeProducts.reduce((sum, p) => sum + p.progress, 0) / activeProducts.length 
-    : 0;
-
-  const onTimeProducts = completedProducts.filter(p => {
-    if (!p.actualCompletion) return false;
-    const actualDate = new Date(p.actualCompletion);
-    const expectedDate = new Date(p.expectedCompletion);
-    return actualDate <= expectedDate;
-  });
-
-  const onTimeRate = completedProducts.length > 0 
-    ? (onTimeProducts.length / completedProducts.length) * 100 
-    : 0;
-
-  // Handle product detail navigation
-  const handleProductDetail = (product: ProductionProduct) => {
-    navigate(`/production-detail/${product.id}`, { state: { product } });
+  // Get priority score for sorting
+  const getPriorityScore = (priority: string) => {
+    switch (priority) {
+      case "urgent": return 0;
+      case "high": return 1;
+      case "medium": return 2;
+      case "low": return 3;
+      default: return 4;
+    }
   };
 
-  // Enhanced Production Product Card Component
-  const ProductionCard = ({ product }: { product: ProductionProduct }) => (
-    <Card className="overflow-hidden hover:shadow-lg transition-all duration-300 cursor-pointer group" onClick={() => handleProductDetail(product)}>
-      <div className="relative">
-        <div className="w-full h-48 overflow-hidden">
-          {product.imageUrl ? (
-            <img 
-              src={product.imageUrl} 
-              alt={product.productName}
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-50 to-purple-50">
-              <Package className="w-16 h-16 text-muted-foreground" />
-            </div>
-          )}
-        </div>
-        
-        {/* Priority Badge */}
-        <div className="absolute top-2 left-2">
-          <Badge className={`${
-            product.priority === "urgent" ? "bg-red-500 text-white" :
-            product.priority === "high" ? "bg-orange-500 text-white" :
-            "bg-gray-500 text-white"
-          }`}>
-            {product.priority === "urgent" && <Zap className="w-3 h-3 mr-1" />}
-            {product.priority}
-          </Badge>
-        </div>
+  // Get status color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "planning": return "bg-blue-100 text-blue-800 border-blue-200";
+      case "in-progress": return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "completed": return "bg-green-100 text-green-800 border-green-200";
+      case "on-hold": return "bg-red-100 text-red-800 border-red-200";
+      default: return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  };
 
-        {/* Status Badge */}
-        <div className="absolute top-2 right-2">
-          <Badge className={statusStyles[product.status]}>
-            {product.status === "active" && <Factory className="w-3 h-3 mr-1" />}
-            {product.status === "completed" && <CheckCircle className="w-3 h-3 mr-1" />}
-            {product.status}
-          </Badge>
-        </div>
+  // Get priority color
+  const getPriorityColor = (priority: string) => {
+    switch (priority) {
+      case "urgent": return "bg-red-100 text-red-800 border-red-200";
+      case "high": return "bg-orange-100 text-orange-800 border-orange-200";
+      case "medium": return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "low": return "bg-green-100 text-green-800 border-green-200";
+      default: return "bg-gray-100 text-gray-800 border-gray-200";
+    }
+  };
 
-        {/* Progress Bar */}
-        {product.status === "active" && (
-          <div className="absolute bottom-0 left-0 right-0 bg-black/50 p-2">
-            <div className="flex items-center justify-between text-white text-xs mb-1">
-              <span>Progress</span>
-              <span>{product.progress}%</span>
-            </div>
-            <Progress value={product.progress} className="h-1" />
-          </div>
-        )}
-      </div>
+  // Calculate progress percentage
+  const getProgressPercentage = (product: ProductionProduct) => {
+    if (product.totalSteps === 0) return 0;
+    const completedSteps = product.steps.filter(step => step.status === "completed").length;
+    return (completedSteps / product.totalSteps) * 100;
+  };
 
-      <CardContent className="p-4">
-        <div className="space-y-3">
-          <div>
-            <h3 className="font-semibold text-lg line-clamp-2 group-hover:text-blue-600 transition-colors">{product.productName}</h3>
-            <p className="text-sm text-muted-foreground font-mono">{product.batchNumber}</p>
-          </div>
+  // Handle adding new production product
+  const handleAddProduct = () => {
+    if (!newProduct.name || !newProduct.category || !newProduct.targetQuantity) {
+      toast({
+        title: "⚠️ Missing Required Fields",
+        description: "Please fill in all required fields before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
 
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <MapPin className="w-4 h-4" />
-            <span>{product.location}</span>
-          </div>
+    const product: ProductionProduct = {
+      id: Date.now().toString(),
+      name: newProduct.name,
+      description: newProduct.description,
+      category: newProduct.category,
+      targetQuantity: parseInt(newProduct.targetQuantity),
+      currentStep: 1,
+      totalSteps: defaultProductionSteps.length,
+      status: "planning",
+      priority: newProduct.priority,
+      startDate: new Date().toISOString().split('T')[0],
+      expectedCompletion: newProduct.expectedCompletion,
+      materials: [],
+      steps: defaultProductionSteps.map(step => ({ ...step, id: `${Date.now()}_${step.stepNumber}` })),
+      imageUrl: newProduct.imageUrl
+    };
 
-          <div className="grid grid-cols-2 gap-2 text-sm">
-            <div>
-              <span className="text-muted-foreground">Quantity: </span>
-              <span className="font-medium">{product.quantity} {product.unit}</span>
-            </div>
-            <div>
-              <span className="text-muted-foreground">Value: </span>
-              <span className="font-medium">₹{(product.quantity * product.sellingPrice).toLocaleString()}</span>
-            </div>
-          </div>
+    setProductionProducts(prev => [product, ...prev]);
+    setIsAddProductOpen(false);
+    setNewProduct({
+      name: "",
+      description: "",
+      category: "",
+      targetQuantity: "",
+      priority: "medium",
+      expectedCompletion: "",
+      imageUrl: ""
+    });
 
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Calendar className="w-4 h-4" />
-            <span>Started: {new Date(product.startDate).toLocaleDateString()}</span>
-          </div>
+    toast({
+      title: "✅ Production Product Created!",
+      description: `${product.name} has been added to production queue.`,
+      variant: "default",
+    });
+  };
 
-          {product.status === "active" && (
-            <div className="flex items-center gap-2 text-sm text-blue-600">
-              <Cog className="w-4 h-4" />
-              <span>Step {product.currentStep} of {product.totalSteps}</span>
-            </div>
-          )}
+  // Handle starting production
+  const handleStartProduction = (product: ProductionProduct) => {
+    const updatedProduct = { ...product, status: "in-progress" as const };
+    setProductionProducts(prev => 
+      prev.map(p => p.id === product.id ? updatedProduct : p)
+    );
+    
+    toast({
+      title: "🚀 Production Started!",
+      description: `${product.name} production has begun.`,
+      variant: "default",
+    });
+  };
 
-          {product.status === "completed" && (
-            <div className="flex items-center gap-2 text-sm text-green-600">
-              <CheckCircle className="w-4 h-4" />
-              <span>Completed: {product.actualCompletion ? new Date(product.actualCompletion).toLocaleDateString() : 'N/A'}</span>
-            </div>
-          )}
+  // Handle viewing production details
+  const handleViewDetails = (product: ProductionProduct) => {
+    navigate(`/production/${product.id}`, { state: { product } });
+  };
 
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Ruler className="w-4 h-4" />
-            <span>{product.size}</span>
-          </div>
+  // Get production statistics
+  const getProductionStats = () => {
+    const total = productionProducts.length;
+    const planning = productionProducts.filter(p => p.status === "planning").length;
+    const inProgress = productionProducts.filter(p => p.status === "in-progress").length;
+    const completed = productionProducts.filter(p => p.status === "completed").length;
+    const onHold = productionProducts.filter(p => p.status === "on-hold").length;
 
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Scale className="w-4 h-4" />
-            <span>{product.category}</span>
-          </div>
+    return { total, planning, inProgress, completed, onHold };
+  };
 
-          <Button className="w-full" variant="outline" size="sm">
-            <Eye className="w-4 h-4 mr-2" />
-            View Details
-          </Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
+  const stats = getProductionStats();
 
   return (
     <div className="flex-1 space-y-6 p-6">
       <Header 
         title="Production Management" 
-        subtitle="Track production batches, manage workflow steps, and monitor material usage with complete traceability"
+        subtitle="Manage production workflows, track progress, and optimize manufacturing processes"
       />
 
-      {/* Enhanced Overview Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="border-l-4 border-l-blue-500">
+          {/* Production Overview Cards */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Batches</CardTitle>
-            <Package className="h-4 w-4 text-blue-500" />
+            <CardTitle className="text-sm font-medium">Total Products</CardTitle>
+            <Package className="h-4 w-4 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{filteredProducts.length}</div>
+            <div className="text-2xl font-bold">{stats.total}</div>
             <p className="text-xs text-muted-foreground">
-              Production batches
+              In production queue
             </p>
           </CardContent>
         </Card>
-        
-        <Card className="border-l-4 border-l-green-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">In Process</CardTitle>
-            <Factory className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-500">{activeProducts.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Currently running
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card className="border-l-4 border-l-purple-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Planning</CardTitle>
+            <Clock className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+            <div className="text-2xl font-bold">{stats.planning}</div>
+                <p className="text-xs text-muted-foreground">
+              Ready to start
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">In Progress</CardTitle>
+            <Play className="h-4 w-4 text-yellow-600" />
+              </CardHeader>
+              <CardContent>
+            <div className="text-2xl font-bold">{stats.inProgress}</div>
+                <p className="text-xs text-muted-foreground">
+              Currently manufacturing
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Completed</CardTitle>
-            <CheckCircle className="h-4 w-4 text-purple-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-purple-500">{completedProducts.length}</div>
-            <p className="text-xs text-muted-foreground">
-              Finished batches
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card className="border-l-4 border-l-orange-500">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Value</CardTitle>
-            <TrendingUp className="h-4 w-4 text-orange-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">₹{totalValue.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              Production value
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Enhanced Performance Metrics */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Average Progress</CardTitle>
-            <Gauge className="h-4 w-4 text-blue-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-500">{averageProgress.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground">
-              Active batches
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">On-Time Rate</CardTitle>
-            <Target className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-500">{onTimeRate.toFixed(1)}%</div>
-            <p className="text-xs text-muted-foreground">
-              Completed on schedule
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Cost</CardTitle>
-            <BarChart3 className="h-4 w-4 text-red-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-red-500">₹{totalCost.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              Production costs
-            </p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Profit Margin</CardTitle>
-            <TrendingUp className="h-4 w-4 text-green-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-500">₹{profit.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              Net profit
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Search and Filter Controls */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1">
-              <input
-                type="text"
-                placeholder="Search by product name or batch number..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
-            <div className="flex gap-2">
-              <select
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={priorityFilter}
-                onChange={(e) => setPriorityFilter(e.target.value as any)}
-              >
-                <option value="all">All Priorities</option>
-                <option value="normal">Normal</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
-              <select
-                className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value as any)}
-              >
-                <option value="all">All Status</option>
-                <option value="planning">Planning</option>
-                <option value="active">Active</option>
-                <option value="completed">Completed</option>
-              </select>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Production Categories */}
-      <Tabs defaultValue="planning" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="planning" className="flex items-center gap-2">
-            <Clock className="w-4 h-4" />
-            Planning ({planningProducts.length})
-          </TabsTrigger>
-          <TabsTrigger value="active" className="flex items-center gap-2">
-            <Factory className="w-4 h-4" />
-            In Process ({activeProducts.length})
-          </TabsTrigger>
-          <TabsTrigger value="completed" className="flex items-center gap-2">
-            <CheckCircle className="w-4 h-4" />
-            Completed ({completedProducts.length})
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="planning" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Production Planning</h2>
-            <p className="text-muted-foreground">Products waiting to start production</p>
-          </div>
-
-          {planningProducts.length === 0 ? (
-            <Card className="p-8 text-center">
-              <Package className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No Products in Planning</h3>
-              <p className="text-muted-foreground">Add products from the Products page to start production</p>
+            <CheckCircle className="h-4 w-4 text-green-600" />
+              </CardHeader>
+              <CardContent>
+            <div className="text-2xl font-bold">{stats.completed}</div>
+                <p className="text-xs text-muted-foreground">
+              Finished products
+                </p>
+              </CardContent>
             </Card>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {planningProducts.map((product) => (
-                <ProductionCard key={product.id} product={product} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="active" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Active Production</h2>
-            <p className="text-muted-foreground">Products currently in production</p>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">On Hold</CardTitle>
+            <Pause className="h-4 w-4 text-red-600" />
+              </CardHeader>
+              <CardContent>
+            <div className="text-2xl font-bold">{stats.onHold}</div>
+                <p className="text-xs text-muted-foreground">
+              Paused production
+                </p>
+              </CardContent>
+            </Card>
           </div>
 
-          {activeProducts.length === 0 ? (
-            <Card className="p-8 text-center">
-              <Factory className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No Active Production</h3>
-              <p className="text-muted-foreground">Start production from the planning stage</p>
-            </Card>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {activeProducts.map((product) => (
-                <ProductionCard key={product.id} product={product} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-
-        <TabsContent value="completed" className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-2xl font-bold">Completed Production</h2>
-            <p className="text-muted-foreground">Successfully completed production batches</p>
+      {/* Production Controls */}
+      <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center justify-between">
+        <div className="flex flex-col sm:flex-row gap-4 flex-1 min-w-0">
+          <div className="relative flex-1 min-w-0">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+            <Input 
+              placeholder="Search production products..." 
+              className="pl-10" 
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
           </div>
-          
-          {completedProducts.length === 0 ? (
-            <Card className="p-8 text-center">
-              <CheckCircle className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-              <h3 className="text-lg font-semibold mb-2">No Completed Production</h3>
-              <p className="text-muted-foreground">Completed batches will appear here</p>
-            </Card>
-          ) : (
-            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {completedProducts.map((product) => (
-                <ProductionCard key={product.id} product={product} />
-              ))}
-            </div>
-          )}
-        </TabsContent>
-      </Tabs>
+          <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="All Status" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Status</SelectItem>
+              <SelectItem value="planning">Planning</SelectItem>
+              <SelectItem value="in-progress">In Progress</SelectItem>
+              <SelectItem value="completed">Completed</SelectItem>
+              <SelectItem value="on-hold">On Hold</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Dialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen}>
+            <DialogTrigger asChild>
+              <Button className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Add Production Product
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-md">
+              <DialogHeader>
+                <DialogTitle>Add New Production Product</DialogTitle>
+                <DialogDescription>
+                  Create a new product for production with workflow steps
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="productName">Product Name *</Label>
+                  <Input
+                    id="productName"
+                    value={newProduct.name}
+                    onChange={(e) => setNewProduct({...newProduct, name: e.target.value})}
+                    placeholder="e.g., Traditional Persian Carpet"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="productDescription">Description</Label>
+                  <Textarea
+                    id="productDescription"
+                    value={newProduct.description}
+                    onChange={(e) => setNewProduct({...newProduct, description: e.target.value})}
+                    placeholder="Product description and specifications"
+                    rows={3}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="productCategory">Category *</Label>
+                    <Select value={newProduct.category} onValueChange={(value) => setNewProduct({...newProduct, category: value})}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Carpet">Carpet</SelectItem>
+                        <SelectItem value="Rug">Rug</SelectItem>
+                        <SelectItem value="Tapestry">Tapestry</SelectItem>
+                        <SelectItem value="Textile">Textile</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="productPriority">Priority *</Label>
+                    <Select value={newProduct.priority} onValueChange={(value: any) => setNewProduct({...newProduct, priority: value})}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select priority" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Medium</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                        <SelectItem value="urgent">Urgent</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                    <Label htmlFor="targetQuantity">Target Quantity *</Label>
+                    <Input
+                      id="targetQuantity"
+                      type="number"
+                      value={newProduct.targetQuantity}
+                      onChange={(e) => setNewProduct({...newProduct, targetQuantity: e.target.value})}
+                      placeholder="100"
+                      min="1"
+                    />
+                    </div>
+                  <div>
+                    <Label htmlFor="expectedCompletion">Expected Completion</Label>
+                    <Input
+                      id="expectedCompletion"
+                      type="date"
+                      value={newProduct.expectedCompletion}
+                      onChange={(e) => setNewProduct({...newProduct, expectedCompletion: e.target.value})}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                    </div>
+                  </div>
+                    </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddProduct}>
+                  Create Product
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+                    </div>
+                  </div>
+
+      {/* Production Products List */}
+      <div className="space-y-6">
+        {filteredProducts.map((product) => (
+          <Card key={product.id} className="hover:shadow-lg transition-shadow">
+            <CardContent className="p-6">
+              <div className="flex flex-col lg:flex-row gap-6">
+                {/* Product Info */}
+                <div className="flex-1">
+                  <div className="flex items-start justify-between mb-4">
+                    <div>
+                      <h3 className="text-xl font-semibold text-foreground mb-2">{product.name}</h3>
+                      <p className="text-muted-foreground mb-3">{product.description}</p>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-muted-foreground">Category: {product.category}</span>
+                        <span className="text-muted-foreground">Target: {product.targetQuantity} units</span>
+                        <span className="text-muted-foreground">Started: {new Date(product.startDate).toLocaleDateString()}</span>
+                      </div>
+                            </div>
+                    <div className="flex items-center gap-2">
+                      <Badge className={getPriorityColor(product.priority)}>
+                        {product.priority.charAt(0).toUpperCase() + product.priority.slice(1)}
+                      </Badge>
+                      <Badge className={getStatusColor(product.status)}>
+                        {product.status.replace("-", " ")}
+                              </Badge>
+                            </div>
+                          </div>
+
+                  {/* Progress Bar */}
+                  <div className="mb-4">
+                    <div className="flex justify-between text-sm text-muted-foreground mb-2">
+                      <span>Production Progress</span>
+                      <span>{Math.round(getProgressPercentage(product))}%</span>
+                    </div>
+                    <Progress value={getProgressPercentage(product)} className="h-2" />
+                            </div>
+
+                  {/* Action Buttons */}
+                  <div className="flex items-center gap-2">
+                    {product.status === "planning" && (
+                      <Button 
+                        onClick={() => handleStartProduction(product)}
+                        className="flex items-center gap-2"
+                      >
+                        <Play className="w-4 h-4" />
+                        Start Production
+                      </Button>
+                    )}
+                    {product.status === "in-progress" && (
+                      <Button 
+                        variant="outline"
+                        onClick={() => handleViewDetails(product)}
+                        className="flex items-center gap-2"
+                      >
+                        <Edit className="w-4 h-4" />
+                        Manage Production
+                      </Button>
+                    )}
+                    <Button 
+                      variant="outline"
+                      onClick={() => handleViewDetails(product)}
+                      className="flex items-center gap-2"
+                    >
+                      <Eye className="w-4 h-4" />
+                      View Details
+                    </Button>
+                          </div>
+                        </div>
+
+                {/* Production Steps Flow */}
+                <div className="lg:w-96">
+                  <h4 className="font-medium text-foreground mb-3">Production Steps</h4>
+                  <div className="space-y-2">
+                    {product.steps.map((step, index) => (
+                      <div key={step.id} className="flex items-center gap-3">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${
+                          step.status === "completed" 
+                            ? "bg-green-500 text-white" 
+                            : step.status === "in-progress"
+                            ? "bg-yellow-500 text-white"
+                            : "bg-gray-200 text-gray-600"
+                        }`}>
+                          {step.status === "completed" ? (
+                            <CheckCircle className="w-4 h-4" />
+                          ) : step.status === "in-progress" ? (
+                            <Play className="w-4 h-4" />
+                          ) : (
+                            step.stepNumber
+                          )}
+                              </div>
+                        <div className="flex-1">
+                          <div className="text-sm font-medium text-foreground">{step.name}</div>
+                          <div className="text-xs text-muted-foreground">{step.description}</div>
+                            </div>
+                        {index < product.steps.length - 1 && (
+                          <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+
+        {filteredProducts.length === 0 && (
+          <Card>
+            <CardContent className="text-center py-12">
+              <Package className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">No Production Products</h3>
+              <p className="text-muted-foreground mb-6">
+                Start by adding your first production product to begin manufacturing.
+              </p>
+              <Button onClick={() => setIsAddProductOpen(true)}>
+                <Plus className="w-4 h-4 mr-2" />
+                Add Production Product
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+          </div>
     </div>
   );
 }

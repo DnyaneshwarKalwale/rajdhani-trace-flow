@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,8 +23,34 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, TrendingDown, Package, AlertTriangle, Recycle, ShoppingCart, History, Upload, Image, X, Download, FileSpreadsheet, CheckCircle, AlertCircle } from "lucide-react";
+import { Plus, Search, TrendingDown, Package, AlertTriangle, Recycle, ShoppingCart, History, Upload, Image, X, Download, FileSpreadsheet, CheckCircle, AlertCircle, Clock } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { rawMaterialsStorage, materialOrdersStorage, suppliersStorage } from "@/utils/localStorage";
+import { useToast } from "@/hooks/use-toast";
+
+/*
+ * MATERIAL HANDLING LOGIC:
+ * 
+ * 1. "Create Material Order" (Materials page):
+ *    - ALWAYS creates NEW materials
+ *    - Even if name is same, different supplier/price/quality = NEW material
+ *    - Order goes to Manage Stock page
+ *    - When delivered, checks for EXACT matches in existing inventory
+ * 
+ * 2. "Add to Inventory" (Materials page):
+ *    - ALWAYS creates NEW materials
+ *    - For adding materials directly to inventory
+ *    - No merging with existing materials
+ * 
+ * 3. "Restock" (Manage Stock page):
+ *    - Only when order is delivered
+ *    - Checks ALL fields: name, brand, category, supplier, price, quality, unit
+ *    - If EXACT match found = RESTOCK (update existing)
+ *    - If ANY field different = NEW MATERIAL (create new entry)
+ * 
+ * This ensures materials with same name but different specifications
+ * are treated as separate products, maintaining inventory accuracy.
+ */
 
 interface RawMaterial {
   id: string;
@@ -35,164 +61,80 @@ interface RawMaterial {
   unit: string;
   minThreshold: number;
   maxCapacity: number;
+  reorderPoint: number;
   lastRestocked: string;
   dailyUsage: number;
-  status: "sufficient" | "low" | "critical" | "out-of-stock";
+  status: "in-stock" | "low-stock" | "out-of-stock" | "overstock";
   supplier: string;
+  supplierId: string;
   costPerUnit: number;
-  supplierId?: string;
-  imageUrl?: string; // Added image URL
+  totalValue: number;
+  batchNumber: string;
+
+
+  imageUrl?: string;
+  materialsUsed: MaterialConsumption[];
+  supplierPerformance: number;
 }
 
-const rawMaterials: RawMaterial[] = [
-  {
-    id: "1",
-    name: "Cotton Yarn (Premium)",
-    brand: "TextilePro",
-    category: "Base Materials",
-    currentStock: 45,
-    unit: "rolls",
-    minThreshold: 100,
-    maxCapacity: 500,
-    lastRestocked: "2024-01-10",
-    dailyUsage: 8,
-    status: "low",
-    supplier: "Gujarat Textiles Ltd",
-    costPerUnit: 450,
-    supplierId: "supplier_1",
-    imageUrl: "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=150&h=150&fit=crop&crop=center"
-  },
-  {
-    id: "2",
-    name: "Cotton Yarn (Premium)",
-    brand: "PremiumYarn",
-    category: "Base Materials",
-    currentStock: 120,
-    unit: "rolls",
-    minThreshold: 100,
-    maxCapacity: 500,
-    lastRestocked: "2024-01-12",
-    dailyUsage: 8,
-    status: "sufficient",
-    supplier: "ABC Textiles Ltd",
-    costPerUnit: 520,
-    supplierId: "supplier_2",
-    imageUrl: "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=150&h=150&fit=crop&crop=center"
-  },
-  {
-    id: "3",
-    name: "Red Dye (Industrial)",
-    brand: "ColorMax",
-    category: "Dyes & Chemicals",
-    currentStock: 85,
-    unit: "liters",
-    minThreshold: 50,
-    maxCapacity: 200,
-    lastRestocked: "2024-01-12",
-    dailyUsage: 3,
-    status: "sufficient",
-    supplier: "Chemical Works India",
-    costPerUnit: 180,
-    supplierId: "supplier_3",
-    imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center"
-  },
-  {
-    id: "4",
-    name: "Red Dye (Industrial)",
-    brand: "DyeMaster",
-    category: "Dyes & Chemicals",
-    currentStock: 25,
-    unit: "liters",
-    minThreshold: 50,
-    maxCapacity: 200,
-    lastRestocked: "2024-01-08",
-    dailyUsage: 3,
-    status: "low",
-    supplier: "Industrial Colors Co",
-    costPerUnit: 165,
-    supplierId: "supplier_4",
-    imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center"
-  },
-  {
-    id: "5",
-    name: "Latex Solution",
-    brand: "FlexiChem",
-    category: "Finishing Materials",
-    currentStock: 0,
-    unit: "liters",
-    minThreshold: 50,
-    maxCapacity: 150,
-    lastRestocked: "2024-01-05",
-    dailyUsage: 5,
-    status: "out-of-stock",
-    supplier: "Industrial Chemicals Co",
-    costPerUnit: 320,
-    supplierId: "supplier_5",
-    imageUrl: "https://images.unsplash.com/photo-1581094794329-c8112a89af12?w=150&h=150&fit=crop&crop=center"
-  },
-  {
-    id: "6",
-    name: "Backing Cloth",
-    brand: "SupportFabric",
-    category: "Base Materials",
-    currentStock: 150,
-    unit: "sqm",
-    minThreshold: 100,
-    maxCapacity: 1000,
-    lastRestocked: "2024-01-14",
-    dailyUsage: 12,
-    status: "sufficient",
-    supplier: "Fabric Solutions Ltd",
-    costPerUnit: 25,
-    supplierId: "supplier_6",
-    imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center"
-  },
-  {
-    id: "7",
-    name: "Blue Dye (Industrial)",
-    brand: "ColorMax",
-    category: "Dyes & Chemicals",
-    currentStock: 12,
-    unit: "liters",
-    minThreshold: 50,
-    maxCapacity: 200,
-    lastRestocked: "2024-01-08",
-    dailyUsage: 4,
-    status: "critical",
-    supplier: "Chemical Works India",
-    costPerUnit: 190,
-    supplierId: "supplier_7",
-    imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center"
-  },
-  {
-    id: "8",
-    name: "Synthetic Yarn",
-    brand: "ModernTextile",
-    category: "Base Materials",
-    currentStock: 200,
-    unit: "rolls",
-    minThreshold: 150,
-    maxCapacity: 600,
-    lastRestocked: "2024-01-15",
-    dailyUsage: 10,
-    status: "sufficient",
-    supplier: "Synthetic Yarn Co",
-    costPerUnit: 380,
-    supplierId: "supplier_8",
-    imageUrl: "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=150&h=150&fit=crop&crop=center"
-  }
-];
+interface MaterialConsumption {
+  id: string;
+  productionBatchId: string;
+  stepId: number;
+  stepName: string;
+  consumedQuantity: number;
+  wasteQuantity: number;
+  consumptionDate: string;
+  operator: string;
+  productId?: string;
+  individualProductId?: string;
+}
+
+interface MaterialPurchase {
+  id: string;
+  materialId: string;
+  materialName: string;
+  supplierId: string;
+  supplierName: string;
+  quantity: number;
+  unit: string;
+  costPerUnit: number;
+  totalCost: number;
+  purchaseDate: string;
+  expectedDelivery: string;
+  status: "ordered" | "in-transit" | "received" | "inspected";
+  inspector: string;
+  inspectionDate: string;
+  notes: string;
+}
+
+interface StockAlert {
+  id: string;
+  materialId: string;
+  materialName: string;
+  alertType: "low-stock" | "out-of-stock" | "overstock" | "expiry";
+  currentLevel: number;
+  threshold: number;
+  severity: "low" | "medium" | "high" | "critical";
+  message: string;
+  date: string;
+  status: "active" | "acknowledged" | "resolved";
+}
+
+// Raw materials will be loaded from localStorage
 
 const statusStyles = {
-  sufficient: "bg-success text-success-foreground",
-  low: "bg-warning text-warning-foreground",
-  critical: "bg-destructive text-destructive-foreground",
-  "out-of-stock": "bg-destructive text-destructive-foreground"
+  "in-stock": "bg-success text-success-foreground",
+  "low-stock": "bg-warning text-warning-foreground",
+  "out-of-stock": "bg-destructive text-destructive-foreground",
+  "overstock": "bg-blue-100 text-blue-800 border-blue-200"
 };
 
 export default function Materials() {
   const navigate = useNavigate();
   const location = useLocation();
+  const { toast } = useToast();
+  const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -200,22 +142,27 @@ export default function Materials() {
   const [isAddToInventoryOpen, setIsAddToInventoryOpen] = useState(false);
   const [isImportInventoryOpen, setIsImportInventoryOpen] = useState(false); // New state for import
   const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false); // New state for details
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
   const [newMaterial, setNewMaterial] = useState({
     name: "",
     brand: "",
     category: "",
+    batchNumber: "",
+    currentStock: "",
     unit: "",
     minThreshold: "",
     maxCapacity: "",
     supplier: "",
     costPerUnit: "",
+    expectedDelivery: "",
     imageUrl: ""
   });
   const [newInventoryMaterial, setNewInventoryMaterial] = useState({
     name: "",
     brand: "",
     category: "",
+    batchNumber: "",
     currentStock: "",
     unit: "",
     minThreshold: "",
@@ -232,10 +179,117 @@ export default function Materials() {
     expectedDelivery: "",
     notes: ""
   });
+
+  // Remove materials with duplicate batch numbers
+  const removeDuplicateBatchNumbers = (materials: RawMaterial[]) => {
+    const seen = new Set<string>();
+    const uniqueMaterials = materials.filter(material => {
+      if (seen.has(material.batchNumber)) {
+        console.log(`Removing duplicate batch number: ${material.batchNumber} for material: ${material.name}`);
+        return false;
+      }
+      seen.add(material.batchNumber);
+      return true;
+    });
+    
+    if (uniqueMaterials.length !== materials.length) {
+      console.log(`Removed ${materials.length - uniqueMaterials.length} materials with duplicate batch numbers`);
+      // Update localStorage with unique materials
+      localStorage.setItem('rajdhani_raw_materials', JSON.stringify(uniqueMaterials));
+    }
+    
+    return uniqueMaterials;
+  };
+
+  // Initialize localStorage and load raw materials
+  useEffect(() => {
+    // Only initialize if localStorage is empty (first time)
+    if (rawMaterialsStorage.needsInitialization()) {
+      rawMaterialsStorage.initialize();
+    }
+    
+    // Load raw materials from localStorage
+    const materials = rawMaterialsStorage.getAll();
+    
+    // Remove any materials with duplicate batch numbers
+    const uniqueMaterials = removeDuplicateBatchNumbers(materials);
+    setRawMaterials(uniqueMaterials);
+    
+    // Process any pre-filled order data from navigation
+    if (location.state?.prefillOrder) {
+      const { materialName, supplier, quantity, unit, costPerUnit } = location.state.prefillOrder;
+      setOrderDetails({
+        quantity: quantity?.toString() || "",
+        unit: unit || "",
+        supplier: supplier || "",
+        costPerUnit: costPerUnit?.toString() || "",
+        expectedDelivery: "",
+        notes: ""
+      });
+      setIsOrderDialogOpen(true);
+    }
+  }, [location.state]);
+  
+  // Show stock update notifications when page loads
+  useEffect(() => {
+    // Check if there are any recent stock updates from localStorage
+    const lastStockUpdate = localStorage.getItem('last_stock_update');
+    if (lastStockUpdate) {
+      try {
+        const updateInfo = JSON.parse(lastStockUpdate);
+        const timeDiff = Date.now() - updateInfo.timestamp;
+        
+        // Show notification if update was within last 5 minutes
+        if (timeDiff < 5 * 60 * 1000) {
+          let title = "📊 Stock Recently Updated";
+          let description = `${updateInfo.materialName} stock updated to ${updateInfo.newStock} ${updateInfo.unit}`;
+          
+          // Customize notification based on action type
+          if (updateInfo.action === 'added_to_inventory') {
+            title = "🆕 New Material Added";
+            description = `${updateInfo.materialName} added to inventory with ${updateInfo.newStock} ${updateInfo.unit}`;
+          } else if (updateInfo.action === 'imported_inventory') {
+            title = "📥 Inventory Imported";
+            description = `${updateInfo.newStock} materials imported to inventory`;
+          } else if (updateInfo.action === 'order_delivered') {
+            title = "📦 Stock Restocked";
+            description = `${updateInfo.materialName} stock increased by ${updateInfo.quantity} ${updateInfo.unit} (${updateInfo.oldStock} → ${updateInfo.newStock})`;
+          } else if (updateInfo.action === 'new_material_added') {
+            title = "🆕 New Material Added";
+            description = `${updateInfo.materialName} (${updateInfo.supplier}) added as new material with ${updateInfo.quantity} ${updateInfo.unit}`;
+          }
+          
+          toast({
+            title: title,
+            description: description,
+            variant: "default",
+          });
+        }
+        
+        // Clear the notification after showing
+        localStorage.removeItem('last_stock_update');
+      } catch (error) {
+        console.error('Error parsing stock update info:', error);
+      }
+    }
+  }, [toast]);
+  
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [selectedInventoryImage, setSelectedInventoryImage] = useState<File | null>(null);
   const [inventoryImagePreview, setInventoryImagePreview] = useState<string>("");
+  
+  // Restock functionality states
+  const [isRestockDialogOpen, setIsRestockDialogOpen] = useState(false);
+  const [selectedRestockMaterial, setSelectedRestockMaterial] = useState<RawMaterial | null>(null);
+  const [restockForm, setRestockForm] = useState({
+    supplier: "",
+    brand: "",
+    quantity: "",
+    costPerUnit: "",
+    expectedDelivery: "",
+    notes: ""
+  });
   
   // Import related states
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -258,12 +312,17 @@ export default function Materials() {
         unit: unit,
         minThreshold: 0,
         maxCapacity: 0,
+        reorderPoint: 0,
         lastRestocked: new Date().toISOString().split('T')[0],
         dailyUsage: 0,
         status: "out-of-stock",
         supplier: supplier,
+        supplierId: "unknown",
         costPerUnit: cost,
-        supplierId: "unknown"
+        totalValue: 0,
+        batchNumber: "BATCH-UNKNOWN",
+        materialsUsed: [],
+        supplierPerformance: 0
       });
       
       setOrderDetails({
@@ -296,13 +355,70 @@ export default function Materials() {
     return suppliers;
   };
 
+  // Get available suppliers for restocking based on material category
+  const getAvailableSuppliersForRestock = (materialCategory: string, materialName: string) => {
+    // Get suppliers from same category (e.g., all dye suppliers for dye materials)
+    const categorySuppliers = rawMaterials
+      .filter(m => m.category === materialCategory)
+      .map(m => ({
+        name: m.supplier,
+        brand: m.brand,
+        costPerUnit: m.costPerUnit,
+        unit: m.unit,
+        materialName: m.name
+      }))
+      .filter((supplier, index, self) => 
+        // Remove duplicate suppliers, keep unique ones
+        index === self.findIndex(s => s.name === supplier.name)
+      );
+    
+    // Also include suppliers from exact material name matches
+    const exactSuppliers = rawMaterials
+      .filter(m => m.name.toLowerCase() === materialName.toLowerCase())
+      .map(m => ({
+        name: m.supplier,
+        brand: m.brand,
+        costPerUnit: m.costPerUnit,
+        unit: m.unit,
+        materialName: m.name
+      }));
+    
+    // Combine and remove duplicates
+    const allSuppliers = [...categorySuppliers, ...exactSuppliers];
+    const uniqueSuppliers = allSuppliers.filter((supplier, index, self) => 
+      index === self.findIndex(s => s.name === supplier.name)
+    );
+    
+    return uniqueSuppliers;
+  };
+
+  // Generate unique batch number
+  const generateUniqueBatchNumber = () => {
+    const year = new Date().getFullYear();
+    const existingBatchNumbers = rawMaterials.map(m => m.batchNumber);
+    
+    // Find the highest batch number for this year
+    let maxNumber = 0;
+    existingBatchNumbers.forEach(batch => {
+      const match = batch.match(new RegExp(`BATCH-${year}-(\\d+)`));
+      if (match) {
+        const num = parseInt(match[1]);
+        if (num > maxNumber) maxNumber = num;
+      }
+    });
+    
+    // Generate next unique batch number
+    const nextNumber = maxNumber + 1;
+    return `BATCH-${year}-${nextNumber.toString().padStart(3, '0')}`;
+  };
+
   // Get priority score for sorting (lower stock = higher priority)
   const getPriorityScore = (material: RawMaterial) => {
     switch (material.status) {
       case "out-of-stock": return 0;
-      case "critical": return 1;
-      case "low": return 2;
-      case "sufficient": return 3;
+      case "low-stock": return 1;
+      case "in-stock": return 2;
+      case "overstock": return 3;
       default: return 4;
     }
   };
@@ -325,6 +441,144 @@ export default function Materials() {
     setSelectedImage(null);
     setImagePreview("");
     setNewMaterial({ ...newMaterial, imageUrl: "" });
+  };
+
+  // Handle opening restock dialog
+  const handleOpenRestockDialog = (material: RawMaterial) => {
+    setSelectedRestockMaterial(material);
+    
+    // Get available suppliers for this material
+    const availableSuppliers = getAvailableSuppliersForRestock(material.category, material.name);
+    
+          // Pre-fill with first available supplier if any
+      if (availableSuppliers.length > 0) {
+        const firstSupplier = availableSuppliers[0];
+        const materialIsOutOfStock = material.status === "out-of-stock";
+        setRestockForm({
+          supplier: firstSupplier.name,
+          brand: firstSupplier.brand,
+          quantity: "",
+          costPerUnit: firstSupplier.costPerUnit.toString(),
+          expectedDelivery: "",
+          notes: `${materialIsOutOfStock ? 'Order' : 'Restock'} for ${material.name}`
+        });
+      } else {
+        // Reset form if no suppliers available
+        const materialIsOutOfStock = material.status === "out-of-stock";
+        setRestockForm({
+          supplier: "",
+          brand: "",
+          quantity: "",
+          costPerUnit: "",
+          expectedDelivery: "",
+          notes: `${materialIsOutOfStock ? 'Order' : 'Restock'} for ${material.name}`
+        });
+      }
+    
+    setIsRestockDialogOpen(true);
+  };
+
+  // Handle supplier change in restock form
+  const handleRestockSupplierChange = (supplierName: string) => {
+    const availableSuppliers = getAvailableSuppliersForRestock(
+      selectedRestockMaterial?.category || "", 
+      selectedRestockMaterial?.name || ""
+    );
+    
+    const selectedSupplier = availableSuppliers.find(s => s.name === supplierName);
+    
+    if (selectedSupplier) {
+      setRestockForm(prev => ({
+        ...prev,
+        supplier: supplierName,
+        brand: selectedSupplier.brand,
+        costPerUnit: selectedSupplier.costPerUnit.toString()
+      }));
+    }
+  };
+
+  // Handle restock submission
+  const handleRestockSubmit = () => {
+    if (!selectedRestockMaterial || !restockForm.supplier || !restockForm.quantity || !restockForm.costPerUnit) {
+      toast({
+        title: "⚠️ Missing Required Fields",
+        description: "Please fill in all required fields before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Create order (restock or new order based on material status)
+      const orderIsOutOfStock = selectedRestockMaterial.status === "out-of-stock";
+      const orderData = {
+        id: Date.now().toString(),
+        materialName: selectedRestockMaterial.name,
+        materialBrand: restockForm.brand,
+        materialCategory: selectedRestockMaterial.category,
+        materialBatchNumber: generateUniqueBatchNumber(),
+        supplier: restockForm.supplier,
+        quantity: parseInt(restockForm.quantity),
+        unit: selectedRestockMaterial.unit,
+        costPerUnit: parseFloat(restockForm.costPerUnit),
+        totalCost: parseInt(restockForm.quantity) * parseFloat(restockForm.costPerUnit),
+        orderDate: new Date().toISOString().split('T')[0],
+        expectedDelivery: restockForm.expectedDelivery || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        status: "ordered",
+        notes: restockForm.notes,
+        minThreshold: selectedRestockMaterial.minThreshold,
+        maxCapacity: selectedRestockMaterial.maxCapacity,
+        isRestock: !orderIsOutOfStock // Mark as restock order only if not out of stock
+      };
+
+      // Add to material orders storage
+      materialOrdersStorage.add(orderData);
+      
+      // Close dialog and reset form
+      setIsRestockDialogOpen(false);
+      setRestockForm({
+        supplier: "",
+        brand: "",
+        quantity: "",
+        costPerUnit: "",
+        expectedDelivery: "",
+        notes: ""
+      });
+      
+      // Navigate to Manage Stock with the order details
+      navigate("/manage-stock", { 
+        state: { 
+          prefillOrder: {
+            materialName: selectedRestockMaterial.name,
+            materialBrand: restockForm.brand,
+            materialCategory: selectedRestockMaterial.category,
+            materialBatchNumber: generateUniqueBatchNumber(),
+            supplier: restockForm.supplier,
+            quantity: restockForm.quantity,
+            unit: selectedRestockMaterial.unit,
+            costPerUnit: restockForm.costPerUnit,
+            expectedDelivery: restockForm.expectedDelivery,
+            minThreshold: selectedRestockMaterial.minThreshold,
+            maxCapacity: selectedRestockMaterial.maxCapacity,
+            isRestock: !orderIsOutOfStock
+          }
+        }
+      });
+      
+      // Show success message
+      toast({
+        title: orderIsOutOfStock ? "✅ Material Order Created!" : "✅ Restock Order Created!",
+        description: `${selectedRestockMaterial.name} ${orderIsOutOfStock ? 'order' : 'restock order'} has been created and sent to Manage Stock.`,
+        variant: "default",
+      });
+    } catch (error) {
+      console.error("Error creating restock order:", error);
+      toast({
+        title: "❌ Error Creating Restock Order",
+        description: "There was an error creating the restock order. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Handle inventory image upload
@@ -377,12 +631,12 @@ export default function Materials() {
 
   // Download sample template
   const downloadTemplate = () => {
-    const template = `Material Name,Brand,Category,Current Stock,Unit,Min Threshold,Max Capacity,Supplier,Cost Per Unit
-Cotton Yarn (Premium),TextilePro,Base Materials,100,rolls,50,500,Gujarat Textiles Ltd,450
-Red Dye (Industrial),ColorMax,Dyes & Chemicals,85,liters,25,200,Chemical Works India,180
-Latex Solution,FlexiChem,Finishing Materials,75,liters,30,150,Industrial Chemicals Co,320
-Backing Cloth,SupportFabric,Base Materials,150,sqm,80,1000,Fabric Solutions Ltd,25
-Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works India,190`;
+    const template = `Material Name,Brand,Category,Batch Number,Current Stock,Unit,Min Threshold,Max Capacity,Supplier,Cost Per Unit
+Cotton Yarn (Premium),TextilePro,Yarn,BATCH-2025-001,100,rolls,50,500,Gujarat Textiles Ltd,450
+Red Dye (Industrial),ColorMax,Dye,BATCH-2025-002,85,liters,25,200,Chemical Works India,180
+Latex Solution,FlexiChem,Chemical,BATCH-2025-003,75,liters,30,150,Industrial Chemicals Co,320
+Backing Cloth,SupportFabric,Fabric,BATCH-2025-004,150,sqm,80,1000,Fabric Solutions Ltd,25
+Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Works India,190`;
     
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -432,6 +686,10 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
           errors.push(`Row ${index + 2}: Category is required`);
           return;
         }
+        if (!row['Batch Number']) {
+          errors.push(`Row ${index + 2}: Batch Number is required`);
+          return;
+        }
         if (!row['Current Stock'] || isNaN(Number(row['Current Stock']))) {
           errors.push(`Row ${index + 2}: Current Stock must be a valid number`);
           return;
@@ -463,16 +721,21 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
           name: row['Material Name'],
           brand: row['Brand'],
           category: row['Category'],
+          batchNumber: row['Batch Number'],
           currentStock: parseInt(row['Current Stock']),
           unit: row['Unit'],
           minThreshold: parseInt(row['Min Threshold']),
           maxCapacity: parseInt(row['Max Capacity']),
+          reorderPoint: parseInt(row['Min Threshold']),
           lastRestocked: new Date().toISOString().split('T')[0],
           dailyUsage: 0,
-          status: "sufficient",
+          status: "in-stock",
           supplier: row['Supplier'],
           costPerUnit: parseFloat(row['Cost Per Unit']),
           supplierId: `supplier_${Date.now()}_${index}`,
+          totalValue: parseInt(row['Current Stock']) * parseFloat(row['Cost Per Unit']),
+          materialsUsed: [],
+          supplierPerformance: 0,
           imageUrl: ""
         };
         
@@ -485,19 +748,46 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
         return;
       }
       
-      // Add materials to inventory (in real app, save to database)
-      console.log('Imported materials:', validMaterials);
-      setImportStatus('success');
-      
-      // Reset form after successful import
-      setTimeout(() => {
-        setIsImportInventoryOpen(false);
-        setImportFile(null);
-        setImportPreview([]);
-        setImportStatus('idle');
-        setImportErrors([]);
-        alert(`Successfully imported ${validMaterials.length} materials to inventory!`);
-      }, 2000);
+      // Add materials to localStorage
+      try {
+        validMaterials.forEach(material => {
+          rawMaterialsStorage.add(material);
+        });
+        
+        // Update local state
+        setRawMaterials(prev => [...prev, ...validMaterials]);
+        
+        setImportStatus('success');
+        
+        // Store stock update info for notification
+        localStorage.setItem('last_stock_update', JSON.stringify({
+          materialName: `${validMaterials.length} materials`,
+          oldStock: 0,
+          newStock: validMaterials.length,
+          quantity: validMaterials.length,
+          unit: 'items',
+          timestamp: Date.now(),
+          action: 'imported_inventory'
+        }));
+        
+        // Reset form after successful import
+        setTimeout(() => {
+          setIsImportInventoryOpen(false);
+          setImportFile(null);
+          setImportPreview([]);
+          setImportStatus('idle');
+          setImportErrors([]);
+          toast({
+            title: "✅ Import Successful!",
+            description: `Successfully imported ${validMaterials.length} materials to inventory.`,
+            variant: "default",
+          });
+        }, 2000);
+      } catch (error) {
+        console.error('Error importing materials:', error);
+        setImportErrors(['Error saving materials to storage. Please try again.']);
+        setImportStatus('error');
+      }
     };
     reader.readAsText(importFile);
   };
@@ -511,13 +801,15 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
       const matchesCategory = categoryFilter === "all" || material.category === categoryFilter;
       
       let matchesStatus = true;
-      if (statusFilter === "low-stock") {
-        matchesStatus = material.status === "low" || material.status === "critical" || material.status === "out-of-stock";
-      } else if (statusFilter === "sufficient") {
-        matchesStatus = material.status === "sufficient";
-      } else if (statusFilter === "out-of-stock") {
-        matchesStatus = material.status === "out-of-stock";
-      }
+          if (statusFilter === "low-stock") {
+      matchesStatus = material.status === "low-stock";
+    } else if (statusFilter === "in-stock") {
+      matchesStatus = material.status === "in-stock";
+    } else if (statusFilter === "out-of-stock") {
+      matchesStatus = material.status === "out-of-stock";
+    } else if (statusFilter === "overstock") {
+      matchesStatus = material.status === "overstock";
+    }
       
       return matchesSearch && matchesCategory && matchesStatus;
     })
@@ -543,25 +835,115 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
   };
 
   const handleAddMaterial = () => {
-    // Add new material logic here
-    setIsAddMaterialOpen(false);
-    setNewMaterial({
-      name: "",
-      brand: "",
-      category: "",
-      unit: "",
-      minThreshold: "",
-      maxCapacity: "",
-      supplier: "",
-      costPerUnit: "",
-      imageUrl: ""
-    });
-    setSelectedImage(null);
-    setImagePreview("");
+    // Validate required fields
+        if (!newMaterial.name || !newMaterial.brand || !newMaterial.category || !newMaterial.batchNumber || !newMaterial.unit ||
+        !newMaterial.minThreshold || !newMaterial.maxCapacity || !newMaterial.supplier || !newMaterial.costPerUnit) {
+      toast({
+        title: "⚠️ Missing Required Fields",
+        description: "Please fill in all required fields before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      // Store the name before resetting the form
+      const materialName = newMaterial.name;
+      
+      // IMPORTANT: "Create Material Order" ALWAYS creates NEW materials
+      // Even if the name is the same, different supplier/price/quality = NEW material
+      // Only "Restock" feature merges with existing materials
+      const materialOrder = {
+        id: Date.now().toString(),
+        materialName: newMaterial.name,
+        materialBrand: newMaterial.brand,
+        materialCategory: newMaterial.category,
+        materialBatchNumber: newMaterial.batchNumber,
+        quantity: parseInt(newMaterial.currentStock) || 0,
+        unit: newMaterial.unit,
+        minThreshold: parseInt(newMaterial.minThreshold) || 0,
+        maxCapacity: parseInt(newMaterial.maxCapacity) || 0,
+        supplier: newMaterial.supplier,
+        costPerUnit: parseFloat(newMaterial.costPerUnit) || 0,
+        totalCost: (parseInt(newMaterial.currentStock) || 0) * (parseFloat(newMaterial.costPerUnit) || 0),
+        expectedDelivery: newMaterial.expectedDelivery || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Use user input or default to 30 days
+        status: "ordered",
+        orderDate: new Date().toISOString().split('T')[0],
+        notes: `New material procurement order for ${newMaterial.name}`,
+        imageUrl: imagePreview || newMaterial.imageUrl || ""
+      };
+
+      // Reset form
+      setIsAddMaterialOpen(false);
+      setNewMaterial({
+        name: "",
+        brand: "",
+        category: "",
+        batchNumber: "",
+        currentStock: "",
+        unit: "",
+        minThreshold: "",
+        maxCapacity: "",
+        supplier: "",
+        costPerUnit: "",
+        expectedDelivery: "",
+        imageUrl: ""
+      });
+      setSelectedImage(null);
+      setImagePreview("");
+      
+      // Navigate to Manage Stock with the order details
+      // The order will be created in Manage Stock, not here
+      navigate("/manage-stock", { 
+        state: { 
+          prefillOrder: {
+            materialName: materialName,
+            materialBrand: newMaterial.brand,
+            materialCategory: newMaterial.category,
+            materialBatchNumber: newMaterial.batchNumber,
+            supplier: newMaterial.supplier,
+            quantity: newMaterial.currentStock,
+            unit: newMaterial.unit,
+            costPerUnit: newMaterial.costPerUnit,
+            expectedDelivery: newMaterial.expectedDelivery,
+            minThreshold: newMaterial.minThreshold,
+            maxCapacity: newMaterial.maxCapacity
+          }
+        }
+      });
+      
+      // Show success message
+      toast({
+        title: "✅ Material Order Data Prepared!",
+        description: `${materialName} order details have been sent to Manage Stock.`,
+        variant: "default",
+      });
+    } catch (error) {
+      console.error("Error creating material order:", error);
+      toast({
+        title: "❌ Error Creating Order",
+        description: "There was an error creating the material order. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleAddToInventory = () => {
-    // Create new material and add it directly to inventory
+    // Validate required fields
+    if (!newInventoryMaterial.name || !newInventoryMaterial.brand || !newInventoryMaterial.category || !newInventoryMaterial.batchNumber || !newInventoryMaterial.unit ||
+        !newInventoryMaterial.minThreshold || !newInventoryMaterial.maxCapacity || !newInventoryMaterial.supplier || !newInventoryMaterial.costPerUnit) {
+      toast({
+        title: "⚠️ Missing Required Fields",
+        description: "Please fill in all required fields before submitting.",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // IMPORTANT: "Add to Inventory" is for adding NEW materials to inventory
+    // This is different from "Restock" - it always creates new material entries
+    // Even if name is same, different supplier/price/quality = NEW material
+    // Only when order is delivered in Manage Stock will it check for exact matches
     const newInventoryMaterialData: RawMaterial = {
       id: Date.now().toString(),
       name: newInventoryMaterial.name,
@@ -571,37 +953,78 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
       unit: newInventoryMaterial.unit,
       minThreshold: parseInt(newInventoryMaterial.minThreshold) || 0,
       maxCapacity: parseInt(newInventoryMaterial.maxCapacity) || 0,
+      reorderPoint: parseInt(newInventoryMaterial.minThreshold) || 0,
       lastRestocked: new Date().toISOString().split('T')[0],
       dailyUsage: 0, // Will be calculated based on usage over time
-      status: "sufficient", // Default status
+      status: "in-stock", // Default status
       supplier: newInventoryMaterial.supplier,
       costPerUnit: parseFloat(newInventoryMaterial.costPerUnit) || 0,
       supplierId: `supplier_${Date.now()}`,
+      totalValue: (parseInt(newInventoryMaterial.currentStock) || 0) * (parseFloat(newInventoryMaterial.costPerUnit) || 0),
+      batchNumber: generateUniqueBatchNumber(),
+      materialsUsed: [],
+      supplierPerformance: 0,
       imageUrl: inventoryImagePreview || newInventoryMaterial.imageUrl
     };
 
-    // Add to materials list (in a real app, this would be saved to database)
-    console.log("New material added to inventory:", newInventoryMaterialData);
-    
-    // Reset form
-    setIsAddToInventoryOpen(false);
-    setNewInventoryMaterial({
-      name: "",
-      brand: "",
-      category: "",
-      currentStock: "",
-      unit: "",
-      minThreshold: "",
-      maxCapacity: "",
-      supplier: "",
-      costPerUnit: "",
-      imageUrl: ""
-    });
-    setSelectedInventoryImage(null);
-    setInventoryImagePreview("");
-    
-    // Show success message
-    alert("Material added successfully to inventory!");
+    try {
+      // Store the name before resetting the form
+      const materialName = newInventoryMaterial.name;
+      
+      // Add to localStorage using the utility function
+      const addedMaterial = rawMaterialsStorage.add(newInventoryMaterialData);
+      console.log('Added inventory material to localStorage:', addedMaterial);
+      
+      // Update local state with the new material
+      setRawMaterials(prev => {
+        const newState = [...prev, addedMaterial];
+        console.log('Updated rawMaterials state:', newState);
+        return newState;
+      });
+      
+      // Reset form
+      setIsAddToInventoryOpen(false);
+      setNewInventoryMaterial({
+        name: "",
+        brand: "",
+        category: "",
+        batchNumber: "",
+        currentStock: "",
+        unit: "",
+        minThreshold: "",
+        maxCapacity: "",
+        supplier: "",
+        costPerUnit: "",
+        imageUrl: ""
+      });
+      setSelectedInventoryImage(null);
+      setInventoryImagePreview("");
+      
+      // Show success message
+              toast({
+          title: "✅ Material Added to Inventory!",
+          description: `${materialName} has been successfully added to your inventory.`,
+          variant: "default",
+        });
+        
+        // Store stock update info for notification
+        localStorage.setItem('last_stock_update', JSON.stringify({
+          materialName: materialName,
+          oldStock: 0,
+          newStock: parseInt(newInventoryMaterial.currentStock) || 0,
+          quantity: parseInt(newInventoryMaterial.currentStock) || 0,
+          unit: newInventoryMaterial.unit,
+          timestamp: Date.now(),
+          action: 'added_to_inventory'
+        }));
+    } catch (error) {
+      console.error("Error adding material to inventory:", error);
+      toast({
+        title: "❌ Error Adding to Inventory",
+        description: "There was an error adding the material to inventory. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const handlePlaceOrder = () => {
@@ -623,9 +1046,9 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
     setIsOrderDialogOpen(false);
   };
 
-  const lowStockCount = rawMaterials.filter(m => m.status === "low" || m.status === "critical" || m.status === "out-of-stock").length;
+  const lowStockCount = rawMaterials.filter(m => m.status === "low-stock" || m.status === "out-of-stock").length;
   const totalMaterials = rawMaterials.length;
-  const dailyConsumption = rawMaterials.reduce((sum, m) => sum + (m.dailyUsage * m.costPerUnit), 0);
+  const totalStockValue = rawMaterials.reduce((sum, m) => sum + (m.currentStock * m.costPerUnit), 0);
 
   return (
     <div className="flex-1 space-y-6 p-6">
@@ -639,7 +1062,7 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
           <TabsList className="w-fit">
             <TabsTrigger value="inventory">Material Inventory</TabsTrigger>
             <TabsTrigger value="consumption">Usage Analytics</TabsTrigger>
-            <TabsTrigger value="procurement">Procurement</TabsTrigger>
+
             <TabsTrigger value="waste">Waste Management</TabsTrigger>
           </TabsList>
           
@@ -678,6 +1101,8 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
               </Select>
             </div>
             <div className="flex gap-2 shrink-0">
+
+              
               {/* Import Inventory Button */}
               <Dialog open={isImportInventoryOpen} onOpenChange={setIsImportInventoryOpen}>
                 <DialogTrigger asChild>
@@ -938,13 +1363,25 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                             <SelectValue placeholder="Select category" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Base Materials">Base Materials</SelectItem>
-                            <SelectItem value="Dyes & Chemicals">Dyes & Chemicals</SelectItem>
-                            <SelectItem value="Finishing Materials">Finishing Materials</SelectItem>
+                            <SelectItem value="Yarn">Yarn</SelectItem>
+                            <SelectItem value="Dye">Dye</SelectItem>
+                            <SelectItem value="Chemical">Chemical</SelectItem>
+                            <SelectItem value="Fabric">Fabric</SelectItem>
                             <SelectItem value="Other">Other</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="inventoryBatchNumber">Batch Number *</Label>
+                      <Input
+                        id="inventoryBatchNumber"
+                        value={newInventoryMaterial.batchNumber}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, batchNumber: e.target.value})}
+                        placeholder="e.g., BATCH-2024-001"
+                        required
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -1047,15 +1484,15 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                 <DialogTrigger asChild>
                   <Button className="flex items-center gap-2">
                     <Plus className="w-4 h-4" />
-              Add Material
+              Create Material Order
                   </Button>
                 </DialogTrigger>
                 <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
-                    <DialogTitle>Add New Raw Material</DialogTitle>
-                    <DialogDescription>
-                      Add a new raw material to your inventory system.
-                    </DialogDescription>
+                                      <DialogTitle>Create Material Procurement Order</DialogTitle>
+                  <DialogDescription>
+                    Create a new material order that will be sent to Manage Stock for procurement.
+                  </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
                     {/* Image Upload Section */}
@@ -1125,18 +1562,29 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                       </div>
                       <div>
                         <Label htmlFor="category">Category</Label>
-                        <Select value={newMaterial.category} onValueChange={(value) => setNewMaterial({...newMaterial, category: value})}>
+                        <Select value={newMaterial.category} onValueChange={(value) => setNewMaterial({...newMaterial, category: value})}
+                        >
                           <SelectTrigger>
                             <SelectValue placeholder="Select category" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Base Materials">Base Materials</SelectItem>
-                            <SelectItem value="Dyes & Chemicals">Dyes & Chemicals</SelectItem>
-                            <SelectItem value="Finishing Materials">Finishing Materials</SelectItem>
+                            <SelectItem value="Yarn">Yarn</SelectItem>
+                            <SelectItem value="Dye">Dye</SelectItem>
+                            <SelectItem value="Fabric">Fabric</SelectItem>
                             <SelectItem value="Other">Other</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="batchNumber">Batch Number</Label>
+                      <Input
+                        id="batchNumber"
+                        value={newMaterial.batchNumber}
+                        onChange={(e) => setNewMaterial({...newMaterial, batchNumber: e.target.value})}
+                        placeholder="e.g., BATCH-2024-001"
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
@@ -1166,6 +1614,16 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                     </div>
                     <div className="grid grid-cols-3 gap-4">
                       <div>
+                        <Label htmlFor="currentStock">Current Stock</Label>
+                        <Input
+                          id="currentStock"
+                          type="number"
+                          value={newMaterial.currentStock || ""}
+                          onChange={(e) => setNewMaterial({...newMaterial, currentStock: e.target.value})}
+                          placeholder="0"
+                        />
+                      </div>
+                      <div>
                         <Label htmlFor="minThreshold">Min Threshold</Label>
                         <Input
                           id="minThreshold"
@@ -1185,6 +1643,8 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                           placeholder="500"
                         />
                       </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4">
                       <div>
                         <Label htmlFor="costPerUnit">Cost/Unit (₹)</Label>
                         <Input
@@ -1195,6 +1655,19 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                           placeholder="450"
                         />
                       </div>
+
+                      
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="expectedDelivery">Expected Delivery Date</Label>
+                      <Input
+                        id="expectedDelivery"
+                        type="date"
+                        value={newMaterial.expectedDelivery || ""}
+                        onChange={(e) => setNewMaterial({...newMaterial, expectedDelivery: e.target.value})}
+                        min={new Date().toISOString().split('T')[0]}
+                      />
                     </div>
                   </div>
                   <DialogFooter>
@@ -1202,8 +1675,8 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                       Cancel
                     </Button>
                     <Button onClick={handleAddMaterial}>
-                      Add Material
-                    </Button>
+              Add Material
+            </Button>
                   </DialogFooter>
                 </DialogContent>
               </Dialog>
@@ -1240,13 +1713,13 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
             </Card>
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Daily Consumption</CardTitle>
+                <CardTitle className="text-sm font-medium">Total Stock Value</CardTitle>
                 <TrendingDown className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">₹{dailyConsumption.toLocaleString()}</div>
+                <div className="text-2xl font-bold">₹{totalStockValue.toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">
-                  Material cost today
+                  Current inventory value
                 </p>
               </CardContent>
             </Card>
@@ -1256,9 +1729,9 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                 <Recycle className="h-4 w-4 text-success" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">15.2%</div>
+                <div className="text-2xl font-bold">--</div>
                 <p className="text-xs text-muted-foreground">
-                  Materials recycled
+                  No data available
                 </p>
               </CardContent>
             </Card>
@@ -1277,7 +1750,6 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                       <th className="text-left p-4 font-medium text-muted-foreground">Material</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Category</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Current Stock</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Usage Rate</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Supplier</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Cost/Unit</th>
@@ -1286,7 +1758,6 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                   </thead>
                   <tbody>
                     {filteredMaterials.map((material) => {
-                      const daysRemaining = Math.floor(material.currentStock / material.dailyUsage);
                       const stockPercent = (material.currentStock / material.maxCapacity) * 100;
                       
                       return (
@@ -1332,16 +1803,6 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                             </div>
                           </td>
                           <td className="p-4">
-                            <div className="space-y-1">
-                              <div className="text-sm font-medium">
-                                {material.dailyUsage} {material.unit}/day
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {material.currentStock > 0 ? `${daysRemaining} days left` : "Out of stock"}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-4">
                             <Badge className={statusStyles[material.status]}>
                               {material.status.replace("-", " ")}
                             </Badge>
@@ -1357,13 +1818,20 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
                           <td className="p-4">
                             <div className="flex gap-2">
                               <Button 
-                                variant={material.status === "out-of-stock" || material.status === "critical" ? "default" : "outline"} 
+                                variant={material.status === "out-of-stock" ? "default" : "outline"} 
                                 size="sm"
-                                onClick={() => handleOrderMaterial(material)}
+                                onClick={() => handleOpenRestockDialog(material)}
                               >
-                                {material.status === "out-of-stock" || material.status === "critical" ? "Order Now" : "Restock"}
+                                {material.status === "out-of-stock" ? "Order Now" : "Restock"}
                               </Button>
-                              <Button variant="outline" size="sm">
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => {
+                                  setSelectedMaterial(material);
+                                  setIsDetailsDialogOpen(true);
+                                }}
+                              >
                                 Details
                               </Button>
                             </div>
@@ -1378,25 +1846,191 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
           </Card>
         </TabsContent>
 
+        <TabsContent value="consumption" className="space-y-6">
+          {/* Usage Analytics Overview Cards */}
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Daily Usage</CardTitle>
+                <TrendingDown className="h-4 w-4 text-primary" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">--</div>
+                <p className="text-xs text-muted-foreground">
+                  No production data
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Monthly Consumption</CardTitle>
+                <Package className="h-4 w-4 text-blue-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">--</div>
+                <p className="text-xs text-muted-foreground">
+                  Total materials used
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Usage Efficiency</CardTitle>
+                <TrendingDown className="h-4 w-4 text-success" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">--</div>
+                <p className="text-xs text-muted-foreground">
+                  % of materials utilized
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Most Used</CardTitle>
+                <Package className="h-4 w-4 text-orange-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">--</div>
+                <p className="text-xs text-muted-foreground">
+                  Top consumed material
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Material Consumption Chart */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingDown className="w-5 h-5 text-primary" />
+                Material Consumption Trends
+              </CardTitle>
+              <CardDescription>
+                Track material usage patterns and consumption rates over time
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-12">
+                <TrendingDown className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-medium text-foreground mb-2">Production Integration Required</h3>
+                <p className="text-muted-foreground max-w-md mx-auto">
+                  Usage analytics will show real-time data from production processes, including:
+                </p>
+                <div className="mt-6 text-sm text-muted-foreground space-y-2">
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                    <span>Daily material consumption rates</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span>Monthly usage trends and patterns</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                    <span>Material efficiency analysis</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                    <span>Production step consumption breakdown</span>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+
+
         <TabsContent value="waste" className="space-y-6">
+          {/* Waste Overview Cards */}
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Total Waste</CardTitle>
+                <Recycle className="h-4 w-4 text-destructive" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">--</div>
+                <p className="text-xs text-muted-foreground">
+                  No production data
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Waste Value</CardTitle>
+                <TrendingDown className="h-4 w-4 text-destructive" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">₹--</div>
+                <p className="text-xs text-muted-foreground">
+                  Cost of wasted materials
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Recycling Rate</CardTitle>
+                <Recycle className="h-4 w-4 text-success" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">--</div>
+                <p className="text-xs text-muted-foreground">
+                  % of waste recycled
+                </p>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Most Wasted</CardTitle>
+                <AlertTriangle className="h-4 w-4 text-warning" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">--</div>
+                <p className="text-xs text-muted-foreground">
+                  Top wasted material
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Waste Analysis Table */}
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Recycle className="w-5 h-5 text-success" />
-                Waste Management & Recycling
+                Waste Analysis by Material
               </CardTitle>
+              <CardDescription>
+                Track which materials generate the most waste during production
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="text-center py-12">
                 <Recycle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">Waste Tracking System</h3>
+                <h3 className="text-lg font-medium text-foreground mb-2">Production Integration Required</h3>
                 <p className="text-muted-foreground max-w-md mx-auto">
-                  Track production waste, identify recycling opportunities, and optimize material usage to reduce environmental impact and costs.
+                  Waste tracking will show real-time data from production processes, including:
                 </p>
-                <Button className="mt-6">
-                  <Plus className="w-4 h-4 mr-2" />
-                  Record Waste
-                </Button>
+                <div className="mt-6 text-sm text-muted-foreground space-y-2">
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                    <span>Material consumption per production step</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                    <span>Waste generation during cutting/dyeing</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                    <span>Quality defects and rejected materials</span>
+                  </div>
+                  <div className="flex items-center gap-2 justify-center">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span>Recycling opportunities and cost savings</span>
+                  </div>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1543,6 +2177,339 @@ Blue Dye (Industrial),ColorMax,Dyes & Chemicals,60,liters,25,200,Chemical Works 
             <Button onClick={handlePlaceOrder} className="flex items-center gap-2">
               <ShoppingCart className="w-4 h-4" />
               Place Order
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Material Details Dialog */}
+      <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Material Details: {selectedMaterial?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Complete information about this raw material
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedMaterial && (
+            <div className="space-y-6">
+              {/* Material Image and Basic Info */}
+              <div className="flex gap-6">
+                <div className="w-48 h-48 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center">
+                  {selectedMaterial.imageUrl ? (
+                    <img 
+                      src={selectedMaterial.imageUrl} 
+                      alt={selectedMaterial.name}
+                      className="w-full h-full object-cover rounded-lg"
+                    />
+                  ) : (
+                    <Package className="w-16 h-16 text-gray-400" />
+                  )}
+                </div>
+                
+                <div className="flex-1 space-y-4">
+                  <div>
+                    <h3 className="text-2xl font-bold">{selectedMaterial.name}</h3>
+                    <p className="text-lg text-muted-foreground">{selectedMaterial.brand}</p>
+                  </div>
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Category</Label>
+                      <p className="font-medium">{selectedMaterial.category}</p>
+                    </div>
+
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Batch Number</Label>
+                      <p className="font-mono text-sm">{selectedMaterial.batchNumber}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Status</Label>
+                      <Badge 
+                        className={
+                          selectedMaterial.status === "in-stock" ? "bg-green-100 text-green-800 border-green-200" :
+                          selectedMaterial.status === "low-stock" ? "bg-yellow-100 text-yellow-800 border-yellow-200" :
+                          selectedMaterial.status === "out-of-stock" ? "bg-red-100 text-red-800 border-red-200" :
+                          "bg-blue-100 text-blue-800 border-blue-200"
+                        }
+                      >
+                        {selectedMaterial.status.replace('-', ' ').toUpperCase()}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Stock Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Stock Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-3 gap-6">
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-blue-600">{selectedMaterial.currentStock}</div>
+                      <div className="text-sm text-muted-foreground">Current Stock</div>
+                      <div className="text-xs text-muted-foreground">{selectedMaterial.unit}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-orange-600">{selectedMaterial.minThreshold}</div>
+                      <div className="text-sm text-muted-foreground">Min Threshold</div>
+                      <div className="text-xs text-muted-foreground">{selectedMaterial.unit}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-2xl font-bold text-green-600">{selectedMaterial.maxCapacity}</div>
+                      <div className="text-sm text-muted-foreground">Max Capacity</div>
+                      <div className="text-xs text-muted-foreground">{selectedMaterial.unit}</div>
+                    </div>
+                  </div>
+                  
+                  {/* Stock Progress Bar */}
+                  <div className="mt-4">
+                    <div className="flex justify-between text-sm text-muted-foreground mb-2">
+                      <span>Stock Level</span>
+                      <span>{Math.round((selectedMaterial.currentStock / selectedMaterial.maxCapacity) * 100)}% of capacity</span>
+                    </div>
+                    <div className="w-full bg-gray-200 rounded-full h-2">
+                      <div 
+                        className={`h-2 rounded-full ${
+                          selectedMaterial.currentStock <= selectedMaterial.minThreshold ? 'bg-red-500' :
+                          selectedMaterial.currentStock <= selectedMaterial.minThreshold * 1.5 ? 'bg-yellow-500' :
+                          'bg-green-500'
+                        }`}
+                        style={{ width: `${Math.min((selectedMaterial.currentStock / selectedMaterial.maxCapacity) * 100, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Financial Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Financial Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Cost per Unit</Label>
+                      <p className="text-xl font-bold text-green-600">₹{selectedMaterial.costPerUnit.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Total Value</Label>
+                      <p className="text-xl font-bold text-blue-600">₹{selectedMaterial.totalValue.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Supplier Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Supplier Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Supplier Name</Label>
+                      <p className="font-medium">{selectedMaterial.supplier}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Supplier Performance</Label>
+                      <div className="flex items-center gap-2">
+                        <div className="w-full bg-gray-200 rounded-full h-2">
+                          <div 
+                            className="bg-blue-500 h-2 rounded-full" 
+                            style={{ width: `${selectedMaterial.supplierPerformance}%` }}
+                          ></div>
+                        </div>
+                        <span className="text-sm font-medium">{selectedMaterial.supplierPerformance}%</span>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Dates and History */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Dates & History</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-6">
+
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Last Restocked</Label>
+                      <p className="font-medium">{new Date(selectedMaterial.lastRestocked).toLocaleDateString()}</p>
+                    </div>
+
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDetailsDialogOpen(false)}>
+              Close
+            </Button>
+            <Button 
+              onClick={() => {
+                setIsDetailsDialogOpen(false);
+                handleOrderMaterial(selectedMaterial!);
+              }}
+            >
+              Order Material
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Restock Dialog */}
+      <Dialog open={isRestockDialogOpen} onOpenChange={setIsRestockDialogOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              {selectedRestockMaterial?.status === "out-of-stock" ? "Order" : "Restock"} {selectedRestockMaterial?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedRestockMaterial?.status === "out-of-stock" 
+                ? "Order this material from available suppliers" 
+                : "Restock this material from available suppliers"
+              }
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedRestockMaterial && (
+            <div className="space-y-4">
+              {/* Material Info */}
+              <div className="p-3 border rounded-md bg-muted">
+                <div className="flex items-center gap-3">
+                  {selectedRestockMaterial.imageUrl && (
+                    <img 
+                      src={selectedRestockMaterial.imageUrl} 
+                      alt={selectedRestockMaterial.name}
+                      className="w-12 h-12 rounded object-cover"
+                    />
+                  )}
+                  <div>
+                    <div className="font-medium">{selectedRestockMaterial.name}</div>
+                    <div className="text-sm text-muted-foreground">
+                      Current stock: {selectedRestockMaterial.currentStock} {selectedRestockMaterial.unit}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Supplier Selection */}
+              <div>
+                <Label htmlFor="restockSupplier">Supplier</Label>
+                <Select 
+                  value={restockForm.supplier} 
+                  onValueChange={handleRestockSupplierChange}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select supplier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {getAvailableSuppliersForRestock(selectedRestockMaterial.category, selectedRestockMaterial.name).map((supplier, index) => (
+                      <SelectItem key={index} value={supplier.name}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{supplier.name}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {supplier.brand} • ₹{supplier.costPerUnit} • {supplier.unit}
+                          </span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Available suppliers for {selectedRestockMaterial.category} materials
+                </p>
+              </div>
+
+              {/* Brand (Auto-filled based on supplier) */}
+              <div>
+                <Label htmlFor="restockBrand">Brand</Label>
+                <Input
+                  id="restockBrand"
+                  value={restockForm.brand}
+                  onChange={(e) => setRestockForm({...restockForm, brand: e.target.value})}
+                  placeholder="Brand will be auto-filled based on supplier"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Brand from selected supplier (can be modified)
+                </p>
+              </div>
+
+              {/* Quantity */}
+              <div>
+                <Label htmlFor="restockQuantity">Quantity</Label>
+                <Input
+                  id="restockQuantity"
+                  type="number"
+                  value={restockForm.quantity}
+                  onChange={(e) => setRestockForm({...restockForm, quantity: e.target.value})}
+                  placeholder="Enter quantity to restock"
+                  min="1"
+                />
+              </div>
+
+              {/* Cost per Unit (Auto-filled based on supplier) */}
+              <div>
+                <Label htmlFor="restockCostPerUnit">Cost per Unit (₹)</Label>
+                <Input
+                  id="restockCostPerUnit"
+                  type="number"
+                  value={restockForm.costPerUnit}
+                  onChange={(e) => setRestockForm({...restockForm, costPerUnit: e.target.value})}
+                  placeholder="Cost will be auto-filled based on supplier"
+                  min="0"
+                  step="0.01"
+                />
+                <p className="text-xs text-muted-foreground mt-1">
+                  Cost from selected supplier (can be modified)
+                </p>
+              </div>
+
+              {/* Expected Delivery */}
+              <div>
+                <Label htmlFor="restockExpectedDelivery">Expected Delivery Date</Label>
+                <Input
+                  id="restockExpectedDelivery"
+                  type="date"
+                  value={restockForm.expectedDelivery}
+                  onChange={(e) => setRestockForm({...restockForm, expectedDelivery: e.target.value})}
+                  min={new Date().toISOString().split('T')[0]}
+                />
+              </div>
+
+              {/* Notes */}
+              <div>
+                <Label htmlFor="restockNotes">Notes</Label>
+                <Textarea
+                  id="restockNotes"
+                  value={restockForm.notes}
+                  onChange={(e) => setRestockForm({...restockForm, notes: e.target.value})}
+                  placeholder="Additional notes for this restock order"
+                  rows={3}
+                />
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsRestockDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleRestockSubmit}>
+              {selectedRestockMaterial?.status === "out-of-stock" ? "Create Order" : "Create Restock Order"}
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,9 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Header } from "@/components/layout/Header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { useToast } from "@/hooks/use-toast";
 import { 
   Select,
   SelectContent,
@@ -24,11 +27,15 @@ import {
   History,
   Plus
 } from "lucide-react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { materialOrdersStorage, rawMaterialsStorage } from "@/utils/localStorage";
 
 interface StockOrder {
   id: string;
   materialName: string;
+  materialBrand?: string;
+  materialCategory?: string;
+  materialBatchNumber?: string;
   supplier: string;
   quantity: number;
   unit: string;
@@ -39,6 +46,10 @@ interface StockOrder {
   status: "ordered" | "in-transit" | "delivered" | "cancelled";
   notes?: string;
   actualDelivery?: string;
+  minThreshold?: number;
+  maxCapacity?: number;
+  qualityGrade?: string;
+  isRestock?: boolean; // Indicates if this is a restock order
 }
 
 const initialOrders: StockOrder[] = [
@@ -106,34 +117,161 @@ const statusConfig = {
 
 export default function ManageStock() {
   const location = useLocation();
-  const [orders, setOrders] = useState<StockOrder[]>(initialOrders);
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const [orders, setOrders] = useState<StockOrder[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [selectedOrder, setSelectedOrder] = useState<StockOrder | null>(null);
+  
+  // Ref to track processed prefillOrders to prevent duplicates
+  const processedPrefillOrders = useRef<Set<string>>(new Set());
+
+  // Function to remove duplicate orders
+  const removeDuplicateOrders = (orders: StockOrder[]) => {
+    const seen = new Set<string>();
+    return orders.filter(order => {
+      const key = `${order.materialName}-${order.supplier}-${order.quantity}-${order.unit}-${order.costPerUnit}-${order.status}`;
+      if (seen.has(key)) {
+        return false;
+      }
+      seen.add(key);
+      return true;
+    });
+  };
+
+  // Load orders from localStorage on component mount
+  useEffect(() => {
+    const loadedOrders = materialOrdersStorage.getAll();
+
+    
+    // Remove any duplicate orders that might exist
+    const uniqueOrders = removeDuplicateOrders(loadedOrders);
+    if (uniqueOrders.length !== loadedOrders.length) {
+
+      // Update localStorage with unique orders
+      uniqueOrders.forEach((order, index) => {
+        if (index === 0) {
+          localStorage.setItem('rajdhani_material_orders', JSON.stringify([order]));
+        } else {
+          const existing = JSON.parse(localStorage.getItem('rajdhani_material_orders') || '[]');
+          existing.push(order);
+          localStorage.setItem('rajdhani_material_orders', JSON.stringify(existing));
+        }
+      });
+    }
+    
+    setOrders(uniqueOrders);
+    
+    // Cleanup function to clear processed prefillOrders when component unmounts
+    return () => {
+      processedPrefillOrders.current.clear();
+    };
+  }, []);
 
   // Handle pre-filled order data from Materials page
   useEffect(() => {
     if (location.state?.prefillOrder) {
       const prefillData = location.state.prefillOrder;
-      const newOrder: StockOrder = {
-        id: Date.now().toString(),
-        materialName: prefillData.materialName,
-        supplier: prefillData.supplier,
-        quantity: parseInt(prefillData.quantity),
-        unit: prefillData.unit,
-        costPerUnit: parseFloat(prefillData.costPerUnit),
-        totalCost: parseInt(prefillData.quantity) * parseFloat(prefillData.costPerUnit),
-        orderDate: new Date().toISOString().split('T')[0],
-        expectedDelivery: prefillData.expectedDelivery,
-        status: "ordered",
-        notes: prefillData.notes
-      };
+      
+      // Create a unique key for this prefillOrder to prevent duplicates
+      const prefillKey = `${prefillData.materialName}-${prefillData.supplier}-${prefillData.quantity}-${prefillData.unit}-${prefillData.costPerUnit}`;
+      
 
-      setOrders([newOrder, ...orders]);
+      
+      // Check if we've already processed this exact prefillOrder
+      if (processedPrefillOrders.current.has(prefillKey)) {
+        console.log('PrefillOrder already processed, skipping duplicate');
+        // Clear the state to prevent re-opening on refresh
+        window.history.replaceState({}, document.title);
+        return;
+      }
+      
+      // Check if this order already exists in localStorage to prevent duplicates
+      const allOrders = materialOrdersStorage.getAll();
+      const existingOrder = allOrders.find(order => 
+        order.materialName === prefillData.materialName &&
+        order.supplier === prefillData.supplier &&
+        order.quantity === parseInt(prefillData.quantity) &&
+        order.unit === prefillData.unit &&
+        order.costPerUnit === parseFloat(prefillData.costPerUnit) &&
+        order.status === "ordered"
+      );
+      
+      // Also check for recent orders (within last 5 seconds) to prevent rapid duplicates
+      const recentOrder = allOrders.find(order => {
+        const orderTime = new Date(order.createdAt || order.orderDate).getTime();
+        const currentTime = Date.now();
+        const timeDiff = currentTime - orderTime;
+        
+        return order.materialName === prefillData.materialName &&
+               order.supplier === prefillData.supplier &&
+               order.quantity === parseInt(prefillData.quantity) &&
+               order.unit === prefillData.unit &&
+               order.costPerUnit === parseFloat(prefillData.costPerUnit) &&
+               order.status === "ordered" &&
+               timeDiff < 5000; // 5 seconds
+      });
+      
+      if (recentOrder) {
+
+        // Clear the state to prevent re-opening on refresh
+        window.history.replaceState({}, document.title);
+        return;
+      }
+      
+      if (!existingOrder) {
+
+        const newOrder: StockOrder = {
+          id: Date.now().toString(),
+          materialName: prefillData.materialName,
+          materialBrand: prefillData.materialBrand || "Unknown",
+          materialCategory: prefillData.materialCategory || "Other",
+          materialBatchNumber: prefillData.materialBatchNumber || `BATCH-${Date.now()}`,
+          supplier: prefillData.supplier,
+          quantity: parseInt(prefillData.quantity),
+          unit: prefillData.unit,
+          costPerUnit: parseFloat(prefillData.costPerUnit),
+          totalCost: parseInt(prefillData.quantity) * parseFloat(prefillData.costPerUnit),
+          orderDate: new Date().toISOString().split('T')[0],
+          expectedDelivery: prefillData.expectedDelivery || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+          status: "ordered",
+          notes: prefillData.notes || `${prefillData.isRestock ? 'Restock' : 'New material procurement'} order for ${prefillData.materialName}`,
+          minThreshold: prefillData.minThreshold || 100,
+          maxCapacity: prefillData.maxCapacity || 1000,
+          qualityGrade: prefillData.qualityGrade || "A",
+          isRestock: prefillData.isRestock || false
+        };
+
+        // Add to localStorage and update state
+        const savedOrder = materialOrdersStorage.add(newOrder);
+        setOrders(prev => [savedOrder, ...prev]);
+        
+        // Mark this prefillOrder as processed
+        processedPrefillOrders.current.add(prefillKey);
+        
+        // Show success message
+        toast({
+          title: "✅ Material Order Created!",
+          description: `${prefillData.materialName} order has been created successfully.`,
+          variant: "default",
+        });
+        
+
+      } else {
+
+      }
       
       // Clear the state to prevent re-opening on refresh
       window.history.replaceState({}, document.title);
+      
+      // Also clear the location state to prevent any re-triggering
+      if (location.state?.prefillOrder) {
+        navigate(location.pathname, { replace: true });
+      }
     }
-  }, [location.state]);
+  }, [location.state, navigate]); // Added navigate to dependencies
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -143,7 +281,7 @@ export default function ManageStock() {
   });
 
   const updateOrderStatus = (orderId: string, newStatus: StockOrder["status"]) => {
-    setOrders(orders.map(order => 
+    const updatedOrders = orders.map(order => 
       order.id === orderId 
         ? { 
             ...order, 
@@ -151,7 +289,153 @@ export default function ManageStock() {
             actualDelivery: newStatus === "delivered" ? new Date().toISOString().split('T')[0] : order.actualDelivery
           }
         : order
-    ));
+    );
+    
+    // Update local state
+    setOrders(updatedOrders);
+    
+    // If status is "delivered", update the raw material inventory
+    if (newStatus === "delivered") {
+      const deliveredOrder = updatedOrders.find(order => order.id === orderId);
+      if (deliveredOrder) {
+        updateRawMaterialStock(deliveredOrder);
+      }
+    }
+    
+    // Update the order in localStorage
+    const orderToUpdate = updatedOrders.find(order => order.id === orderId);
+    if (orderToUpdate) {
+      materialOrdersStorage.update(orderId, orderToUpdate);
+    }
+  };
+
+      // Function to update raw material stock when order is delivered
+      // SMART LOGIC: Automatically detects when to restock vs create new material
+      // 
+      // RESTOCK SCENARIO: Same name + same supplier + same brand + same quality (price can vary)
+      // NEW MATERIAL SCENARIO: Different supplier OR different brand OR different quality
+      // 
+      // This means:
+      // - Same material + same supplier + same brand + same quality = RESTOCK (update existing)
+      // - Same material + different supplier = NEW MATERIAL (create new entry)
+      // - Same material + same supplier + price change = RESTOCK (update existing, new price)
+      // - Same material + same supplier + different quality = NEW MATERIAL (create new entry)
+      const updateRawMaterialStock = (deliveredOrder: StockOrder) => {
+    try {
+      const rawMaterials = rawMaterialsStorage.getAll();
+      
+              // Check if this is EXACTLY the same material (ALL fields must match for restock)
+        // SMART RESTOCK LOGIC: Only supplier, brand, and quality matter for restock
+        // Price changes are allowed and don't create new materials
+        // 
+        // Example scenarios:
+        // 1. RESTOCK: Cotton Yarn + ABC Textiles + Premium + Rolls (price can vary) = RESTOCK existing
+        // 2. NEW MATERIAL: Cotton Yarn + XYZ Textiles + Premium + Rolls = NEW MATERIAL (different supplier)
+        // 3. RESTOCK: Cotton Yarn + ABC Textiles + Premium + Rolls (price changed) = RESTOCK existing
+        // 4. NEW MATERIAL: Cotton Yarn + ABC Textiles + Standard + Rolls = NEW MATERIAL (different quality)
+        // 5. NEW MATERIAL: Cotton Yarn + ABC Textiles + Premium + Kg = NEW MATERIAL (different unit)
+        
+        // SMART RESTOCK LOGIC: Only check supplier, brand, and quality for restock
+        // Price changes are allowed and don't create new materials
+        // 
+        // RESTOCK: Same name + same supplier + same brand + same quality (price can vary)
+        // NEW MATERIAL: Different supplier OR different brand OR different quality
+        const existingMaterial = rawMaterials.find(material => 
+          material.name === deliveredOrder.materialName &&
+          material.brand === deliveredOrder.materialBrand &&
+          material.category === deliveredOrder.materialCategory &&
+          material.supplier === deliveredOrder.supplier &&
+          material.qualityGrade === deliveredOrder.qualityGrade &&
+          material.unit === deliveredOrder.unit
+        );
+      
+      if (existingMaterial) {
+        // This is an EXACT match - automatically treat as RESTOCK
+        const newStock = existingMaterial.currentStock + deliveredOrder.quantity;
+        const updatedMaterial = {
+          ...existingMaterial,
+          currentStock: newStock,
+          lastRestocked: new Date().toISOString().split('T')[0],
+          status: newStock === 0 ? 'out-of-stock' : 
+                  newStock <= existingMaterial.minThreshold ? 'low-stock' : 'in-stock'
+        };
+        rawMaterialsStorage.update(existingMaterial.id, updatedMaterial);
+        
+        console.log(`Restocked existing ${deliveredOrder.materialName} from ${existingMaterial.currentStock} to ${newStock}`);
+        
+        // Auto-detect action type: If fields match exactly, it's a restock
+        const isAutoRestock = true; // Since we found an exact match
+        const actionType = 'restock_completed';
+        const title = "✅ Stock Restocked Successfully!";
+        
+        toast({
+          title: title,
+          description: `${deliveredOrder.materialName} (${deliveredOrder.supplier}): ${existingMaterial.currentStock} + ${deliveredOrder.quantity} = ${newStock} ${deliveredOrder.unit}`,
+          variant: "default",
+        });
+        
+        // Store stock update info for Materials page notification
+        localStorage.setItem('last_stock_update', JSON.stringify({
+          materialName: deliveredOrder.materialName,
+          oldStock: existingMaterial.currentStock,
+          newStock: newStock,
+          quantity: deliveredOrder.quantity,
+          unit: deliveredOrder.unit,
+          timestamp: Date.now(),
+          action: actionType
+        }));
+      } else {
+        // This is a NEW material (different name, brand, supplier, quality, price, etc.)
+        // Even if name is same, if ANY field is different, it's treated as NEW
+        const newMaterial = {
+          id: Date.now().toString(),
+          name: deliveredOrder.materialName,
+          brand: deliveredOrder.materialBrand || "Unknown",
+          category: deliveredOrder.materialCategory || "Other",
+          batchNumber: deliveredOrder.materialBatchNumber || `BATCH-${Date.now()}`,
+          currentStock: deliveredOrder.quantity,
+          unit: deliveredOrder.unit,
+          minThreshold: deliveredOrder.minThreshold || 100,
+          maxCapacity: deliveredOrder.maxCapacity || 1000,
+          supplier: deliveredOrder.supplier,
+          costPerUnit: deliveredOrder.costPerUnit,
+          qualityGrade: deliveredOrder.qualityGrade || "A",
+          expiryDate: "",
+          imageUrl: "",
+          lastRestocked: new Date().toISOString().split('T')[0],
+          status: 'in-stock'
+        };
+        
+        rawMaterialsStorage.add(newMaterial);
+        
+        console.log(`Added NEW material ${deliveredOrder.materialName} from ${deliveredOrder.supplier} to inventory (different specifications)`);
+        
+        toast({
+          title: "🆕 New Material Added to Inventory!",
+          description: `${deliveredOrder.materialName} (${deliveredOrder.supplier}) has been added as a NEW material with ${deliveredOrder.quantity} ${deliveredOrder.unit}`,
+          variant: "default",
+        });
+        
+        // Store stock update info for Materials page notification
+        localStorage.setItem('last_stock_update', JSON.stringify({
+          materialName: deliveredOrder.materialName,
+          oldStock: 0,
+          newStock: deliveredOrder.quantity,
+          quantity: deliveredOrder.quantity,
+          unit: deliveredOrder.unit,
+          supplier: deliveredOrder.supplier,
+          timestamp: Date.now(),
+          action: 'new_material_added'
+        }));
+      }
+    } catch (error) {
+      console.error('Error updating raw material stock:', error);
+      toast({
+        title: "❌ Error Updating Stock",
+        description: "There was an error updating the stock. Please check console for details.",
+        variant: "destructive",
+        });
+    }
   };
 
   const totalOrders = orders.length;
@@ -165,6 +449,8 @@ export default function ManageStock() {
         title="Manage Stock" 
         subtitle="Track raw material orders, quantities, and delivery status"
       />
+
+
 
       {/* Summary Cards */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -338,7 +624,14 @@ export default function ManageStock() {
                         Cancel Order
                       </Button>
                     )}
-                    <Button size="sm" variant="secondary">
+                    <Button 
+                      size="sm" 
+                      variant="secondary"
+                      onClick={() => {
+                        setSelectedOrder(order);
+                        setIsDetailsDialogOpen(true);
+                      }}
+                    >
                       View Details
                     </Button>
                   </div>
@@ -356,6 +649,153 @@ export default function ManageStock() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Order Details Dialog */}
+      <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Order Details: {selectedOrder?.materialName}
+            </DialogTitle>
+            <DialogDescription>
+              Complete information about this material order
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedOrder && (
+            <div className="space-y-6">
+              {/* Order Overview */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Order Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Material Name</Label>
+                      <p className="text-xl font-bold">{selectedOrder.materialName}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Order ID</Label>
+                      <p className="font-mono text-sm">{selectedOrder.id}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Order Date</Label>
+                      <p className="font-medium">{new Date(selectedOrder.orderDate).toLocaleDateString()}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Order Status</Label>
+                      <Badge className={statusConfig[selectedOrder.status]?.color || "bg-gray-100 text-gray-800"}>
+                        {statusConfig[selectedOrder.status]?.label || selectedOrder.status}
+                      </Badge>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Material Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Material Specifications</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Quantity</Label>
+                      <p className="text-xl font-bold text-blue-600">{selectedOrder.quantity} {selectedOrder.unit}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Cost per Unit</Label>
+                      <p className="text-xl font-bold text-green-600">₹{selectedOrder.costPerUnit.toLocaleString()}</p>
+                    </div>
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Total Cost</Label>
+                      <p className="text-2xl font-bold text-primary">₹{selectedOrder.totalCost.toLocaleString()}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Supplier Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Supplier Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Supplier Name</Label>
+                      <p className="font-medium">{selectedOrder.supplier}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Delivery Information */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Delivery Information</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 gap-6">
+                    <div>
+                      <Label className="text-sm font-medium text-muted-foreground">Expected Delivery</Label>
+                      <p className="font-medium">
+                        {selectedOrder.expectedDelivery ? 
+                          new Date(selectedOrder.expectedDelivery).toLocaleDateString() : 
+                          "Not specified"
+                        }
+                      </p>
+                    </div>
+                    {selectedOrder.actualDelivery && (
+                      <div>
+                        <Label className="text-sm font-medium text-muted-foreground">Actual Delivery Date</Label>
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">{new Date(selectedOrder.actualDelivery).toLocaleDateString()}</p>
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            onClick={() => {
+                              const newDate = prompt("Enter new delivery date (YYYY-MM-DD):", selectedOrder.actualDelivery);
+                              if (newDate && newDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                                const updatedOrder = { ...selectedOrder, actualDelivery: newDate };
+                                setSelectedOrder(updatedOrder);
+                                updateOrderStatus(selectedOrder.id, selectedOrder.status);
+                                setIsDetailsDialogOpen(false);
+                              }
+                            }}
+                          >
+                            Edit Date
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Notes */}
+              {selectedOrder.notes && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Order Notes</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-muted-foreground">{selectedOrder.notes}</p>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsDetailsDialogOpen(false)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

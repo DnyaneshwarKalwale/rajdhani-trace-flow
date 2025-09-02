@@ -28,8 +28,11 @@ import {
   Package, Clock, Users, TrendingUp, Factory, ArrowRight,
   Edit, Trash2, Save, X, AlertCircle, FileText, Hash, Calendar,
   MapPin, Ruler, Scale, Star, Plus, Minus, Package2, ShoppingCart,
-  Search, Filter, Info
+  Search, Filter, Info, ChevronRight, ChevronLeft, MoreHorizontal,
+  Download, Upload, Settings, Bell, Target, BarChart3, Thermometer,
+  Gauge, Timer, Zap, RefreshCw, Copy, QrCode, CheckSquare, Square
 } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
 
 interface ProductionMaterial {
   materialId: string;
@@ -45,7 +48,7 @@ interface ProductionStep {
   id: number;
   name: string;
   description: string;
-  status: "pending" | "active" | "completed" | "issue";
+  status: "pending" | "active" | "paused" | "completed" | "issue";
   progress: number;
   materials: ProductionMaterial[];
   expectedOutput: number;
@@ -349,25 +352,33 @@ const productionHistory = {
   }
 };
 
+// Enhanced status styles with better visual hierarchy
 const statusStyles = {
-  "planning": "bg-muted text-muted-foreground",
-  "active": "bg-blue-500 text-white",
-  "paused": "bg-yellow-500 text-white",
-  "completed": "bg-green-500 text-white",
-  "issue": "bg-red-500 text-white"
+  "planning": "bg-slate-100 text-slate-700 border-slate-200",
+  "active": "bg-blue-100 text-blue-700 border-blue-200",
+  "paused": "bg-yellow-100 text-yellow-700 border-yellow-200",
+  "completed": "bg-green-100 text-green-700 border-green-200",
+  "issue": "bg-red-100 text-red-700 border-red-200"
 };
 
 const stepStatusStyles = {
-  "pending": "bg-muted text-muted-foreground",
-  "active": "bg-blue-500 text-white",
-  "completed": "bg-green-500 text-white",
-  "issue": "bg-red-500 text-white"
+  "pending": "bg-slate-100 text-slate-700 border-slate-200",
+  "active": "bg-blue-100 text-blue-700 border-blue-200",
+  "paused": "bg-yellow-100 text-yellow-700 border-yellow-200",
+  "completed": "bg-green-100 text-green-700 border-green-200",
+  "issue": "bg-red-100 text-red-700 border-red-200"
+};
+
+const priorityStyles = {
+  "normal": "bg-gray-100 text-gray-700 border-gray-200",
+  "high": "bg-orange-100 text-orange-700 border-orange-200",
+  "urgent": "bg-red-100 text-red-700 border-red-200"
 };
 
 const materialStatusStyles = {
-  "in-stock": "bg-green-100 text-green-800",
-  "low-stock": "bg-yellow-100 text-yellow-800",
-  "out-of-stock": "bg-red-100 text-red-800"
+  "in-stock": "bg-green-100 text-green-800 border-green-200",
+  "low-stock": "bg-yellow-100 text-yellow-800 border-yellow-200",
+  "out-of-stock": "bg-red-100 text-red-800 border-red-200"
 };
 
 export default function ProductionDetail() {
@@ -398,10 +409,9 @@ export default function ProductionDetail() {
     individualProducts: [] as IndividualProduct[]
   });
   const [showIndividualProducts, setShowIndividualProducts] = useState(false);
-  const [individualProductsData, setIndividualProductsData] = useState<IndividualProduct[]>([]);
-  const [isStepManagementOpen, setIsStepManagementOpen] = useState(false);
-  const [editingStep, setEditingStep] = useState<ProductionStep | null>(null);
-  const [isAddStepOpen, setIsAddStepOpen] = useState(false);
+  const [editingCell, setEditingCell] = useState<{ row: number; col: keyof IndividualProduct } | null>(null);
+  const [editValue, setEditValue] = useState("");
+  const [viewMode, setViewMode] = useState<"overview" | "steps" | "materials" | "inspection">("overview");
 
   // Load product data
   useEffect(() => {
@@ -601,25 +611,9 @@ export default function ProductionDetail() {
     setIsStepCompletionOpen(true);
   };
 
-  // Enhanced step completion confirmation with inventory updates
+  // Handle step completion confirmation
   const handleStepCompletionConfirm = () => {
     if (!selectedStep) return;
-
-    // Update raw material inventory (reduce stock based on materials used)
-    const stepMaterials = selectedStep.materials;
-    stepMaterials.forEach(material => {
-      const rawMaterial = rawMaterials.find(rm => rm.id === material.materialId);
-      if (rawMaterial) {
-        // In a real app, this would be an API call to update inventory
-        console.log(`Reducing ${material.usedQuantity} ${material.unit} of ${material.materialName} from inventory`);
-        // For demo, we'll just log the reduction
-      }
-    });
-
-    // Calculate efficiency metrics
-    const efficiency = selectedStep.expectedOutput > 0 
-      ? (stepCompletionData.actualOutput / selectedStep.expectedOutput) * 100 
-      : 100;
 
     setProduct(prev => {
       if (!prev) return prev;
@@ -629,7 +623,6 @@ export default function ProductionDetail() {
           return {
             ...step,
             status: "completed" as const,
-            progress: 100,
             completionDate: new Date().toISOString().split('T')[0],
             actualOutput: stepCompletionData.actualOutput,
             waste: stepCompletionData.waste,
@@ -644,21 +637,122 @@ export default function ProductionDetail() {
       const progress = (completedSteps / prev.totalSteps) * 100;
       const currentStep = completedSteps < prev.totalSteps ? completedSteps + 1 : prev.totalSteps;
       
-      // If all steps completed, mark product as completed
-      const status = completedSteps === prev.totalSteps ? "completed" as const : prev.status;
+      // Check if all steps are completed
+      const allCompleted = updatedSteps.every(s => s.status === "completed");
 
       return {
         ...prev,
         steps: updatedSteps,
         progress,
         currentStep,
-        status,
-        actualCompletion: status === "completed" ? new Date().toISOString().split('T')[0] : prev.actualCompletion
+        status: allCompleted ? "completed" as const : "active" as const,
+        actualCompletion: allCompleted ? new Date().toISOString().split('T')[0] : undefined
       };
     });
 
     setIsStepCompletionOpen(false);
-    setStepCompletionData({ actualOutput: 0, waste: 0, defective: 0, notes: "" });
+    setStepCompletionData({
+      actualOutput: 0,
+      waste: 0,
+      defective: 0,
+      notes: ""
+    });
+  };
+
+  // Handle quality inspection
+  const handleQualityInspection = (step: ProductionStep) => {
+    setSelectedStep(step);
+    setInspectionData({
+      inspector: "",
+      inspectionDate: new Date().toISOString().split('T')[0],
+      inspectionNotes: "",
+      qualityGrade: "A",
+      individualProducts: []
+    });
+    setIsInspectionOpen(true);
+  };
+
+  // Handle inspection completion
+  const handleInspectionComplete = () => {
+    if (!selectedStep || inspectionData.individualProducts.length === 0) return;
+
+    setProduct(prev => {
+      if (!prev) return prev;
+      
+      const updatedSteps = prev.steps.map(step => {
+        if (step.id === selectedStep.id) {
+          return {
+            ...step,
+            status: "completed" as const,
+            completionDate: new Date().toISOString().split('T')[0],
+            actualOutput: inspectionData.individualProducts.length,
+            notes: inspectionData.inspectionNotes,
+            inspector: inspectionData.inspector,
+            inspectionDate: inspectionData.inspectionDate,
+            inspectionNotes: inspectionData.inspectionNotes
+          };
+        }
+        return step;
+      });
+
+      const completedSteps = updatedSteps.filter(s => s.status === "completed").length;
+      const progress = (completedSteps / prev.totalSteps) * 100;
+      const currentStep = completedSteps < prev.totalSteps ? completedSteps + 1 : prev.totalSteps;
+      
+      // Check if all steps are completed
+      const allCompleted = updatedSteps.every(s => s.status === "completed");
+      
+      return {
+        ...prev,
+        steps: updatedSteps,
+        progress,
+        currentStep,
+        status: allCompleted ? "completed" as const : "active" as const,
+        actualCompletion: allCompleted ? new Date().toISOString().split('T')[0] : undefined,
+        individualProducts: inspectionData.individualProducts
+      };
+    });
+
+    setIsInspectionOpen(false);
+    setInspectionData({
+      inspector: "",
+      inspectionDate: "",
+      inspectionNotes: "",
+      qualityGrade: "",
+      individualProducts: []
+    });
+  };
+
+  // Handle step pause
+  const handlePauseStep = (step: ProductionStep) => {
+    setProduct(prev => {
+      if (!prev) return prev;
+      
+      const updatedSteps = prev.steps.map(s => {
+        if (s.id === step.id) {
+          return { ...s, status: "paused" as const };
+        }
+        return s;
+      });
+      
+      return {
+        ...prev,
+        steps: updatedSteps,
+        status: "paused" as const
+      };
+    });
+  };
+
+  // Handle step details view
+  const handleViewStepDetails = (step: ProductionStep) => {
+    setSelectedStep(step);
+    // You can implement a detailed view modal here
+    console.log("View step details:", step);
+  };
+
+  // Handle start step
+  const handleStartStep = (step: ProductionStep) => {
+    handleStepActivate(step);
   };
 
   // Enhanced inspection with individual product creation
@@ -676,14 +770,7 @@ export default function ProductionDetail() {
     if (step.id === 5 && step.actualOutput) {
       // Check if individual products already exist
       if (product.individualProducts && product.individualProducts.length > 0) {
-        setIndividualProductsData(product.individualProducts);
-        setInspectionData({
-          inspector: step.inspector || "",
-          inspectionDate: step.inspectionDate || new Date().toISOString().split('T')[0],
-          inspectionNotes: step.inspectionNotes || "",
-          qualityGrade: "A",
-          individualProducts: product.individualProducts
-        });
+        setShowIndividualProducts(true);
       } else {
         // Generate new individual products with auto-filled product details
         const individualProducts: IndividualProduct[] = [];
@@ -704,9 +791,8 @@ export default function ProductionDetail() {
             status: "available"
           });
         }
-        setIndividualProductsData(individualProducts);
+        setProduct(prev => prev ? { ...prev, individualProducts } : null);
       }
-      setShowIndividualProducts(true);
     } else {
       setIsInspectionOpen(true);
     }
@@ -805,25 +891,11 @@ export default function ProductionDetail() {
 
   // Enhanced individual product update with validation
   const handleIndividualProductUpdate = (index: number, field: keyof IndividualProduct, value: any) => {
-    setIndividualProductsData(prev => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], [field]: value };
-      
-      // If updating the ID field, also update the QR code
-      if (field === 'id' && value) {
-        updated[index].qrCode = generateQRFromID(value);
-      }
-      
-      // Validate quality grade
-      if (field === 'qualityGrade' && value) {
-        const validGrades = ['A+', 'A', 'B', 'C'];
-        if (!validGrades.includes(value)) {
-          alert('Invalid quality grade. Please use A+, A, B, or C.');
-          return prev;
-        }
-      }
-      
-      return updated;
+    setProduct(prev => {
+      if (!prev) return prev;
+      const updatedProducts = [...prev.individualProducts];
+      updatedProducts[index] = { ...updatedProducts[index], [field]: value };
+      return { ...prev, individualProducts: updatedProducts };
     });
   };
 
@@ -836,17 +908,17 @@ export default function ProductionDetail() {
     }
 
     // Calculate available pieces (excluding damaged ones)
-    const availablePieces = individualProductsData.filter(p => p.status === 'available').length;
-    const damagedPieces = individualProductsData.filter(p => p.status === 'damaged').length;
+    const availablePieces = product.individualProducts?.filter(p => p.status === 'available').length || 0;
+    const damagedPieces = product.individualProducts?.filter(p => p.status === 'damaged').length || 0;
 
     // Update the main Products page inventory
     const productionResult = {
       productId: product.productId || product.id,
       productName: product.productName,
       newQuantity: availablePieces, // Only count available pieces
-      totalProduced: individualProductsData.length, // Total pieces produced
+      totalProduced: product.individualProducts?.length || 0, // Total pieces produced
       damagedPieces: damagedPieces,
-      individualProducts: individualProductsData,
+      individualProducts: product.individualProducts,
       manufacturingDate: new Date().toISOString().split('T')[0],
       batchNumber: product.batchNumber,
       inspector: inspectionData.inspector,
@@ -881,7 +953,7 @@ export default function ProductionDetail() {
         status: "completed" as const,
         progress: 100,
         actualCompletion: new Date().toISOString().split('T')[0],
-        individualProducts: individualProductsData
+        individualProducts: product.individualProducts
       };
     });
 
@@ -893,7 +965,7 @@ export default function ProductionDetail() {
 📦 Production Summary:
 • Product: ${product.productName}
 • Batch: ${product.batchNumber}
-• Total Pieces Produced: ${individualProductsData.length}
+• Total Pieces Produced: ${product.individualProducts?.length || 0}
 • Available for Sale: ${availablePieces}
 • Damaged/Defective: ${damagedPieces}
 • Inspector: ${inspectionData.inspector || 'Not assigned'}
@@ -924,69 +996,167 @@ The product quantity has been updated in the main inventory.`;
     });
   };
 
-  // Step Form Component
-  function StepForm({ 
-    step, 
-    onSave, 
-    onCancel 
-  }: { 
-    step: ProductionStep | null; 
-    onSave: (data: { name: string; description: string }) => void; 
-    onCancel: () => void; 
-  }) {
-    const [stepData, setStepData] = useState({
-      name: step?.name || "",
-      description: step?.description || ""
-    });
+  // Enhanced Step Card Component
+  const StepCard = ({ step, stepIndex }: { step: ProductionStep; stepIndex: number }) => {
+    const isCurrentStep = stepIndex === currentStepView - 1;
+    const isAccessible = step.status === "completed" || step.status === "active" || 
+                        (step.status === "pending" && stepIndex === 0);
 
     return (
-      <div className="space-y-4">
+      <Card className={`relative overflow-hidden transition-all duration-300 ${
+        isCurrentStep ? 'ring-2 ring-blue-500 shadow-lg' : 'hover:shadow-md'
+      } ${!isAccessible ? 'opacity-60' : ''}`}>
+        {/* Status Indicator Bar */}
+        <div className={`absolute top-0 left-0 right-0 h-1 ${
+          step.status === "completed" ? "bg-green-500" :
+          step.status === "active" ? "bg-blue-500" :
+          step.status === "issue" ? "bg-red-500" :
+          "bg-gray-300"
+        }`} />
+        
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
+                step.status === "completed" ? "bg-green-100 text-green-700" :
+                step.status === "active" ? "bg-blue-100 text-blue-700" :
+                step.status === "issue" ? "bg-red-100 text-red-700" :
+                "bg-gray-100 text-gray-700"
+              }`}>
+                {stepIndex + 1}
+              </div>
         <div>
-          <Label htmlFor="stepName">Step Name</Label>
-          <Input
-            id="stepName"
-            value={stepData.name}
-            onChange={(e) => setStepData(prev => ({ ...prev, name: e.target.value }))}
-            placeholder="e.g., Punching, Dyeing, Cutting"
-          />
+                <CardTitle className="text-lg">{step.name}</CardTitle>
+                <p className="text-sm text-muted-foreground">{step.description}</p>
         </div>
+            </div>
+            <Badge className={`${stepStatusStyles[step.status]} shadow-sm`}>
+              {step.status === "active" && <Cog className="w-3 h-3 mr-1" />}
+              {step.status === "completed" && <CheckCircle className="w-3 h-3 mr-1" />}
+              {step.status === "issue" && <AlertTriangle className="w-3 h-3 mr-1" />}
+              {step.status}
+            </Badge>
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-4">
+          {/* Progress Bar */}
         <div>
-          <Label htmlFor="stepDescription">Description</Label>
-          <Textarea
-            id="stepDescription"
-            value={stepData.description}
-            onChange={(e) => setStepData(prev => ({ ...prev, description: e.target.value }))}
-            placeholder="Describe what happens in this step..."
-            className="min-h-[80px]"
-          />
+            <div className="flex items-center justify-between text-sm mb-2">
+              <span>Progress</span>
+              <span>{step.progress}%</span>
+            </div>
+            <Progress value={step.progress} className="h-2" />
         </div>
         
-        <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
-            Cancel
+          {/* Materials Used */}
+          {step.materials.length > 0 && (
+            <div>
+              <h4 className="font-medium text-sm mb-2">Materials Used</h4>
+              <div className="space-y-2">
+                {step.materials.map((material, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-sm bg-gray-50 p-2 rounded">
+                    <span>{material.materialName}</span>
+                    <span className="font-medium">{material.usedQuantity} {material.unit}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Output Information */}
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div className="bg-blue-50 p-3 rounded">
+              <span className="text-muted-foreground text-xs">Expected Output</span>
+              <div className="font-semibold">{step.expectedOutput}</div>
+            </div>
+            {step.actualOutput !== undefined && (
+              <div className="bg-green-50 p-3 rounded">
+                <span className="text-muted-foreground text-xs">Actual Output</span>
+                <div className="font-semibold">{step.actualOutput}</div>
+              </div>
+            )}
+          </div>
+
+          {/* Waste and Defects */}
+          {(step.waste || step.defective) && (
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              {step.waste && (
+                <div className="bg-yellow-50 p-3 rounded">
+                  <span className="text-muted-foreground text-xs">Waste</span>
+                  <div className="font-semibold text-yellow-700">{step.waste}</div>
+                </div>
+              )}
+              {step.defective && (
+                <div className="bg-red-50 p-3 rounded">
+                  <span className="text-muted-foreground text-xs">Defective</span>
+                  <div className="font-semibold text-red-700">{step.defective}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Action Buttons */}
+          <div className="flex gap-2">
+            {step.status === "pending" && isAccessible && (
+              <Button 
+                size="sm" 
+                onClick={() => handleStartStep(step)}
+                className="flex-1"
+              >
+                <Play className="w-4 h-4 mr-2" />
+                Start Step
           </Button>
+            )}
+            {step.status === "active" && (
+              <>
           <Button 
-            onClick={() => onSave(stepData)}
-            disabled={!stepData.name.trim()}
-          >
-            {step ? 'Update Step' : 'Add Step'}
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => handleStepComplete(step)}
+                  className="flex-1"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Complete Step
           </Button>
-        </DialogFooter>
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => handlePauseStep(step)}
+                >
+                  <Pause className="w-4 h-4" />
+                </Button>
+              </>
+            )}
+            {step.status === "completed" && (
+              <Button 
+                size="sm" 
+                variant="outline"
+                onClick={() => handleViewStepDetails(step)}
+                className="flex-1"
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                View Details
+              </Button>
+            )}
       </div>
+
+          {/* Step Notes */}
+          {step.notes && (
+            <div className="bg-gray-50 p-3 rounded text-sm">
+              <span className="font-medium">Notes:</span> {step.notes}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     );
-  }
+  };
 
-  // Enhanced Excel-like Table Component
-  function ExcelLikeTable({ 
-    data, 
-    onDataChange 
-  }: { 
+  // Enhanced Excel-like Table Component for Individual Products
+  const ExcelLikeTable = ({ data, onDataChange }: { 
     data: IndividualProduct[]; 
-    onDataChange: (data: IndividualProduct[]) => void; 
-  }) {
-    const [editingCell, setEditingCell] = useState<{ row: number; col: string } | null>(null);
-    const [editValue, setEditValue] = useState("");
-
+    onDataChange: (data: IndividualProduct[]) => void 
+  }) => {
     const handleCellClick = (rowIndex: number, field: keyof IndividualProduct) => {
       setEditingCell({ row: rowIndex, col: field });
       setEditValue(String(data[rowIndex][field] || ""));
@@ -997,38 +1167,15 @@ The product quantity has been updated in the main inventory.`;
         const newData = [...data];
         const { row, col } = editingCell;
         
-        // Special handling for different field types
+        // Process the value based on the field type
         let processedValue = editValue;
-        
-        if (col === 'id' && editValue.trim()) {
-          // Auto-generate QR code when ID is entered
-          newData[row] = { 
-            ...newData[row], 
-            [col]: editValue,
-            qrCode: generateQRFromID(editValue)
-          };
+        if (col === 'status') {
+          processedValue = editValue as "available" | "damaged" | "sold";
         } else if (col === 'qualityGrade') {
-          // Validate quality grade
-          const validGrades = ['A+', 'A', 'B', 'C'];
-          if (!validGrades.includes(editValue.toUpperCase())) {
-            alert('Invalid quality grade. Please use A+, A, B, or C.');
-            return;
-          }
-          processedValue = editValue.toUpperCase();
-          newData[row] = { ...newData[row], [col]: processedValue };
-        } else if (col === 'status') {
-          // Validate status
-          const validStatuses = ['available', 'damaged', 'sold'];
-          if (!validStatuses.includes(editValue.toLowerCase())) {
-            alert('Invalid status. Please use available, damaged, or sold.');
-            return;
-          }
-          processedValue = editValue.toLowerCase();
-          newData[row] = { ...newData[row], [col]: processedValue as "available" | "damaged" | "sold" };
-        } else {
-          newData[row] = { ...newData[row], [col]: processedValue };
+          processedValue = editValue as "A+" | "A" | "B" | "C";
         }
         
+        newData[row] = { ...newData[row], [col]: processedValue as any };
         onDataChange(newData);
         setEditingCell(null);
         setEditValue("");
@@ -1038,180 +1185,268 @@ The product quantity has been updated in the main inventory.`;
     const handleKeyDown = (e: React.KeyboardEvent) => {
       if (e.key === 'Enter') {
         handleCellSave();
-        // Move to next cell
-        if (editingCell) {
-          const nextRow = editingCell.row + 1;
-          if (nextRow < data.length) {
-            setEditingCell({ row: nextRow, col: editingCell.col });
-            setEditValue(String(data[nextRow][editingCell.col as keyof IndividualProduct] || ""));
-          }
-        }
       } else if (e.key === 'Escape') {
         setEditingCell(null);
         setEditValue("");
-      } else if (e.key === 'Tab') {
-        e.preventDefault();
-        handleCellSave();
-        // Move to next column
-        if (editingCell) {
-          const currentColIndex = columns.findIndex(col => col.key === editingCell.col);
-          const nextColIndex = (currentColIndex + 1) % columns.length;
-          const nextCol = columns[nextColIndex].key;
-          setEditingCell({ row: editingCell.row, col: nextCol });
-          setEditValue(String(data[editingCell.row][nextCol as keyof IndividualProduct] || ""));
-        }
       }
     };
 
     const addRow = () => {
-      const newRow: IndividualProduct = {
-        id: `IND${Date.now()}_${data.length + 1}`,
-        qrCode: "",
-        productId: product?.productId || product?.id || "",
-        manufacturingDate: "",
+      const newProduct: IndividualProduct = {
+        id: `IND${Date.now()}`,
+        qrCode: `QR-${product?.batchNumber}-${String(data.length + 1).padStart(3, '0')}`,
+        productId: product?.id || "",
+        manufacturingDate: new Date().toISOString().split('T')[0],
         materialsUsed: [],
-        finalDimensions: product?.dimensions || product?.size || "",
-        finalWeight: product?.weight || "",
-        finalThickness: product?.thickness || "",
-        finalPileHeight: product?.pileHeight || "",
+        finalDimensions: "",
+        finalWeight: "",
+        finalThickness: "",
+        finalPileHeight: "",
         qualityGrade: "A",
-        inspector: inspectionData.inspector || "",
+        inspector: "",
         notes: "",
         status: "available"
       };
-      onDataChange([...data, newRow]);
+      onDataChange([...data, newProduct]);
     };
 
     const removeRow = (index: number) => {
-      if (data.length <= 1) {
-        alert('Cannot remove the last row. At least one product must be recorded.');
-        return;
-      }
       const newData = data.filter((_, i) => i !== index);
       onDataChange(newData);
     };
 
-    const columns = [
-      { key: 'id', label: 'Custom ID', width: 'w-32', required: true },
-      { key: 'qrCode', label: 'QR Code', width: 'w-40', readonly: true },
-      { key: 'manufacturingDate', label: 'Manufacturing Date', width: 'w-32', required: true },
-      { key: 'finalDimensions', label: 'Dimensions', width: 'w-40', required: true },
-      { key: 'finalWeight', label: 'Weight', width: 'w-24', required: true },
-      { key: 'finalThickness', label: 'Thickness', width: 'w-28', required: true },
-      { key: 'finalPileHeight', label: 'Pile Height', width: 'w-28', required: true },
-      { key: 'qualityGrade', label: 'Grade', width: 'w-20', required: true },
-      { key: 'status', label: 'Status', width: 'w-24', required: true },
-      { key: 'notes', label: 'Notes', width: 'w-40', required: false }
-    ];
-
     return (
-      <div className="border rounded-lg overflow-hidden">
-        {/* Table Header */}
-        <div className="bg-gray-100 border-b">
-          <div className="flex">
-            <div className="w-12 bg-gray-200 border-r flex items-center justify-center text-xs font-medium text-gray-600">
-              #
-            </div>
-            {columns.map((col) => (
-              <div key={col.key} className={`${col.width} p-2 border-r text-xs font-medium text-gray-700 flex items-center gap-1`}>
-                {col.label}
-                {col.required && <span className="text-red-500">*</span>}
-                {col.readonly && <span className="text-gray-400">(Auto)</span>}
-              </div>
-            ))}
-            <div className="w-16 p-2 text-xs font-medium text-gray-700">
-              Actions
-            </div>
-          </div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Individual Product Inspection</h3>
+          <Button onClick={addRow} size="sm">
+            <Plus className="w-4 h-4 mr-2" />
+            Add Row
+          </Button>
         </div>
-
-        {/* Table Body */}
-        <div className="max-h-96 overflow-y-auto">
-          {data.map((row, rowIndex) => (
-            <div key={row.id} className="flex border-b hover:bg-gray-50">
-              <div className="w-12 bg-gray-50 border-r flex items-center justify-center text-xs text-gray-600">
-                {rowIndex + 1}
+        
+      <div className="border rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Row</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Custom ID</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">QR Code</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Dimensions</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Weight</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Thickness</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Pile Height</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Quality Grade</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Status</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Notes</th>
+                  <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.map((item, rowIndex) => (
+                  <tr key={item.id} className="border-t hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm text-gray-500">{rowIndex + 1}</td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'id' ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                      ) : (
+                        <div 
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'id')}
+                        >
+                          {item.id}
+            </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-gray-600">{item.qrCode}</td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'finalDimensions' ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                      ) : (
+                        <div 
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'finalDimensions')}
+                        >
+                          {item.finalDimensions || "Click to edit"}
               </div>
-              {columns.map((col) => (
-                <div key={col.key} className={`${col.width} p-2 border-r text-xs`}>
-                  {editingCell?.row === rowIndex && editingCell?.col === col.key ? (
-                    <Input
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'finalWeight' ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                      ) : (
+                        <div 
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'finalWeight')}
+                        >
+                          {item.finalWeight || "Click to edit"}
+            </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'finalThickness' ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                      ) : (
+                        <div 
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'finalThickness')}
+                        >
+                          {item.finalThickness || "Click to edit"}
+          </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'finalPileHeight' ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                      ) : (
+                        <div 
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'finalPileHeight')}
+                        >
+                          {item.finalPileHeight || "Click to edit"}
+        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'qualityGrade' ? (
+                        <select
                       value={editValue}
                       onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
                       onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        >
+                          <option value="A+">A+</option>
+                          <option value="A">A</option>
+                          <option value="B">B</option>
+                          <option value="C">C</option>
+                        </select>
+                      ) : (
+                        <div 
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'qualityGrade')}
+                        >
+                          <Badge className={
+                            item.qualityGrade === "A+" ? "bg-green-100 text-green-800" :
+                            item.qualityGrade === "A" ? "bg-blue-100 text-blue-800" :
+                            item.qualityGrade === "B" ? "bg-yellow-100 text-yellow-800" :
+                            "bg-red-100 text-red-800"
+                          }>
+                            {item.qualityGrade}
+                          </Badge>
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'status' ? (
+                        <select
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      className="h-6 text-xs p-1"
+                          onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                       autoFocus
-                      placeholder={col.key === 'qualityGrade' ? 'A+, A, B, C' : 
-                                  col.key === 'status' ? 'available, damaged, sold' : 
-                                  col.key === 'manufacturingDate' ? 'YYYY-MM-DD' :
-                                  'Enter value...'}
-                    />
+                        >
+                          <option value="available">Available</option>
+                          <option value="damaged">Damaged</option>
+                          <option value="sold">Sold</option>
+                        </select>
                   ) : (
                     <div 
-                      className={`h-6 flex items-center px-1 rounded ${
-                        col.readonly 
-                          ? 'cursor-default bg-gray-100 text-gray-600' 
-                          : 'cursor-pointer hover:bg-blue-50'
-                      }`}
-                      onClick={() => !col.readonly && handleCellClick(rowIndex, col.key as keyof IndividualProduct)}
-                    >
-                      {col.key === 'materialsUsed' 
-                        ? Array.isArray(row[col.key as keyof IndividualProduct]) 
-                          ? `${(row[col.key as keyof IndividualProduct] as ProductionMaterial[]).length} materials`
-                          : ""
-                        : col.key === 'qualityGrade'
-                        ? <Badge variant={row[col.key as keyof IndividualProduct] === 'A+' ? 'default' : 'secondary'} className="text-xs">
-                            {String(row[col.key as keyof IndividualProduct] || "")}
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'status')}
+                        >
+                          <Badge className={
+                            item.status === "available" ? "bg-green-100 text-green-800" :
+                            item.status === "damaged" ? "bg-red-100 text-red-800" :
+                            "bg-blue-100 text-blue-800"
+                          }>
+                            {item.status}
                           </Badge>
-                        : col.key === 'status'
-                        ? <Badge variant={
-                            (row[col.key as keyof IndividualProduct] as string) === 'available' ? 'default' :
-                            (row[col.key as keyof IndividualProduct] as string) === 'damaged' ? 'destructive' :
-                            'secondary'
-                          } className="text-xs">
-                            {String(row[col.key as keyof IndividualProduct] || "")}
-                          </Badge>
-                        : String(row[col.key as keyof IndividualProduct] || "")}
                     </div>
                   )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {editingCell?.row === rowIndex && editingCell?.col === 'notes' ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onBlur={handleCellSave}
+                          className="w-full px-2 py-1 border rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          autoFocus
+                        />
+                      ) : (
+                        <div 
+                          className="cursor-pointer hover:bg-blue-50 px-2 py-1 rounded"
+                          onClick={() => handleCellClick(rowIndex, 'notes')}
+                        >
+                          {item.notes || "Click to edit"}
                 </div>
-              ))}
-              <div className="w-16 p-2 flex items-center gap-1">
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
                 <Button
-                  variant="outline"
                   size="sm"
+                        variant="outline"
                   onClick={() => removeRow(rowIndex)}
-                  className="h-6 w-6 p-0 text-red-600 hover:text-red-700"
-                  disabled={data.length <= 1}
+                        className="text-red-600 hover:text-red-700"
                 >
-                  <X className="w-3 h-3" />
+                        <Trash2 className="w-4 h-4" />
                 </Button>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Add Row Button and Instructions */}
-        <div className="p-2 bg-gray-50 border-t">
-          <div className="flex items-center justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={addRow}
-              className="flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Add Row
-            </Button>
-            <div className="text-xs text-gray-600">
-              <span className="font-medium">Keyboard shortcuts:</span> Enter to save, Tab to next cell, Escape to cancel
-            </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>
     );
-  }
+  };
 
   // Add new step
   const handleAddStep = (stepData: { name: string; description: string }) => {
@@ -1292,407 +1527,380 @@ The product quantity has been updated in the main inventory.`;
 
   return (
     <div className="flex-1 space-y-6 p-6">
-      {/* Clean Header Layout */}
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <Button 
-            variant="outline" 
-            onClick={() => navigate('/production')} 
-            size="sm"
-            className="flex items-center gap-2"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </Button>
-          
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-semibold text-gray-900">
-              {product.productName}
-            </h1>
-            <Badge variant="outline" className="text-xs">
-              {product.batchNumber}
-            </Badge>
-            <Badge className={`text-xs ${
-              product.status === "completed" ? "bg-green-100 text-green-800" :
-              product.status === "active" ? "bg-blue-100 text-blue-800" :
-              product.status === "paused" ? "bg-yellow-100 text-yellow-800" :
-              "bg-gray-100 text-gray-800"
-            }`}>
-              {product.status}
-            </Badge>
-          </div>
-        </div>
-        
-        <Button 
-          variant="outline" 
-          onClick={() => setIsStepManagementOpen(true)}
-          size="sm"
-          className="flex items-center gap-2"
-        >
-          <Cog className="w-4 h-4" />
-          Manage Steps
-        </Button>
-      </div>
+      <Header 
+        title="Production Detail" 
+        subtitle="Manage production workflow, track materials, and complete quality inspection"
+      />
 
-
-
-      {/* Horizontal Progress Bar */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Production Progress</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-6">
-            {/* Enhanced Step Navigation */}
-            <div className="relative">
-              {/* Progress Line */}
-              <div className="absolute top-8 left-0 right-0 h-1 bg-muted rounded-full">
-                <div 
-                  className="h-full bg-gradient-to-r from-blue-500 to-green-500 rounded-full transition-all duration-500"
-                  style={{ width: `${(product.steps.filter(s => s.status === "completed").length / product.steps.length) * 100}%` }}
-                />
-              </div>
-              
-              {/* Steps */}
-              <div className="relative flex items-center justify-between">
-                                 {product.steps.map((step, index) => {
-                   // Allow access to completed steps and current active step
-                   const isStepAccessible = step.status === "completed" || 
-                                          step.status === "active" || 
-                                          (step.status === "pending" && 
-                                           product.steps.slice(0, index).every(s => s.status === "completed"));
-                   
-                   // Only lock future steps that haven't been reached yet
-                   const isStepLocked = step.status === "pending" && 
-                                      product.steps.slice(0, index).some(s => s.status !== "completed");
-                   
-                   const isCurrentStep = currentStepView === step.id;
-                   const isCompleted = step.status === "completed";
-                   const isActive = step.status === "active";
-                   
-                   return (
-                     <div key={step.id} className="flex flex-col items-center relative z-10">
-                       {/* Step Circle */}
-                       <div 
-                         className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-lg transition-all duration-300 ${
-                           isStepLocked 
-                             ? "bg-gray-300 text-gray-500 cursor-not-allowed" 
-                             : "cursor-pointer hover:scale-105"
-                         } ${
-                           isCompleted 
-                             ? "bg-gradient-to-br from-green-500 to-green-600 shadow-lg shadow-green-200" 
-                             : isActive 
-                             ? "bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-200 animate-pulse" 
-                             : isCurrentStep 
-                             ? "bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg shadow-purple-200" 
-                             : "bg-gradient-to-br from-gray-400 to-gray-500 hover:from-gray-500 hover:to-gray-600"
-                         }`}
-                         onClick={() => !isStepLocked && setCurrentStepView(step.id)}
-                       >
-                         {isCompleted ? (
-                           <CheckCircle className="w-8 h-8" />
-                         ) : (
-                           <span>{step.id}</span>
+      {product ? (
+        <>
+          {/* Enhanced Product Overview */}
+          <Card className="border-l-4 border-l-blue-500">
+            <CardContent className="p-6">
+              <div className="flex items-start justify-between">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-purple-50 rounded-lg flex items-center justify-center">
+                    {product.imageUrl ? (
+                      <img src={product.imageUrl} alt={product.productName} className="w-12 h-12 object-cover rounded" />
+                    ) : (
+                      <Package className="w-8 h-8 text-muted-foreground" />
                          )}
                        </div>
-                      
-                      {/* Step Name */}
-                      <div className="mt-3 text-center max-w-24">
-                        <div className={`text-sm font-medium transition-colors ${
-                          isCurrentStep ? "text-purple-600" : 
-                          isCompleted ? "text-green-600" : 
-                          isActive ? "text-blue-600" : 
-                          "text-gray-500"
-                        }`}>
-                          {step.name}
+                  <div>
+                    <h1 className="text-2xl font-bold">{product.productName}</h1>
+                    <p className="text-muted-foreground font-mono">{product.batchNumber}</p>
+                    <div className="flex items-center gap-4 mt-2">
+                      <Badge className={`${statusStyles[product.status]} shadow-sm`}>
+                        {product.status === "active" && <Factory className="w-3 h-3 mr-1" />}
+                        {product.status === "completed" && <CheckCircle className="w-3 h-3 mr-1" />}
+                        {product.status}
+                          </Badge>
+                      <Badge className={`${priorityStyles[product.priority]} shadow-sm`}>
+                        {product.priority === "urgent" && <Zap className="w-3 h-3 mr-1" />}
+                        {product.priority}
+                      </Badge>
                         </div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {step.status === "completed" ? "Done" :
-                           step.status === "active" ? "In Progress" :
-                           step.status === "pending" ? "Pending" : "Issue"}
                         </div>
                       </div>
-                      
-                      {/* Step Status Indicator */}
-                      {isActive && (
-                        <div className="absolute -top-2 -right-2 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
-                          <div className="w-3 h-3 bg-white rounded-full animate-ping" />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => navigate('/production')}>
+                    <ArrowLeft className="w-4 h-4 mr-2" />
+                    Back to Production
+                        </Button>
+                  <Button variant="outline">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export
+                      </Button>
               </div>
             </div>
 
-            {/* Enhanced Progress Section */}
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 border border-blue-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
-                    <TrendingUp className="w-5 h-5 text-white" />
+              {/* Progress Overview */}
+              <div className="mt-6">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium">Overall Progress</span>
+                  <span className="text-sm text-muted-foreground">{product.progress}%</span>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-gray-900">Production Progress</h3>
-                    <p className="text-sm text-gray-600">Track your manufacturing journey</p>
+                <Progress value={product.progress} className="h-3" />
+                <div className="flex items-center justify-between mt-2 text-sm text-muted-foreground">
+                  <span>Step {product.currentStep} of {product.totalSteps}</span>
+                  <span>Expected: {product.expectedCompletion}</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className="text-3xl font-bold text-gray-900">{product.progress}%</div>
-                  <div className="text-sm text-gray-600">Complete</div>
+          </CardContent>
+        </Card>
+
+          {/* Enhanced Navigation Tabs */}
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1 bg-gray-100 p-1 rounded-lg">
+                       <Button
+                variant={viewMode === "overview" ? "default" : "ghost"}
+                         size="sm"
+                onClick={() => setViewMode("overview")}
+                       >
+                Overview
+                       </Button>
+                           <Button
+                variant={viewMode === "steps" ? "default" : "ghost"}
+                             size="sm"
+                onClick={() => setViewMode("steps")}
+                           >
+                Production Steps
+                           </Button>
+                           <Button
+                variant={viewMode === "materials" ? "default" : "ghost"}
+                             size="sm"
+                onClick={() => setViewMode("materials")}
+                           >
+                Materials
+                           </Button>
+                           <Button
+                variant={viewMode === "inspection" ? "default" : "ghost"}
+                             size="sm"
+                onClick={() => setViewMode("inspection")}
+                           >
+                Quality Inspection
+                           </Button>
                 </div>
               </div>
               
-              <Progress value={product.progress} className="h-4 mb-4" />
-              
-              <div className="grid grid-cols-3 gap-4 text-center">
-                <div className="bg-white rounded-lg p-3 border">
-                  <div className="text-2xl font-bold text-blue-600">
-                    {product.steps.filter(s => s.status === "completed").length}
+          {/* Content based on view mode */}
+          {viewMode === "overview" && (
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {/* Product Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Package className="w-5 h-5" />
+                    Product Details
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Category</span>
+                    <span className="font-medium">{product.category}</span>
                   </div>
-                  <div className="text-xs text-gray-600">Steps Done</div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Color</span>
+                    <span className="font-medium">{product.color}</span>
                 </div>
-                <div className="bg-white rounded-lg p-3 border">
-                  <div className="text-2xl font-bold text-purple-600">
-                    {product.steps.filter(s => s.status === "active").length}
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Size</span>
+                    <span className="font-medium">{product.size}</span>
                   </div>
-                  <div className="text-xs text-gray-600">In Progress</div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Pattern</span>
+                    <span className="font-medium">{product.pattern}</span>
                 </div>
-                <div className="bg-white rounded-lg p-3 border">
-                  <div className="text-2xl font-bold text-gray-600">
-                    {product.steps.filter(s => s.status === "pending").length}
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Quantity</span>
+                    <span className="font-medium">{product.quantity} {product.unit}</span>
                   </div>
-                  <div className="text-xs text-gray-600">Remaining</div>
-                </div>
-              </div>
-              
-              <div className="mt-4 pt-4 border-t border-gray-200">
-                <div className="flex items-center justify-between text-sm text-gray-600">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-4 h-4" />
-                    <span>Started: {new Date(product.startDate).toLocaleDateString()}</span>
+                </CardContent>
+              </Card>
+
+              {/* Financial Information */}
+           <Card>
+             <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5" />
+                    Financial
+                  </CardTitle>
+             </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Cost</span>
+                    <span className="font-medium">₹{product.totalCost.toLocaleString()}</span>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-4 h-4" />
-                    <span>Expected: {new Date(product.expectedCompletion).toLocaleDateString()}</span>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Selling Price</span>
+                    <span className="font-medium">₹{product.sellingPrice.toLocaleString()}</span>
                   </div>
-                  {product.actualCompletion && (
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                      <span>Completed: {new Date(product.actualCompletion).toLocaleDateString()}</span>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total Value</span>
+                    <span className="font-medium">₹{(product.quantity * product.sellingPrice).toLocaleString()}</span>
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Profit Margin</span>
+                    <span className="font-medium text-green-600">
+                      ₹{((product.quantity * product.sellingPrice) - product.totalCost).toLocaleString()}
+                    </span>
           </div>
         </CardContent>
       </Card>
 
-            {/* Enhanced Current Step Detail */}
-            {currentStep && (
-              <Card className="overflow-hidden border-0 shadow-lg">
-                <CardHeader className={`${
-                  currentStep.status === "completed" ? "bg-gradient-to-r from-green-50 to-emerald-50 border-b border-green-200" :
-                  currentStep.status === "active" ? "bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-200" :
-                  "bg-gradient-to-r from-gray-50 to-slate-50 border-b border-gray-200"
-                }`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-6">
-                      <div className={`w-16 h-16 rounded-full flex items-center justify-center text-white font-bold text-xl shadow-lg ${
-                        currentStep.status === "completed" ? "bg-gradient-to-br from-green-500 to-green-600" :
-                        currentStep.status === "active" ? "bg-gradient-to-br from-blue-500 to-blue-600 animate-pulse" :
-                        "bg-gradient-to-br from-gray-400 to-gray-500"
-                      }`}>
-                        {currentStep.status === "completed" ? (
-                          <CheckCircle className="w-8 h-8" />
-                        ) : (
-                          currentStep.id
-                        )}
-                      </div>
-                      <div>
-                        <CardTitle className="flex items-center gap-4 text-xl">
-                          {currentStep.name}
-                          <Badge className={`${
-                            currentStep.status === "completed" ? "bg-green-100 text-green-800 border-green-200" :
-                            currentStep.status === "active" ? "bg-blue-100 text-blue-800 border-blue-200" :
-                            "bg-gray-100 text-gray-800 border-gray-200"
-                          }`}>
-                            {currentStep.status === "completed" ? "✅ Completed" :
-                             currentStep.status === "active" ? "🔄 In Progress" :
-                             currentStep.status === "pending" ? "⏳ Pending" : "⚠️ Issue"}
-                          </Badge>
+              {/* Timeline */}
+           <Card>
+             <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Calendar className="w-5 h-5" />
+                    Timeline
                         </CardTitle>
-                        <p className="text-gray-600 mt-2 max-w-2xl">{currentStep.description}</p>
+             </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Start Date</span>
+                    <span className="font-medium">{new Date(product.startDate).toLocaleDateString()}</span>
                       </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Expected Completion</span>
+                    <span className="font-medium">{new Date(product.expectedCompletion).toLocaleDateString()}</span>
                     </div>
-                    <div className="text-right">
-                      <div className="text-3xl font-bold text-gray-900">{currentStep.progress}%</div>
-                      <div className="text-sm text-gray-600">
-                        {currentStep.actualOutput ? `${currentStep.actualOutput}/` : ""}{currentStep.expectedOutput} pieces
-                      </div>
-                      {currentStep.startDate && (
-                        <div className="text-xs text-gray-500 mt-1">
-                          Started: {new Date(currentStep.startDate).toLocaleDateString()}
+                  {product.actualCompletion && (
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Actual Completion</span>
+                      <span className="font-medium">{new Date(product.actualCompletion).toLocaleDateString()}</span>
                         </div>
                       )}
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Location</span>
+                    <span className="font-medium">{product.location}</span>
                     </div>
+             </CardContent>
+           </Card>
                   </div>
-                </CardHeader>
+         )}
 
-
-
-                <CardContent className="p-8">
-                  {/* Enhanced Progress Bar */}
-                  <div className="mb-6">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-gray-700">Step Progress</span>
-                      <span className="text-sm font-medium text-gray-900">{currentStep.progress}%</span>
-                    </div>
-                    <Progress value={currentStep.progress} className="h-3" />
-                  </div>
-
-                  {/* Enhanced Step Actions */}
-                  <div className="bg-gray-50 rounded-xl p-6 mb-6">
-                    <h4 className="text-lg font-semibold text-gray-900 mb-4">Step Actions</h4>
-                    <div className="flex items-center gap-4">
-                      {currentStep.status === "pending" && (
-                        <Button 
-                          onClick={() => handleStepActivate(currentStep)}
-                          disabled={product.steps.slice(0, product.steps.indexOf(currentStep)).some(s => s.status !== "completed")}
-                          className="flex items-center gap-3 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white px-6 py-3 rounded-lg font-medium shadow-lg hover:shadow-xl transition-all duration-200"
-                        >
-                          <Play className="w-5 h-5" />
-                          Start Process
+          {viewMode === "steps" && (
+           <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Production Steps</h2>
+                     <div className="flex gap-2">
+                  <Button variant="outline" size="sm">
+                    <Settings className="w-4 h-4 mr-2" />
+                    Configure Steps
                         </Button>
-                      )}
-                      
-                      {currentStep.status === "active" && (
-                        <Button 
-                          onClick={() => handleStepComplete(currentStep)}
-                          className="flex items-center gap-3 bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white px-6 py-3 rounded-lg font-medium shadow-lg hover:shadow-xl transition-all duration-200"
-                        >
-                          <CheckCircle className="w-5 h-5" />
-                          Complete Step
-                        </Button>
-                      )}
-                      
-                      <Button 
-                        variant="outline"
-                        onClick={() => handleInspection(currentStep)}
-                        disabled={currentStep.status === "pending" && 
-                                 product.steps.slice(0, product.steps.indexOf(currentStep)).some(s => s.status !== "completed")}
-                        className="flex items-center gap-3 border-2 border-purple-200 text-purple-700 hover:bg-purple-50 px-6 py-3 rounded-lg font-medium transition-all duration-200"
-                      >
-                        <FileText className="w-5 h-5" />
-                        Quality Inspection
+                  <Button variant="outline" size="sm">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Steps
                       </Button>
                     </div>
-                    
-                    {/* Step Access Control Message */}
-                    {currentStep.status === "pending" && 
-                     product.steps.slice(0, product.steps.indexOf(currentStep)).some(s => s.status !== "completed") && (
-                      <div className="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-                        <div className="flex items-center gap-3 text-yellow-800">
-                          <AlertTriangle className="w-5 h-5" />
-                          <div>
-                            <div className="font-medium">Step Locked</div>
-                            <div className="text-sm text-yellow-700">
-                              Complete all previous steps before accessing this step. 
-                              Current progress: {product.steps.filter(s => s.status === "completed").length} of {product.totalSteps} steps completed.
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                   </div>
 
-            {/* Materials Used */}
-            {currentStep.materials.length > 0 && (
-              <div className="space-y-3">
-                <h4 className="font-medium">Materials Used</h4>
-                <div className="grid gap-3">
-                  {currentStep.materials.map((material, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div>
-                        <div className="font-medium">{material.materialName}</div>
-                        <div className="text-sm text-muted-foreground">
-                          {material.usedQuantity}/{material.requiredQuantity} {material.unit}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-sm font-medium">₹{material.cost.toLocaleString()}</div>
-                        <div className="text-xs text-muted-foreground">{material.supplier}</div>
-                      </div>
-                    </div>
+              <div className="grid gap-6 md:grid-cols-2">
+                {product.steps.map((step, index) => (
+                  <StepCard key={step.id} step={step} stepIndex={index} />
                   ))}
                 </div>
               </div>
             )}
 
-            {/* Step Details */}
-            {currentStep.status === "completed" && (
-              <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                <h4 className="font-medium text-green-900 mb-2">Step Completed</h4>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-muted-foreground">Actual Output:</span>
-                    <span className="ml-2 font-medium">{currentStep.actualOutput} pieces</span>
+          {viewMode === "materials" && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Material Management</h2>
+                <Button onClick={() => setIsMaterialSelectionOpen(true)}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Materials
+                </Button>
                   </div>
-                  {currentStep.waste && (
-                    <div>
-                      <span className="text-muted-foreground">Waste:</span>
-                      <span className="ml-2 font-medium text-warning">{currentStep.waste} units</span>
+              
+              {/* Material summary cards */}
+              <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                {/* Material cards will be rendered here */}
+                    </div>
                     </div>
                   )}
-                  {currentStep.defective && (
-                    <div>
-                      <span className="text-muted-foreground">Defective:</span>
-                      <span className="ml-2 font-medium text-destructive">{currentStep.defective} pieces</span>
+
+          {viewMode === "inspection" && (
+            <div className="space-y-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-semibold">Quality Inspection</h2>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm">
+                    <QrCode className="w-4 h-4 mr-2" />
+                    Generate QR Codes
+             </Button>
+                  <Button variant="outline" size="sm">
+                    <Download className="w-4 h-4 mr-2" />
+                    Export Report
+                  </Button>
                     </div>
-                  )}
-                  {currentStep.inspector && (
-                    <div>
-                      <span className="text-muted-foreground">Inspector:</span>
-                      <span className="ml-2 font-medium">{currentStep.inspector}</span>
-                    </div>
-                  )}
                 </div>
-                {currentStep.notes && (
-                  <div className="mt-2">
-                    <span className="text-muted-foreground">Notes:</span>
-                    <p className="text-sm mt-1">{currentStep.notes}</p>
-                  </div>
+              
+              {product.individualProducts && product.individualProducts.length > 0 ? (
+                <ExcelLikeTable 
+                  data={product.individualProducts} 
+                  onDataChange={(newData) => {
+                    setProduct(prev => prev ? { ...prev, individualProducts: newData } : null);
+                  }}
+                />
+              ) : (
+                <Card className="p-12 text-center">
+                  <CheckSquare className="w-20 h-20 mx-auto mb-6 text-muted-foreground" />
+                  <h3 className="text-xl font-semibold mb-3">No Individual Products</h3>
+                  <p className="text-muted-foreground mb-6">
+                    Individual products will be created during the final quality inspection step
+                  </p>
+                  <Button onClick={() => setViewMode("steps")}>
+                    <Cog className="w-4 h-4 mr-2" />
+                    Go to Production Steps
+                  </Button>
+                </Card>
                 )}
               </div>
             )}
-          </CardContent>
+        </>
+      ) : (
+        <Card className="p-12 text-center">
+          <AlertTriangle className="w-20 h-20 mx-auto mb-6 text-muted-foreground" />
+          <h3 className="text-xl font-semibold mb-3">Product Not Found</h3>
+          <p className="text-muted-foreground mb-6">
+            The production batch you're looking for doesn't exist or has been removed.
+          </p>
+          <Button onClick={() => navigate('/production')}>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back to Production
+          </Button>
         </Card>
       )}
 
-      {/* Material Selection Dialog */}
+      {/* Enhanced Material Selection Dialog */}
       <Dialog open={isMaterialSelectionOpen} onOpenChange={setIsMaterialSelectionOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Select Materials for {selectedStep?.name}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Material Selection for Step {selectedStep?.id}: {selectedStep?.name}
+            </DialogTitle>
             <DialogDescription>
-              Choose materials required for this production step. Materials are auto-filled based on production history.
+              Select and configure materials for this production step. Materials will be automatically consumed when the step is completed.
             </DialogDescription>
           </DialogHeader>
           
-          {/* Material Search and Filter */}
-          <div className="space-y-4">
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <div className="relative">
+          <div className="flex flex-col h-full space-y-4">
+            {/* Material Selection Tabs */}
+            <div className="flex items-center justify-between border-b">
+              <div className="flex space-x-1">
+                <Button
+                  variant={materialCategoryFilter === "all" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setMaterialCategoryFilter("all")}
+                >
+                  All Materials
+                </Button>
+                <Button
+                  variant={materialCategoryFilter === "Yarn" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setMaterialCategoryFilter("Yarn")}
+                >
+                  Yarn
+                </Button>
+                <Button
+                  variant={materialCategoryFilter === "Dye" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setMaterialCategoryFilter("Dye")}
+                >
+                  Dye
+                </Button>
+                <Button
+                  variant={materialCategoryFilter === "Chemical" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setMaterialCategoryFilter("Chemical")}
+                >
+                  Chemical
+                </Button>
+                <Button
+                  variant={materialCategoryFilter === "Fabric" ? "default" : "ghost"}
+                  size="sm"
+                  onClick={() => setMaterialCategoryFilter("Fabric")}
+                >
+                  Fabric
+                </Button>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    const autoMaterials = getAutoFillMaterials(selectedStep?.id || 1);
+                    setSelectedMaterials(autoMaterials);
+                  }}
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Auto-Fill
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedMaterials({})}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Clear All
+                </Button>
+              </div>
+            </div>
+
+            {/* Search and Filters */}
+            <div className="flex items-center gap-4">
+              <div className="flex-1 relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
                   <Input 
-                    placeholder="Search materials, suppliers, or brands..." 
-                    className="pl-10"
+                  placeholder="Search materials by name, supplier, or brand..."
                     value={materialSearchTerm}
                     onChange={(e) => setMaterialSearchTerm(e.target.value)}
+                  className="pl-10"
                   />
-                </div>
               </div>
               <Select value={materialCategoryFilter} onValueChange={setMaterialCategoryFilter}>
                 <SelectTrigger className="w-48">
@@ -1708,156 +1916,295 @@ The product quantity has been updated in the main inventory.`;
               </Select>
             </div>
 
-                         {/* Materials List */}
-             <div className="space-y-3 max-h-96 overflow-y-auto">
-               {/* Show Step Outputs from Previous Steps */}
-               {selectedStep && selectedStep.id > 1 && (() => {
-                 const previousStep = product.steps.find(s => s.id === selectedStep.id - 1);
-                 if (previousStep && previousStep.status === "completed" && previousStep.actualOutput) {
-                   return (
-                     <div className="p-4 border-2 border-blue-200 rounded-lg bg-blue-50">
-                       <div className="flex items-center gap-3 mb-2">
-                         <Package2 className="w-5 h-5 text-blue-600" />
-                         <div className="font-medium text-blue-900">Input from Step {previousStep.id} ({previousStep.name})</div>
-                       </div>
-                       <div className="text-sm text-blue-700">
-                         <div>Output from previous step: <strong>{previousStep.actualOutput} pieces</strong></div>
-                         <div>This will be automatically used as input for {selectedStep.name}</div>
-                       </div>
-                     </div>
-                   );
-                 }
-                 return null;
-               })()}
-               
-               {/* Raw Materials */}
+            {/* Material Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto max-h-96">
                {filteredMaterials.map((material) => {
-                 const requestedQuantity = selectedMaterials[material.id] || 0;
-                 const isInsufficientStock = requestedQuantity > material.currentStock && material.status !== "out-of-stock";
+                const isSelected = selectedMaterials[material.id] > 0;
+                const selectedQuantity = selectedMaterials[material.id] || 0;
+                const isInsufficient = selectedQuantity > material.currentStock;
                  
                  return (
-                   <div key={material.id} className="flex items-center justify-between p-4 border rounded-lg">
+                  <Card 
+                    key={material.id} 
+                    className={`relative cursor-pointer transition-all duration-200 hover:shadow-lg ${
+                      isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:bg-gray-50'
+                    } ${isInsufficient ? 'border-red-200 bg-red-50' : ''}`}
+                    onClick={() => {
+                      if (isSelected) {
+                        const newSelected = { ...selectedMaterials };
+                        delete newSelected[material.id];
+                        setSelectedMaterials(newSelected);
+                      } else {
+                        setSelectedMaterials(prev => ({
+                          ...prev,
+                          [material.id]: 1
+                        }));
+                      }
+                    }}
+                  >
+                    {/* Status Indicator */}
+                    <div className={`absolute top-0 left-0 right-0 h-1 ${
+                      material.status === "out-of-stock" ? "bg-red-500" :
+                      material.status === "low-stock" ? "bg-yellow-500" :
+                      "bg-green-500"
+                    }`} />
+                    
+                    <CardContent className="p-4">
+                      <div className="flex items-start justify-between mb-3">
                      <div className="flex-1">
-                       <div className="flex items-center gap-3">
-                         <div className="font-medium">{material.name}</div>
-                         <Badge className={materialStatusStyles[material.status]}>
-                           {material.status}
-                         </Badge>
+                          <h3 className="font-semibold text-sm">{material.name}</h3>
+                          <p className="text-xs text-muted-foreground">{material.brand}</p>
                        </div>
-                       <div className="text-sm text-muted-foreground mt-1">
-                         <div>Brand: {material.brand} • Supplier: {material.supplier}</div>
-                         <div>Available: {material.currentStock} {material.unit} • ₹{material.cost} per {material.unit}</div>
-                         <div>Location: {material.location}</div>
-                         {material.description && (
-                           <div className="mt-1">{material.description}</div>
-                         )}
+                        <div className="flex items-center gap-2">
+                          {isSelected && (
+                            <Badge className="bg-blue-100 text-blue-800">
+                              {selectedQuantity} {material.unit}
+                            </Badge>
+                          )}
+                          <Badge className={
+                            material.status === "out-of-stock" ? "bg-red-100 text-red-800" :
+                            material.status === "low-stock" ? "bg-yellow-100 text-yellow-800" :
+                            "bg-green-100 text-green-800"
+                          }>
+                            {material.status === "out-of-stock" ? "Out of Stock" :
+                             material.status === "low-stock" ? "Low Stock" : "In Stock"}
+                          </Badge>
                        </div>
-                       {isInsufficientStock && (
-                         <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm">
-                           <div className="flex items-center gap-2 text-yellow-800">
-                             <AlertTriangle className="w-4 h-4" />
-                             <span className="font-medium">Insufficient Stock</span>
                            </div>
-                           <div className="text-yellow-700 mt-1">
-                             Requested: {requestedQuantity} {material.unit} • Available: {material.currentStock} {material.unit}
+
+                      <div className="space-y-2 text-xs">
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Available:</span>
+                          <span className="font-medium">{material.currentStock} {material.unit}</span>
                            </div>
-                           <div className="text-yellow-700">
-                             Need to purchase {requestedQuantity - material.currentStock} more {material.unit}
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Cost:</span>
+                          <span className="font-medium">₹{material.cost}/{material.unit}</span>
                            </div>
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Supplier:</span>
+                          <span className="font-medium truncate">{material.supplier}</span>
                          </div>
-                       )}
                      </div>
-                                     <div className="flex items-center gap-3">
-                     {material.status === "out-of-stock" ? (
-                       <Button
-                         variant="outline"
-                         size="sm"
-                         onClick={() => handlePurchaseMaterial(material)}
-                         className="flex items-center gap-2"
-                       >
-                         <ShoppingCart className="w-4 h-4" />
-                         Purchase
-                       </Button>
-                     ) : (
-                       <div className="flex flex-col gap-2">
+
+                      {isSelected && (
+                        <div className="mt-3 space-y-2">
                          <div className="flex items-center gap-2">
+                            <Label htmlFor={`qty-${material.id}`} className="text-xs">Quantity:</Label>
+                            <div className="flex items-center gap-1">
                            <Button
-                             variant="outline"
                              size="sm"
-                             onClick={() => setSelectedMaterials(prev => ({
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (selectedQuantity > 1) {
+                                    setSelectedMaterials(prev => ({
                                ...prev,
-                               [material.id]: Math.max(0, (prev[material.id] || 0) - 1)
-                             }))}
-                           >
-                             <Minus className="w-4 h-4" />
+                                      [material.id]: selectedQuantity - 1
+                                    }));
+                                  }
+                                }}
+                                disabled={selectedQuantity <= 1}
+                              >
+                                <Minus className="w-3 h-3" />
                            </Button>
                                                        <Input
+                                id={`qty-${material.id}`}
                               type="number"
-                              min="0"
-                              className="w-16 text-center"
-                              value={selectedMaterials[material.id] || ""}
+                                value={selectedQuantity}
                               onChange={(e) => {
-                                const value = e.target.value === "" ? 0 : parseInt(e.target.value) || 0;
+                                  e.stopPropagation();
+                                  const value = parseInt(e.target.value) || 0;
                                 setSelectedMaterials(prev => ({
                                   ...prev,
                                   [material.id]: value
                                 }));
                               }}
+                                className="w-16 h-8 text-center text-xs"
+                                min="0"
+                                max={material.currentStock}
                             />
                            <Button
-                             variant="outline"
                              size="sm"
-                             onClick={() => setSelectedMaterials(prev => ({
+                                variant="outline"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (selectedQuantity < material.currentStock) {
+                                    setSelectedMaterials(prev => ({
                                ...prev,
-                               [material.id]: (prev[material.id] || 0) + 1
-                             }))}
-                           >
-                             <Plus className="w-4 h-4" />
+                                      [material.id]: selectedQuantity + 1
+                                    }));
+                                  }
+                                }}
+                                disabled={selectedQuantity >= material.currentStock}
+                              >
+                                <Plus className="w-3 h-3" />
                            </Button>
                          </div>
-                         {isInsufficientStock && (
-                           <Button
-                             variant="outline"
-                             size="sm"
-                             onClick={() => handlePurchaseMaterial(material)}
-                             className="flex items-center gap-2 text-yellow-600 border-yellow-300 hover:bg-yellow-50"
-                           >
-                             <ShoppingCart className="w-4 h-4" />
-                             Purchase Additional
-                           </Button>
+                          </div>
+                          
+                          <div className="flex justify-between text-xs">
+                            <span className="text-muted-foreground">Total Cost:</span>
+                            <span className="font-medium">₹{(selectedQuantity * material.cost).toLocaleString()}</span>
+                          </div>
+
+                          {isInsufficient && (
+                            <div className="p-2 bg-red-100 rounded text-red-700 text-xs">
+                              <AlertTriangle className="w-3 h-3 inline mr-1" />
+                              Insufficient stock! Need {selectedQuantity - material.currentStock} more {material.unit}
+                            </div>
                          )}
                        </div>
                         )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
                    </div>
+
+            {/* Selected Materials Summary */}
+            {Object.keys(selectedMaterials).length > 0 && (
+              <Card className="border-blue-200 bg-blue-50">
+                <CardHeader>
+                  <CardTitle className="text-lg">Selected Materials Summary</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {Object.entries(selectedMaterials).map(([materialId, quantity]) => {
+                      const material = rawMaterials.find(m => m.id === materialId);
+                      if (!material) return null;
+                      
+                      const totalCost = quantity * material.cost;
+                      const isInsufficient = quantity > material.currentStock;
+                      
+                      return (
+                        <div key={materialId} className="flex items-center justify-between p-3 bg-white rounded-lg">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-3 h-3 rounded-full ${
+                              isInsufficient ? 'bg-red-500' : 'bg-green-500'
+                            }`} />
+                            <div>
+                              <div className="font-medium">{material.name}</div>
+                              <div className="text-sm text-muted-foreground">{material.brand}</div>
                  </div>
-               )})}
              </div>
+                          <div className="text-right">
+                            <div className="font-medium">{quantity} {material.unit}</div>
+                            <div className="text-sm text-muted-foreground">₹{totalCost.toLocaleString()}</div>
+          </div>
+                        </div>
+                      );
+                    })}
+                    
+                    <Separator />
+                    
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold">Total Cost:</span>
+                      <span className="font-bold text-lg">
+                        ₹{Object.entries(selectedMaterials).reduce((total, [materialId, quantity]) => {
+                          const material = rawMaterials.find(m => m.id === materialId);
+                          return total + (quantity * (material?.cost || 0));
+                        }, 0).toLocaleString()}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Material Alerts */}
+            {(() => {
+              const insufficientMaterials = Object.entries(selectedMaterials).filter(([materialId, quantity]) => {
+                const material = rawMaterials.find(m => m.id === materialId);
+                return material && quantity > material.currentStock;
+              });
+
+              if (insufficientMaterials.length > 0) {
+                return (
+                  <Card className="border-red-200 bg-red-50">
+                    <CardContent className="p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <AlertTriangle className="w-5 h-5 text-red-600" />
+                        <h4 className="font-medium text-red-800">Material Shortage Alert</h4>
+                      </div>
+                      <p className="text-red-700 text-sm mb-3">
+                        The following materials have insufficient stock:
+                      </p>
+                      <div className="space-y-1">
+                        {insufficientMaterials.map(([materialId, quantity]) => {
+                          const material = rawMaterials.find(m => m.id === materialId);
+                          if (!material) return null;
+                          const shortage = quantity - material.currentStock;
+                          return (
+                            <div key={materialId} className="flex justify-between text-sm">
+                              <span>{material.name}</span>
+                              <span className="font-medium">Shortage: {shortage} {material.unit}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className="mt-3 flex gap-2">
+                        <Button variant="outline" size="sm">
+                          <ShoppingCart className="w-4 h-4 mr-2" />
+                          Order Materials
+                        </Button>
+                        <Button variant="outline" size="sm">
+                          <Settings className="w-4 h-4 mr-2" />
+                          Adjust Quantities
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                );
+              }
+              return null;
+            })()}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Info className="w-4 h-4" />
+              <span>
+                {Object.keys(selectedMaterials).length} material(s) selected • 
+                Total: ₹{Object.entries(selectedMaterials).reduce((total, [materialId, quantity]) => {
+                  const material = rawMaterials.find(m => m.id === materialId);
+                  return total + (quantity * (material?.cost || 0));
+                }, 0).toLocaleString()}
+              </span>
+            </div>
+            <div className="flex gap-2">
             <Button variant="outline" onClick={() => setIsMaterialSelectionOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleMaterialSelectionConfirm}>
-              Start Process
+              <Button 
+                onClick={handleMaterialSelectionConfirm}
+                disabled={Object.keys(selectedMaterials).length === 0}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Confirm Selection
             </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Step Completion Dialog */}
+      {/* Enhanced Step Completion Dialog */}
       <Dialog open={isStepCompletionOpen} onOpenChange={setIsStepCompletionOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>Complete {selectedStep?.name}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5" />
+              Complete Step {selectedStep?.id}: {selectedStep?.name}
+            </DialogTitle>
             <DialogDescription>
-              Record the actual output and any waste or defects.
+              Record the actual output, waste, and defects for this production step.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label htmlFor="actualOutput">Actual Output (pieces)</Label>
+                <Label htmlFor="actualOutput">Actual Output</Label>
               <Input
                 id="actualOutput"
                 type="number"
@@ -1866,24 +2213,26 @@ The product quantity has been updated in the main inventory.`;
                   ...prev,
                   actualOutput: parseInt(e.target.value) || 0
                 }))}
+                  placeholder="Number of pieces produced"
               />
             </div>
-            
-            <div className="grid grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="waste">Waste (units)</Label>
+                <Label htmlFor="waste">Waste</Label>
                 <Input
                   id="waste"
                   type="number"
                   value={stepCompletionData.waste}
                   onChange={(e) => setStepCompletionData(prev => ({
                     ...prev,
-                    waste: parseFloat(e.target.value) || 0
+                    waste: parseInt(e.target.value) || 0
                   }))}
+                  placeholder="Waste quantity"
                 />
               </div>
+            </div>
+
               <div>
-                <Label htmlFor="defective">Defective (pieces)</Label>
+              <Label htmlFor="defective">Defective Pieces</Label>
                 <Input
                   id="defective"
                   type="number"
@@ -1892,8 +2241,8 @@ The product quantity has been updated in the main inventory.`;
                     ...prev,
                     defective: parseInt(e.target.value) || 0
                   }))}
+                placeholder="Number of defective pieces"
                 />
-              </div>
             </div>
             
             <div>
@@ -1905,9 +2254,40 @@ The product quantity has been updated in the main inventory.`;
                   ...prev,
                   notes: e.target.value
                 }))}
-                placeholder="Enter any notes about this step..."
+                placeholder="Additional notes about this step completion..."
+                rows={3}
               />
             </div>
+
+            {/* Efficiency Metrics */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Efficiency Metrics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-3 gap-4 text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-blue-600">
+                      {selectedStep?.expectedOutput ? 
+                        Math.round((stepCompletionData.actualOutput / selectedStep.expectedOutput) * 100) : 0}%
+                    </div>
+                    <div className="text-sm text-muted-foreground">Yield Rate</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-green-600">
+                      {stepCompletionData.actualOutput}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Good Pieces</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-red-600">
+                      {stepCompletionData.defective + stepCompletionData.waste}
+                    </div>
+                    <div className="text-sm text-muted-foreground">Total Loss</div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
           <DialogFooter>
@@ -1915,23 +2295,27 @@ The product quantity has been updated in the main inventory.`;
               Cancel
             </Button>
             <Button onClick={handleStepCompletionConfirm}>
+              <CheckCircle className="w-4 h-4 mr-2" />
               Complete Step
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Inspection Dialog */}
+      {/* Enhanced Quality Inspection Dialog */}
       <Dialog open={isInspectionOpen} onOpenChange={setIsInspectionOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
           <DialogHeader>
-            <DialogTitle>Quality Inspection - {selectedStep?.name}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckSquare className="w-5 h-5" />
+              Quality Inspection & Individual Product Creation
+            </DialogTitle>
             <DialogDescription>
-              Record inspection details and quality assessment.
+              Create individual products with unique IDs and QR codes. Complete the quality inspection for each piece.
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4">
+          <div className="space-y-6">
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="inspector">Inspector Name</Label>
@@ -1942,6 +2326,7 @@ The product quantity has been updated in the main inventory.`;
                     ...prev,
                     inspector: e.target.value
                   }))}
+                  placeholder="Enter inspector name"
                 />
               </div>
               <div>
@@ -1958,9 +2343,8 @@ The product quantity has been updated in the main inventory.`;
               </div>
             </div>
             
-            {selectedStep?.id === 5 && (
               <div>
-                <Label htmlFor="qualityGrade">Quality Grade</Label>
+              <Label htmlFor="qualityGrade">Overall Quality Grade</Label>
                 <Select
                   value={inspectionData.qualityGrade}
                   onValueChange={(value) => setInspectionData(prev => ({
@@ -1969,17 +2353,16 @@ The product quantity has been updated in the main inventory.`;
                   }))}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                  <SelectValue placeholder="Select quality grade" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="A+">A+ (Excellent)</SelectItem>
                     <SelectItem value="A">A (Very Good)</SelectItem>
                     <SelectItem value="B">B (Good)</SelectItem>
-                    <SelectItem value="C">C (Average)</SelectItem>
+                  <SelectItem value="C">C (Acceptable)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-            )}
             
             <div>
               <Label htmlFor="inspectionNotes">Inspection Notes</Label>
@@ -1990,248 +2373,174 @@ The product quantity has been updated in the main inventory.`;
                   ...prev,
                   inspectionNotes: e.target.value
                 }))}
-                placeholder="Enter inspection findings and notes..."
+                placeholder="General inspection notes..."
+                rows={3}
               />
-            </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsInspectionOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleInspectionConfirm}>
-              Save Inspection
-            </Button>
-                     </DialogFooter>
-         </DialogContent>
-       </Dialog>
-
-       {/* Individual Products Full Page View */}
-       {showIndividualProducts && (
-         <div className="space-y-6">
-           {/* Header */}
-           <div className="flex items-center justify-between">
+            {/* Individual Products Table */}
              <div>
-               <h2 className="text-2xl font-bold">Quality Inspection - Individual Products</h2>
-               <p className="text-muted-foreground">
-                 Fill in the details for each individual product piece. {individualProductsData.length} pieces need to be inspected.
-               </p>
-             </div>
-             <div className="flex gap-2">
-               <Button variant="outline" onClick={() => setShowIndividualProducts(false)}>
-                 <ArrowLeft className="w-4 h-4 mr-2" />
-                 Back to Production
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Individual Products</h3>
+                <Button
+                  onClick={() => {
+                    const newProduct: IndividualProduct = {
+                      id: `IND${Date.now()}`,
+                      qrCode: `QR-${product?.batchNumber}-${String(inspectionData.individualProducts.length + 1).padStart(3, '0')}`,
+                      productId: product?.id || "",
+                      manufacturingDate: new Date().toISOString().split('T')[0],
+                      materialsUsed: selectedStep?.materials || [],
+                      finalDimensions: "",
+                      finalWeight: "",
+                      finalThickness: "",
+                      finalPileHeight: "",
+                      qualityGrade: inspectionData.qualityGrade || "A",
+                      inspector: inspectionData.inspector,
+                      notes: "",
+                      status: "available"
+                    };
+                    setInspectionData(prev => ({
+                      ...prev,
+                      individualProducts: [...prev.individualProducts, newProduct]
+                    }));
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Product
                </Button>
-               <Button onClick={handleIndividualProductsComplete} className="bg-green-600 hover:bg-green-700">
-                 <CheckCircle className="w-4 h-4 mr-2" />
-                 Complete Production
-               </Button>
-             </div>
            </div>
 
-           {/* Inspector Details */}
-           <Card>
-             <CardHeader>
-               <CardTitle>Inspector Information</CardTitle>
-             </CardHeader>
-             <CardContent>
-               <div className="grid grid-cols-2 gap-4">
-                 <div>
-                   <Label htmlFor="inspector">Inspector Name</Label>
+              <div className="border rounded-lg overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">ID</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">QR Code</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Dimensions</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Weight</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Quality</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Status</th>
+                        <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inspectionData.individualProducts.map((item, index) => (
+                        <tr key={item.id} className="border-t hover:bg-gray-50">
+                          <td className="px-4 py-3 text-sm">{item.id}</td>
+                          <td className="px-4 py-3 text-sm font-mono">{item.qrCode}</td>
+                          <td className="px-4 py-3">
                    <Input
-                     id="inspector"
-                     value={inspectionData.inspector}
-                     onChange={(e) => setInspectionData(prev => ({
+                              value={item.finalDimensions}
+                              onChange={(e) => {
+                                const newProducts = [...inspectionData.individualProducts];
+                                newProducts[index].finalDimensions = e.target.value;
+                                setInspectionData(prev => ({
                        ...prev,
-                       inspector: e.target.value
-                     }))}
-                     placeholder="Enter inspector name"
-                   />
-                 </div>
-                 <div>
-                   <Label htmlFor="inspectionDate">Inspection Date</Label>
+                                  individualProducts: newProducts
+                                }));
+                              }}
+                              placeholder="e.g., 8x10ft"
+                              className="w-24 h-8 text-xs"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
                    <Input
-                     id="inspectionDate"
-                     type="date"
-                     value={inspectionData.inspectionDate}
-                     onChange={(e) => setInspectionData(prev => ({
+                              value={item.finalWeight}
+                              onChange={(e) => {
+                                const newProducts = [...inspectionData.individualProducts];
+                                newProducts[index].finalWeight = e.target.value;
+                                setInspectionData(prev => ({
                        ...prev,
-                       inspectionDate: e.target.value
-                     }))}
-                   />
-                 </div>
-               </div>
-             </CardContent>
-           </Card>
-
-           {/* Excel-like Individual Products Table */}
-           <Card>
-             <CardHeader>
-               <CardTitle>Individual Product Details</CardTitle>
-               <p className="text-sm text-muted-foreground">
-                 Click on any cell to edit. Press Enter to save, Escape to cancel. 
-                 QR codes are auto-generated from Custom ID. Manufacturing dates can be customized. Add or remove rows as needed.
-               </p>
-             </CardHeader>
-             <CardContent>
-               <ExcelLikeTable 
-                 data={individualProductsData}
-                 onDataChange={setIndividualProductsData}
-               />
-             </CardContent>
-           </Card>
-
-           {/* Summary */}
-           <Card>
-             <CardHeader>
-               <CardTitle>Production Summary</CardTitle>
-             </CardHeader>
-             <CardContent>
-               <div className="grid grid-cols-4 gap-4">
-                 <div className="text-center p-4 bg-blue-50 rounded-lg">
-                   <div className="text-2xl font-bold text-blue-600">{individualProductsData.length}</div>
-                   <div className="text-sm text-blue-700">Total Pieces</div>
-                 </div>
-                 <div className="text-center p-4 bg-green-50 rounded-lg">
-                   <div className="text-2xl font-bold text-green-600">
-                     {individualProductsData.filter(p => p.status === 'available').length}
-                   </div>
-                   <div className="text-sm text-green-700">Available</div>
-                 </div>
-                 <div className="text-center p-4 bg-yellow-50 rounded-lg">
-                   <div className="text-2xl font-bold text-yellow-600">
-                     {individualProductsData.filter(p => p.status === 'damaged').length}
-                   </div>
-                   <div className="text-sm text-yellow-700">Damaged</div>
-                 </div>
-                 <div className="text-center p-4 bg-purple-50 rounded-lg">
-                   <div className="text-2xl font-bold text-purple-600">
-                     {inspectionData.inspector ? 'Assigned' : 'Not Assigned'}
-                   </div>
-                   <div className="text-sm text-purple-700">Inspector</div>
-                 </div>
-               </div>
-               <div className="mt-4 p-3 bg-muted rounded-lg">
-                 <div className="text-sm">
-                   <strong>Product:</strong> {product.productName} | 
-                   <strong>Batch:</strong> {product.batchNumber} | 
-                   <strong>Date:</strong> {inspectionData.inspectionDate}
-                 </div>
-               </div>
-             </CardContent>
-           </Card>
-                    </div>
-         )}
-
-       {/* Step Management Dialog */}
-       <Dialog open={isStepManagementOpen} onOpenChange={setIsStepManagementOpen}>
-         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-           <DialogHeader>
-             <DialogTitle>Manage Production Steps</DialogTitle>
-             <DialogDescription>
-               Customize production steps for {product.productName}. Add, edit, or reorder steps as needed.
-             </DialogDescription>
-           </DialogHeader>
-           
-           <div className="space-y-6">
-             {/* Current Steps */}
-             <div>
-               <div className="flex items-center justify-between mb-4">
-                 <h3 className="text-lg font-medium">Current Steps ({product.steps.length})</h3>
-                 <Button onClick={() => setIsAddStepOpen(true)} className="flex items-center gap-2">
-                   <Plus className="w-4 h-4" />
-                   Add Step
-                 </Button>
-               </div>
-               
-               <div className="space-y-3">
-                 {product.steps.map((step, index) => (
-                   <div key={step.id} className="flex items-center gap-4 p-4 border rounded-lg">
-                     <div className="flex items-center gap-3 flex-1">
-                       <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-white font-medium text-sm">
-                         {index + 1}
-                       </div>
-                       <div className="flex-1">
-                         <h4 className="font-medium">{step.name}</h4>
-                         <p className="text-sm text-muted-foreground">{step.description}</p>
-                         {step.isCustomStep && (
-                           <Badge variant="outline" className="text-xs mt-1">Custom Step</Badge>
-                         )}
-                       </div>
-                     </div>
-                     <div className="flex gap-2">
-                       <Button 
-                         variant="outline" 
-                         size="sm"
-                         onClick={() => {
-                           setEditingStep(step);
-                           setIsAddStepOpen(true);
-                         }}
-                       >
-                         <Edit className="w-4 h-4" />
-                       </Button>
-                       {step.isCustomStep && (
+                                  individualProducts: newProducts
+                                }));
+                              }}
+                              placeholder="e.g., 45kg"
+                              className="w-20 h-8 text-xs"
+                            />
+                          </td>
+                          <td className="px-4 py-3">
+                            <Select
+                              value={item.qualityGrade}
+                              onValueChange={(value) => {
+                                const newProducts = [...inspectionData.individualProducts];
+                                newProducts[index].qualityGrade = value;
+                                setInspectionData(prev => ({
+                                  ...prev,
+                                  individualProducts: newProducts
+                                }));
+                              }}
+                            >
+                              <SelectTrigger className="w-20 h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="A+">A+</SelectItem>
+                                <SelectItem value="A">A</SelectItem>
+                                <SelectItem value="B">B</SelectItem>
+                                <SelectItem value="C">C</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-4 py-3">
+                            <Select
+                              value={item.status}
+                              onValueChange={(value) => {
+                                const newProducts = [...inspectionData.individualProducts];
+                                newProducts[index].status = value as "available" | "damaged" | "sold";
+                                setInspectionData(prev => ({
+                                  ...prev,
+                                  individualProducts: newProducts
+                                }));
+                              }}
+                            >
+                              <SelectTrigger className="w-24 h-8 text-xs">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="available">Available</SelectItem>
+                                <SelectItem value="damaged">Damaged</SelectItem>
+                                <SelectItem value="sold">Sold</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </td>
+                          <td className="px-4 py-3">
                          <Button 
-                           variant="outline" 
                            size="sm"
-                           onClick={() => handleDeleteStep(step.id)}
+                              variant="outline"
+                              onClick={() => {
+                                const newProducts = inspectionData.individualProducts.filter((_, i) => i !== index);
+                                setInspectionData(prev => ({
+                                  ...prev,
+                                  individualProducts: newProducts
+                                }));
+                              }}
                            className="text-red-600 hover:text-red-700"
                          >
-                           <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3 h-3" />
                          </Button>
-                       )}
-                     </div>
-                   </div>
+                          </td>
+                        </tr>
                  ))}
+                    </tbody>
+                  </table>
                </div>
-             </div>
-
-             {/* Step Information */}
-             <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-               <h4 className="font-medium text-blue-900 mb-2">Step Management Information</h4>
-               <div className="text-sm text-blue-700 space-y-1">
-                 <div>• <strong>Default Steps:</strong> Cannot be deleted but can be edited</div>
-                 <div>• <strong>Custom Steps:</strong> Can be added, edited, or deleted</div>
-                 <div>• <strong>Step Order:</strong> Steps are executed in the order shown</div>
-                 <div>• <strong>Product Memory:</strong> Steps are saved with the product for future production runs</div>
                </div>
              </div>
            </div>
 
            <DialogFooter>
-             <Button variant="outline" onClick={() => setIsStepManagementOpen(false)}>
-               Close
+            <Button variant="outline" onClick={() => setIsInspectionOpen(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleInspectionComplete}
+              disabled={inspectionData.individualProducts.length === 0}
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Complete Inspection
              </Button>
            </DialogFooter>
-         </DialogContent>
-       </Dialog>
-
-       {/* Add/Edit Step Dialog */}
-       <Dialog open={isAddStepOpen} onOpenChange={setIsAddStepOpen}>
-         <DialogContent className="max-w-md">
-           <DialogHeader>
-             <DialogTitle>{editingStep ? 'Edit Step' : 'Add New Step'}</DialogTitle>
-             <DialogDescription>
-               {editingStep ? 'Modify the step details' : 'Add a new production step'}
-             </DialogDescription>
-           </DialogHeader>
-           
-           <StepForm 
-             step={editingStep}
-             onSave={(stepData) => {
-               if (editingStep) {
-                 handleEditStep(editingStep.id, stepData);
-               } else {
-                 handleAddStep(stepData);
-               }
-               setIsAddStepOpen(false);
-               setEditingStep(null);
-             }}
-             onCancel={() => {
-               setIsAddStepOpen(false);
-               setEditingStep(null);
-             }}
-           />
          </DialogContent>
        </Dialog>
      </div>
