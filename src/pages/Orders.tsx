@@ -100,21 +100,12 @@ interface Order {
   paymentMethod: "cash" | "card" | "bank-transfer" | "credit";
   paymentTerms: string;
   dueDate?: string;
-  status: "pending" | "confirmed" | "in-production" | "ready-to-ship" | "completed" | "cancelled";
+  status: "pending" | "confirmed" | "ready-to-ship" | "completed" | "cancelled";
   notes: string;
-  productionRequests?: ProductionRequest[];
+
 }
 
-interface ProductionRequest {
-  id: string;
-  productId: string;
-  productName: string;
-  requiredQuantity: number;
-  priority: "normal" | "high" | "urgent";
-  status: "pending" | "in-production" | "completed";
-  orderId: string;
-  customerId: string;
-}
+
 
 // Sample data
 const sampleCustomers: Customer[] = [

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { getFromStorage, saveToStorage } from "@/lib/storage";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,7 +28,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { 
   Plus, Search, Package, AlertTriangle, Upload, Image, X, Download, 
   FileSpreadsheet, CheckCircle, AlertCircle, QrCode, Calendar, 
-  Edit, Eye, Filter, SortAsc, SortDesc, Hash, Play
+  Edit, Eye, Filter, SortAsc, SortDesc, Hash, Play, RefreshCw
 } from "lucide-react";
 
 interface ProductMaterial {
@@ -47,7 +48,6 @@ interface Product {
   pattern: string;
   quantity: number;
   unit: string;
-  manufacturingDate: string;
   expiryDate?: string;
   materialsUsed: ProductMaterial[];
   totalCost: number;
@@ -67,7 +67,6 @@ interface IndividualProduct {
   id: string;
   qrCode: string;
   productId: string;
-  manufacturingDate: string;
   materialsUsed: ProductMaterial[];
   finalDimensions: string;
   finalWeight: string;
@@ -90,7 +89,6 @@ const sampleProducts: Product[] = [
     pattern: "Persian Medallion",
     quantity: 5,
     unit: "pieces",
-    manufacturingDate: "2024-01-15",
     materialsUsed: [
       { materialName: "Cotton Yarn (Premium)", quantity: 15, unit: "rolls", cost: 6750 },
       { materialName: "Red Dye (Industrial)", quantity: 8, unit: "liters", cost: 1440 },
@@ -118,7 +116,6 @@ const sampleProducts: Product[] = [
     pattern: "Geometric",
     quantity: 12,
     unit: "pieces",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 20, unit: "rolls", cost: 7600 },
       { materialName: "Blue Dye (Industrial)", quantity: 10, unit: "liters", cost: 1900 },
@@ -146,7 +143,6 @@ const sampleProducts: Product[] = [
     pattern: "Tribal",
     quantity: 3,
     unit: "pieces",
-    manufacturingDate: "2024-01-10",
     materialsUsed: [
       { materialName: "Cotton Yarn (Premium)", quantity: 25, unit: "rolls", cost: 11250 },
       { materialName: "Red Dye (Industrial)", quantity: 6, unit: "liters", cost: 1080 },
@@ -174,7 +170,6 @@ const sampleProducts: Product[] = [
     pattern: "Cartoon Characters",
     quantity: 0,
     unit: "pieces",
-    manufacturingDate: "2024-01-05",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 12, unit: "rolls", cost: 4560 },
       { materialName: "Red Dye (Industrial)", quantity: 4, unit: "liters", cost: 720 },
@@ -201,7 +196,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND001",
     qrCode: "QR-CARPET-001-001",
     productId: "PROD001",
-    manufacturingDate: "2024-01-15",
     materialsUsed: [
       { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
       { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
@@ -220,7 +214,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND002",
     qrCode: "QR-CARPET-001-002",
     productId: "PROD001",
-    manufacturingDate: "2024-01-15",
     materialsUsed: [
       { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
       { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
@@ -239,7 +232,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND003",
     qrCode: "QR-CARPET-001-003",
     productId: "PROD001",
-    manufacturingDate: "2024-01-15",
     materialsUsed: [
       { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
       { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
@@ -258,7 +250,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND004",
     qrCode: "QR-CARPET-001-004",
     productId: "PROD001",
-    manufacturingDate: "2024-01-15",
     materialsUsed: [
       { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
       { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
@@ -277,7 +268,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND005",
     qrCode: "QR-CARPET-001-005",
     productId: "PROD001",
-    manufacturingDate: "2024-01-15",
     materialsUsed: [
       { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
       { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
@@ -298,7 +288,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND006",
     qrCode: "QR-CARPET-002-001",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -317,7 +306,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND007",
     qrCode: "QR-CARPET-002-002",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -336,7 +324,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND008",
     qrCode: "QR-CARPET-002-003",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -355,7 +342,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND009",
     qrCode: "QR-CARPET-002-004",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -374,7 +360,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND010",
     qrCode: "QR-CARPET-002-005",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -393,7 +378,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND011",
     qrCode: "QR-CARPET-002-006",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -412,7 +396,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND012",
     qrCode: "QR-CARPET-002-007",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -431,7 +414,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND013",
     qrCode: "QR-CARPET-002-008",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -450,7 +432,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND014",
     qrCode: "QR-CARPET-002-009",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -469,7 +450,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND015",
     qrCode: "QR-CARPET-002-010",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -488,7 +468,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND016",
     qrCode: "QR-CARPET-002-011",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -507,7 +486,6 @@ const individualProducts: IndividualProduct[] = [
     id: "IND017",
     qrCode: "QR-CARPET-002-012",
     productId: "PROD002",
-    manufacturingDate: "2024-01-20",
     materialsUsed: [
       { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
       { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
@@ -540,10 +518,44 @@ export default function Products() {
   const [isImportProductsOpen, setIsImportProductsOpen] = useState(false);
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [isAddToProductionOpen, setIsAddToProductionOpen] = useState(false);
-  const [productionQuantity, setProductionQuantity] = useState(1);
-  const [productionPriority, setProductionPriority] = useState<"normal" | "high" | "urgent">("normal");
+  const [products, setProducts] = useState<Product[]>([]);
+
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
+
+  // Load products from localStorage
+  useEffect(() => {
+    const loadProducts = () => {
+      const existingProducts = getFromStorage('rajdhani_products');
+      console.log('Loading products from localStorage:', existingProducts);
+      console.log('Type of existingProducts:', typeof existingProducts);
+      console.log('Is array:', Array.isArray(existingProducts));
+      console.log('Length:', existingProducts?.length);
+      
+      // Ensure we have a proper array
+      if (Array.isArray(existingProducts)) {
+        setProducts(existingProducts);
+      } else {
+        console.log('Not an array, setting empty array');
+        setProducts([]);
+      }
+    };
+
+    loadProducts();
+  }, []);
+
+  // Reload products when page becomes visible (in case data was updated)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        const existingProducts = getFromStorage('rajdhani_products');
+        console.log('Page visible, reloading products:', existingProducts);
+        setProducts(existingProducts || []);
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
   const [imagePreview, setImagePreview] = useState<string>("");
   const [newProduct, setNewProduct] = useState({
     name: "",
@@ -553,7 +565,6 @@ export default function Products() {
     pattern: "",
     quantity: "",
     unit: "",
-    manufacturingDate: "",
     sellingPrice: "",
     location: "",
     notes: ""
@@ -591,62 +602,18 @@ export default function Products() {
 
   // Get similar products by pattern
   const getSimilarProducts = (currentProduct: Product) => {
-    return sampleProducts.filter(product => 
-      product.pattern === currentProduct.pattern && 
-      product.id !== currentProduct.id
+    return (products || []).filter(product => 
+      product?.pattern === currentProduct.pattern && 
+      product?.id !== currentProduct.id
     );
   };
 
   // Get individual products for a specific product
   const getIndividualProducts = (productId: string) => {
-    return individualProducts.filter(ind => ind.productId === productId);
+    return (individualProducts || []).filter(ind => ind?.productId === productId);
   };
 
-  // Load production inventory updates
-  useEffect(() => {
-    const productionInventory = JSON.parse(localStorage.getItem('productionInventory') || '[]');
-    if (productionInventory.length > 0) {
-      // Update sample products with new quantities
-      const updatedProducts = sampleProducts.map(product => {
-        const productionResult = productionInventory.find((item: any) => item.productId === product.id);
-        if (productionResult) {
-          return {
-            ...product,
-            quantity: product.quantity + productionResult.newQuantity // Only add available pieces
-          };
-        }
-        return product;
-      });
 
-      // Update individual products with new ones from production
-      const newIndividualProducts = productionInventory.flatMap((item: any) => item.individualProducts);
-      const updatedIndividualProducts = [...individualProducts, ...newIndividualProducts];
-
-      // Save custom steps for future production runs
-      productionInventory.forEach((item: any) => {
-        if (item.customSteps && item.customSteps.length > 0) {
-          localStorage.setItem(`productSteps_${item.productId}`, JSON.stringify(item.customSteps));
-        }
-      });
-
-      // Clear the production inventory from localStorage
-      localStorage.removeItem('productionInventory');
-
-      // In a real app, you would update the state here
-      console.log('Production inventory updated:', {
-        updatedProducts,
-        newIndividualProducts: newIndividualProducts.length,
-        productionSummary: productionInventory.map((item: any) => ({
-          product: item.productName,
-          totalProduced: item.totalProduced,
-          available: item.newQuantity,
-          damaged: item.damagedPieces,
-          inspector: item.inspector,
-          customSteps: item.customSteps?.length || 0
-        }))
-      });
-    }
-  }, []);
 
   // Handle file import
   const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -677,10 +644,10 @@ export default function Products() {
 
   // Download sample template
   const downloadTemplate = () => {
-    const template = `Product Name,Category,Color,Size,Pattern,Quantity,Unit,Manufacturing Date,Selling Price,Location,Notes
-Traditional Persian Carpet,Handmade,Red & Gold,8x10 feet,Persian Medallion,5,pieces,2024-01-15,25000,Warehouse A - Shelf 1,High-quality traditional design
-Modern Geometric Carpet,Machine Made,Blue & White,6x9 feet,Geometric,12,pieces,2024-01-20,18000,Warehouse B - Shelf 3,Contemporary design
-Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,35000,Warehouse A - Shelf 2,Premium wool blend`;
+    const template = `Product Name,Category,Color,Size,Pattern,Quantity,Unit,Selling Price,Location,Notes
+Traditional Persian Carpet,Handmade,Red & Gold,8x10 feet,Persian Medallion,5,pieces,25000,Warehouse A - Shelf 1,High-quality traditional design
+Modern Geometric Carpet,Machine Made,Blue & White,6x9 feet,Geometric,12,pieces,18000,Warehouse B - Shelf 3,Contemporary design
+Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,35000,Warehouse A - Shelf 2,Premium wool blend`;
     
     const blob = new Blob([template], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -730,10 +697,6 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
           errors.push(`Row ${index + 2}: Quantity must be a valid number`);
           return;
         }
-        if (!row['Manufacturing Date']) {
-          errors.push(`Row ${index + 2}: Manufacturing Date is required`);
-          return;
-        }
         
                  // Create product object
          const product: Product = {
@@ -746,7 +709,6 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
            pattern: row['Pattern'] || 'N/A',
            quantity: parseInt(row['Quantity']),
            unit: row['Unit'] || 'pieces',
-           manufacturingDate: row['Manufacturing Date'],
            materialsUsed: [],
            totalCost: 0,
            sellingPrice: parseFloat(row['Selling Price']) || 0,
@@ -771,6 +733,39 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
       }
       
       console.log('Imported products:', validProducts);
+      
+      // Save products to localStorage
+      const existingProducts = JSON.parse(localStorage.getItem('rajdhani_products') || '[]');
+      const updatedProducts = [...existingProducts, ...validProducts];
+      localStorage.setItem('rajdhani_products', JSON.stringify(updatedProducts));
+      
+      // Create individual stock details for each product
+      const individualProducts: IndividualProduct[] = [];
+      validProducts.forEach(product => {
+        for (let i = 0; i < product.quantity; i++) {
+          const individualProduct: IndividualProduct = {
+            id: `${product.id}_${i + 1}`,
+            qrCode: generateQRCode(),
+            productId: product.id,
+            materialsUsed: [],
+            finalDimensions: product.dimensions,
+            finalWeight: product.weight,
+            finalThickness: product.thickness,
+            finalPileHeight: product.pileHeight,
+            qualityGrade: 'A', // Default quality grade
+            inspector: 'System Import',
+            status: 'available',
+            notes: `Imported from Excel - Item ${i + 1} of ${product.quantity}`
+          };
+          individualProducts.push(individualProduct);
+        }
+      });
+      
+      // Save individual products to localStorage
+      const existingIndividualProducts = JSON.parse(localStorage.getItem('rajdhani_individual_products') || '[]');
+      const updatedIndividualProducts = [...existingIndividualProducts, ...individualProducts];
+      localStorage.setItem('rajdhani_individual_products', JSON.stringify(updatedIndividualProducts));
+      
       setImportStatus('success');
       
       setTimeout(() => {
@@ -779,18 +774,20 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
         setImportPreview([]);
         setImportStatus('idle');
         setImportErrors([]);
-        alert(`Successfully imported ${validProducts.length} products to inventory!`);
+        alert(`Successfully imported ${validProducts.length} products with ${individualProducts.length} individual stock items!`);
       }, 2000);
     };
     reader.readAsText(importFile);
   };
 
   // Filter and sort products
-  const filteredProducts = sampleProducts
+  const filteredProducts = (products || [])
     .filter(product => {
-      const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           product.qrCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           product.color.toLowerCase().includes(searchTerm.toLowerCase());
+      if (!product) return false;
+      
+      const matchesSearch = (product.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           (product.qrCode || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                           (product.color || '').toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = categoryFilter === "all" || product.category === categoryFilter;
       
       let matchesStatus = true;
@@ -804,68 +801,82 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
       
       return matchesSearch && matchesCategory && matchesStatus;
     })
-    .sort((a, b) => new Date(b.manufacturingDate).getTime() - new Date(a.manufacturingDate).getTime());
+    .sort((a, b) => (a?.name || '').localeCompare(b?.name || ''));
 
-  const categories = [...new Set(sampleProducts.map(p => p.category))];
-  const totalProducts = sampleProducts.length;
-  const lowStockCount = sampleProducts.filter(p => p.status === "low-stock" || p.status === "out-of-stock").length;
-  const totalValue = sampleProducts.reduce((sum, p) => sum + (p.quantity * p.sellingPrice), 0);
+  const categories = [...new Set((products || []).map(p => p?.category).filter(Boolean))];
+  const totalProducts = (products || []).length;
+  const lowStockCount = (products || []).filter(p => p?.status === "low-stock" || p?.status === "out-of-stock").length;
+  const totalValue = (products || []).reduce((sum, p) => sum + ((p?.quantity || 0) * (p?.sellingPrice || 0)), 0);
 
   // Calculate available pieces for each product (excluding sold and damaged)
   const getAvailablePieces = (productId: string) => {
-    return individualProducts.filter(ind => 
-      ind.productId === productId && ind.status === "available"
+    return (individualProducts || []).filter(ind => 
+      ind?.productId === productId && ind?.status === "available"
     ).length;
-  };
-
-  // Get production priority based on stock status
-  const getProductionPriority = (product: Product) => {
-    const availablePieces = getAvailablePieces(product.id);
-    if (availablePieces === 0) return "urgent";
-    if (availablePieces <= 2) return "high";
-    return "normal";
   };
 
   // Handle adding product to production
   const handleAddToProduction = (product: Product) => {
-    setSelectedProduct(product);
-    setProductionQuantity(1);
-    setProductionPriority(getProductionPriority(product));
-    setIsAddToProductionOpen(true);
-  };
+    // Get all individual stock details for this product
+    const individualProducts = getFromStorage('rajdhani_individual_products') || [];
+    const productIndividualStocks = individualProducts.filter((item: IndividualProduct) => 
+      item.productId === product.id
+    );
 
-  // Handle production submission
-  const handleProductionSubmit = () => {
-    if (!selectedProduct) return;
-    
-    // Navigate to production page with product data
-    navigate('/production', { 
+    // Create complete product data with individual stock details
+    const completeProductData = {
+      ...product,
+      individualStocks: productIndividualStocks
+    };
+
+    navigate('/production/new-batch', { 
       state: { 
-        addToProduction: {
-          product: selectedProduct,
-          quantity: productionQuantity,
-          priority: productionPriority,
-          isNewProduct: false
-        }
+        selectedProduct: completeProductData
       }
     });
-    
-    setIsAddToProductionOpen(false);
-    setSelectedProduct(null);
   };
 
   return (
     <div className="flex-1 space-y-6 p-6">
       <Header 
         title="Product Inventory Management" 
-        subtitle="Track finished carpet products, manage stock levels and monitor manufacturing details"
+        subtitle="Track finished carpet products, manage stock levels and monitor inventory"
       />
+
+      {/* Debug and Refresh Section */}
+      <div className="flex justify-between items-center">
+        <div className="text-sm text-muted-foreground">
+          Products loaded: {products.length} | 
+          localStorage: {localStorage.getItem('rajdhani_products') ? 'Has data' : 'Empty'} |
+          {products.length > 0 && `First product: ${products[0]?.name || 'No name'}`}
+        </div>
+        <Button 
+          onClick={() => {
+            const existingProducts = getFromStorage('rajdhani_products');
+            console.log('Manual refresh - products:', existingProducts);
+            console.log('Raw localStorage data:', localStorage.getItem('rajdhani_products'));
+            console.log('Type of existingProducts:', typeof existingProducts);
+            console.log('Is array:', Array.isArray(existingProducts));
+            
+            if (Array.isArray(existingProducts)) {
+              setProducts(existingProducts);
+            } else {
+              console.log('Not an array, setting empty array');
+              setProducts([]);
+            }
+          }}
+          variant="outline"
+          size="sm"
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Refresh Data
+        </Button>
+      </div>
 
       <Tabs defaultValue="inventory" className="space-y-6">
         <div className="flex flex-col gap-4">
           <TabsList className="w-fit">
             <TabsTrigger value="inventory">Product Inventory</TabsTrigger>
-            <TabsTrigger value="manufacturing">Manufacturing</TabsTrigger>
             <TabsTrigger value="analytics">Analytics</TabsTrigger>
           </TabsList>
           
@@ -1172,14 +1183,6 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="manufacturingDate">Manufacturing Date *</Label>
-                        <Input
-                          id="manufacturingDate"
-                          type="date"
-                          value={newProduct.manufacturingDate}
-                          onChange={(e) => setNewProduct({...newProduct, manufacturingDate: e.target.value})}
-                          required
-                        />
                       </div>
                       <div>
                         <Label htmlFor="sellingPrice">Selling Price (₹) *</Label>
@@ -1310,7 +1313,7 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
                 <Package className="h-4 w-4 text-success" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">₹{totalValue.toLocaleString()}</div>
+                <div className="text-2xl font-bold">₹{(totalValue || 0).toLocaleString()}</div>
                 <p className="text-xs text-muted-foreground">
                   Inventory value
                 </p>
@@ -1322,7 +1325,7 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
                 <QrCode className="h-4 w-4 text-primary" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{sampleProducts.reduce((sum, p) => sum + getAvailablePieces(p.id), 0)}</div>
+                <div className="text-2xl font-bold">{(products || []).reduce((sum, p) => sum + getAvailablePieces(p?.id || ''), 0)}</div>
                 <p className="text-xs text-muted-foreground">
                   Ready for sale
                 </p>
@@ -1344,15 +1347,14 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
                       <th className="text-left p-4 font-medium text-muted-foreground">QR Code</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Category</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Stock</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Manufacturing Date</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Location</th>
                       <th className="text-left p-4 font-medium text-muted-foreground">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredProducts.map((product) => (
-                      <tr key={product.id} className="border-b hover:bg-muted/50">
+                    {filteredProducts.map((product, index) => (
+                      <tr key={product?.id || `product-${index}`} className="border-b hover:bg-muted/50">
                         <td className="p-4">
                           <div className="flex items-center gap-3">
                             <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
@@ -1369,9 +1371,9 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
                               )}
                             </div>
                             <div>
-                              <div className="font-medium text-foreground">{product.name}</div>
+                              <div className="font-medium text-foreground">{product.name || 'Unnamed Product'}</div>
                               <div className="text-sm text-muted-foreground">
-                                {product.color} • {product.size}
+                                {product.color || 'Unknown'} • {product.size || 'Unknown'}
                               </div>
                             </div>
                           </div>
@@ -1379,39 +1381,34 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
                         <td className="p-4">
                           <div className="flex items-center gap-2">
                             <QrCode className="w-4 h-4 text-muted-foreground" />
-                            <span className="font-mono text-sm">{product.qrCode}</span>
+                            <span className="font-mono text-sm">{product.qrCode || 'No QR Code'}</span>
                           </div>
                         </td>
                         <td className="p-4">
-                          <Badge variant="outline">{product.category}</Badge>
+                          <Badge variant="outline">{product.category || 'Unknown'}</Badge>
                         </td>
                         <td className="p-4">
                           <div className="space-y-1">
                             <div className="font-medium text-foreground">
-                              {getAvailablePieces(product.id)} {product.unit}
+                              {getAvailablePieces(product.id || '')} {product.unit || 'pieces'}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              ₹{product.sellingPrice.toLocaleString()} each
+                              ₹{(product.sellingPrice || 0).toLocaleString()} each
                             </div>
-                            {getAvailablePieces(product.id) !== product.quantity && (
+                            {getAvailablePieces(product.id || '') !== (product.quantity || 0) && (
                               <div className="text-xs text-muted-foreground">
-                                Total: {product.quantity} pieces
+                                Total: {product.quantity || 0} pieces
                               </div>
                             )}
                           </div>
                         </td>
                         <td className="p-4">
-                          <div className="text-sm text-foreground">
-                            {new Date(product.manufacturingDate).toLocaleDateString()}
-                          </div>
-                        </td>
-                        <td className="p-4">
-                          <Badge className={statusStyles[product.status]}>
-                            {product.status.replace("-", " ")}
+                          <Badge className={statusStyles[product.status || 'in-stock']}>
+                            {(product.status || 'in-stock').replace("-", " ")}
                           </Badge>
                         </td>
                         <td className="p-4">
-                          <div className="text-sm text-foreground">{product.location}</div>
+                          <div className="text-sm text-foreground">{product.location || 'Not specified'}</div>
                         </td>
                                                                          <td className="p-4">
                           <div className="flex gap-2">
@@ -1443,8 +1440,7 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
                               variant="outline" 
                               size="sm"
                               onClick={() => handleAddToProduction(product)}
-                              className={getProductionPriority(product) === "urgent" ? "border-red-500 text-red-600 hover:bg-red-50" : 
-                                       getProductionPriority(product) === "high" ? "border-orange-500 text-orange-600 hover:bg-orange-50" : ""}
+                              className="border-blue-500 text-blue-600 hover:bg-blue-50"
                             >
                               <Play className="w-4 h-4" />
                             </Button>
@@ -1532,94 +1528,7 @@ Wool Blend Carpet,Handmade,Green & Brown,10x12 feet,Tribal,3,pieces,2024-01-10,3
          </DialogContent>
        </Dialog>
 
-       {/* Add to Production Dialog */}
-       <Dialog open={isAddToProductionOpen} onOpenChange={setIsAddToProductionOpen}>
-         <DialogContent className="max-w-md">
-           <DialogHeader>
-             <DialogTitle>Add to Production</DialogTitle>
-             <DialogDescription>
-               Send this product to the production queue. Priority is automatically set based on current stock levels.
-             </DialogDescription>
-           </DialogHeader>
-           {selectedProduct && (
-             <div className="space-y-4">
-               <div className="p-4 bg-muted rounded-lg">
-                 <div className="flex items-center gap-3">
-                   <div className="w-12 h-12 rounded-lg overflow-hidden bg-background flex-shrink-0">
-                     {selectedProduct.imageUrl ? (
-                       <img 
-                         src={selectedProduct.imageUrl} 
-                         alt={selectedProduct.name}
-                         className="w-full h-full object-cover"
-                       />
-                     ) : (
-                       <div className="w-full h-full flex items-center justify-center">
-                         <Image className="w-6 h-6 text-muted-foreground" />
-                       </div>
-                     )}
-                   </div>
-                   <div>
-                     <div className="font-medium text-foreground">{selectedProduct.name}</div>
-                     <div className="text-sm text-muted-foreground">
-                       {selectedProduct.color} • {selectedProduct.size}
-                     </div>
-                     <div className="text-sm text-muted-foreground">
-                       Current Stock: {getAvailablePieces(selectedProduct.id)} pieces
-                     </div>
-                   </div>
-                 </div>
-               </div>
 
-               <div className="grid grid-cols-2 gap-4">
-                 <div>
-                   <Label htmlFor="productionQuantity">Production Quantity</Label>
-                   <Input
-                     id="productionQuantity"
-                     type="number"
-                     min="1"
-                     value={productionQuantity}
-                     onChange={(e) => setProductionQuantity(parseInt(e.target.value) || 1)}
-                   />
-                 </div>
-                 <div>
-                   <Label htmlFor="productionPriority">Priority</Label>
-                   <Select value={productionPriority} onValueChange={(value: "normal" | "high" | "urgent") => setProductionPriority(value)}>
-                     <SelectTrigger>
-                       <SelectValue />
-                     </SelectTrigger>
-                     <SelectContent>
-                       <SelectItem value="normal">Normal</SelectItem>
-                       <SelectItem value="high">High</SelectItem>
-                       <SelectItem value="urgent">Urgent</SelectItem>
-                     </SelectContent>
-                   </Select>
-                 </div>
-               </div>
-
-               <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                 <div className="flex items-center gap-2 text-sm">
-                   <Play className="w-4 h-4 text-blue-600" />
-                   <span className="font-medium text-blue-800">Production Priority Logic:</span>
-                 </div>
-                 <div className="text-xs text-blue-700 mt-1 space-y-1">
-                   <div>• <strong>Urgent:</strong> 0 available pieces (out of stock)</div>
-                   <div>• <strong>High:</strong> 1-2 available pieces (low stock)</div>
-                   <div>• <strong>Normal:</strong> 3+ available pieces (sufficient stock)</div>
-                 </div>
-               </div>
-             </div>
-           )}
-           <DialogFooter>
-             <Button variant="outline" onClick={() => setIsAddToProductionOpen(false)}>
-               Cancel
-             </Button>
-             <Button onClick={handleProductionSubmit} className="bg-blue-600 hover:bg-blue-700">
-               <Play className="w-4 h-4 mr-2" />
-               Add to Production
-             </Button>
-           </DialogFooter>
-         </DialogContent>
-       </Dialog>
      </div>
    );
  }

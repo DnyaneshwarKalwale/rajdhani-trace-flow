@@ -19,6 +19,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 
 interface ProductMaterial {
   materialName: string;
@@ -427,6 +436,18 @@ export default function ProductStock() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [qualityFilter, setQualityFilter] = useState("all");
   const [selectedItem, setSelectedItem] = useState<IndividualProduct | null>(null);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [editingItem, setEditingItem] = useState<IndividualProduct | null>(null);
+  const [editForm, setEditForm] = useState({
+    finalDimensions: '',
+    finalWeight: '',
+    finalThickness: '',
+    finalPileHeight: '',
+    qualityGrade: '',
+    inspector: '',
+    notes: '',
+    status: 'available' as 'available' | 'sold' | 'damaged'
+  });
 
   useEffect(() => {
     // Find product by ID
@@ -438,6 +459,41 @@ export default function ProductStock() {
 
   const getIndividualProducts = (productId: string) => {
     return individualProducts.filter(ind => ind.productId === productId);
+  };
+
+  const handleEditItem = (item: IndividualProduct) => {
+    setEditingItem(item);
+    setEditForm({
+      finalDimensions: item.finalDimensions,
+      finalWeight: item.finalWeight,
+      finalThickness: item.finalThickness,
+      finalPileHeight: item.finalPileHeight,
+      qualityGrade: item.qualityGrade,
+      inspector: item.inspector,
+      notes: item.notes,
+      status: item.status
+    });
+    setIsEditDialogOpen(true);
+  };
+
+  const handleSaveEdit = () => {
+    if (!editingItem) return;
+    
+    // Update the individual product in localStorage
+    const existingIndividualProducts = JSON.parse(localStorage.getItem('rajdhani_individual_products') || '[]');
+    const updatedProducts = existingIndividualProducts.map((item: IndividualProduct) => 
+      item.id === editingItem.id 
+        ? { ...item, ...editForm }
+        : item
+    );
+    localStorage.setItem('rajdhani_individual_products', JSON.stringify(updatedProducts));
+    
+    // Update local state
+    const updatedItem = { ...editingItem, ...editForm };
+    setSelectedItem(updatedItem);
+    
+    setIsEditDialogOpen(false);
+    setEditingItem(null);
   };
 
   const filteredItems = getIndividualProducts(productId || "").filter(item => {
@@ -643,11 +699,11 @@ export default function ProductStock() {
               <thead>
                 <tr className="border-b">
                   <th className="text-left p-3 font-medium text-muted-foreground">ID</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">QR Code</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Manufacturing Date</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground hidden lg:table-cell">QR Code</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground hidden md:table-cell">Manufacturing Date</th>
                   <th className="text-left p-3 font-medium text-muted-foreground">Final Dimensions</th>
                   <th className="text-left p-3 font-medium text-muted-foreground">Quality Grade</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Inspector</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground hidden lg:table-cell">Inspector</th>
                   <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
                   <th className="text-left p-3 font-medium text-muted-foreground">Actions</th>
                 </tr>
@@ -661,13 +717,13 @@ export default function ProductStock() {
                         <span className="font-mono text-sm">{item.id}</span>
                       </div>
                     </td>
-                    <td className="p-3">
+                    <td className="p-3 hidden lg:table-cell">
                       <div className="flex items-center gap-2">
                         <QrCode className="w-4 h-4 text-muted-foreground" />
                         <span className="font-mono text-sm">{item.qrCode}</span>
                       </div>
                     </td>
-                    <td className="p-3 text-sm">
+                    <td className="p-3 text-sm hidden md:table-cell">
                       {new Date(item.manufacturingDate).toLocaleDateString()}
                     </td>
                     <td className="p-3 text-sm">{item.finalDimensions}</td>
@@ -676,7 +732,7 @@ export default function ProductStock() {
                         {item.qualityGrade}
                       </Badge>
                     </td>
-                    <td className="p-3 text-sm">{item.inspector}</td>
+                    <td className="p-3 text-sm hidden lg:table-cell">{item.inspector}</td>
                     <td className="p-3">
                       <Badge 
                         variant={item.status === "available" ? "default" : 
@@ -697,6 +753,7 @@ export default function ProductStock() {
                         <Button 
                           variant="outline" 
                           size="sm"
+                          onClick={() => handleEditItem(item)}
                         >
                           <Edit className="w-4 h-4" />
                         </Button>
@@ -717,8 +774,8 @@ export default function ProductStock() {
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-xl font-semibold">Individual Piece Details</h3>
               <Button variant="outline" size="sm" onClick={() => setSelectedItem(null)}>
-                ✕
-              </Button>
+                  ✕
+                </Button>
             </div>
             
             <div className="space-y-6">
@@ -805,6 +862,119 @@ export default function ProductStock() {
           </div>
         </div>
       )}
+
+      {/* Edit Individual Item Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Individual Product Details</DialogTitle>
+            <DialogDescription>
+              Update the details for this individual product piece.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+            <div className="space-y-2">
+              <Label htmlFor="finalDimensions">Final Dimensions</Label>
+              <Input
+                id="finalDimensions"
+                value={editForm.finalDimensions}
+                onChange={(e) => setEditForm({...editForm, finalDimensions: e.target.value})}
+                placeholder="e.g., 8x10 feet"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="finalWeight">Final Weight</Label>
+              <Input
+                id="finalWeight"
+                value={editForm.finalWeight}
+                onChange={(e) => setEditForm({...editForm, finalWeight: e.target.value})}
+                placeholder="e.g., 15 kg"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="finalThickness">Final Thickness</Label>
+              <Input
+                id="finalThickness"
+                value={editForm.finalThickness}
+                onChange={(e) => setEditForm({...editForm, finalThickness: e.target.value})}
+                placeholder="e.g., 2.5 cm"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="finalPileHeight">Final Pile Height</Label>
+              <Input
+                id="finalPileHeight"
+                value={editForm.finalPileHeight}
+                onChange={(e) => setEditForm({...editForm, finalPileHeight: e.target.value})}
+                placeholder="e.g., 1.2 cm"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="qualityGrade">Quality Grade</Label>
+              <Select value={editForm.qualityGrade} onValueChange={(value) => setEditForm({...editForm, qualityGrade: value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select quality grade" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="A+">A+ (Premium)</SelectItem>
+                  <SelectItem value="A">A (High)</SelectItem>
+                  <SelectItem value="B">B (Good)</SelectItem>
+                  <SelectItem value="C">C (Standard)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="inspector">Inspector</Label>
+              <Input
+                id="inspector"
+                value={editForm.inspector}
+                onChange={(e) => setEditForm({...editForm, inspector: e.target.value})}
+                placeholder="Inspector name"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="status">Status</Label>
+              <Select value={editForm.status} onValueChange={(value: 'available' | 'sold' | 'damaged') => setEditForm({...editForm, status: value})}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="available">Available</SelectItem>
+                  <SelectItem value="sold">Sold</SelectItem>
+                  <SelectItem value="damaged">Damaged</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            
+            <div className="md:col-span-2 space-y-2">
+              <Label htmlFor="notes">Notes</Label>
+              <Textarea
+                id="notes"
+                value={editForm.notes}
+                onChange={(e) => setEditForm({...editForm, notes: e.target.value})}
+                placeholder="Additional notes about this product piece..."
+                rows={3}
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleSaveEdit}>
+              Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

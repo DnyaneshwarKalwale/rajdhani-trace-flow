@@ -18,8 +18,7 @@ interface OrderItem {
   unitPrice: number;
   totalPrice: number;
   availableStock: number;
-  needsProduction: boolean;
-  productionAlert: boolean;
+
   selectedIndividualProducts: any[];
 }
 
@@ -40,11 +39,10 @@ interface Order {
   outstandingAmount: number;
   expectedDelivery: string;
   notes: string;
-  status: "pending" | "confirmed" | "in-production" | "ready" | "delivered" | "cancelled";
+  status: "pending" | "confirmed" | "ready" | "delivered" | "cancelled";
   createdAt: string;
   updatedAt: string;
-  productionRequired: boolean;
-  productionItems: string[];
+
 }
 
 export default function OrderDetails() {

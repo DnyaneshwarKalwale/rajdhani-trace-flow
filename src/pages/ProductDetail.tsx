@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { getFromStorage, saveProductRecipe, createRecipeFromMaterials } from "@/lib/storage";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -174,31 +175,162 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [selectedImage, setSelectedImage] = useState<string>("");
+  const [individualProducts, setIndividualProducts] = useState<IndividualProduct[]>([]);
+  const [recipeSaved, setRecipeSaved] = useState(false);
 
   useEffect(() => {
-    // Find product by ID
-    const foundProduct = sampleProducts.find(p => p.id === productId);
+    // Initialize sample data if not exists
+    initializeSampleData();
+
+    // Find product by ID from localStorage
+    const allProducts = getFromStorage('rajdhani_products') || [];
+    console.log('ProductDetail - Loading products:', allProducts);
+    console.log('ProductDetail - Looking for productId:', productId);
+    
+    const foundProduct = allProducts.find((p: Product) => p?.id === productId);
+    console.log('ProductDetail - Found product:', foundProduct);
+    
     if (foundProduct) {
+      console.log('ProductDetail - Product materialsUsed:', foundProduct.materialsUsed);
+      console.log('ProductDetail - Product totalCost:', foundProduct.totalCost);
       setProduct(foundProduct);
       setSelectedImage(foundProduct.imageUrl || "");
     }
+
+    // Load individual products for this product
+    const allIndividualProducts = getFromStorage('rajdhani_individual_products') || [];
+    const productIndividualStocks = allIndividualProducts.filter((item: IndividualProduct) => 
+      item?.productId === productId
+    );
+    console.log('ProductDetail - Individual products:', productIndividualStocks);
+    setIndividualProducts(productIndividualStocks);
   }, [productId]);
 
+  // Initialize sample data to localStorage
+  const initializeSampleData = () => {
+    // Check if products already exist in localStorage
+    const existingProducts = getFromStorage('rajdhani_products');
+    if (existingProducts.length === 0) {
+      // Add sample products to localStorage
+      const productsWithTimestamps = sampleProducts.map(product => ({
+        ...product,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }));
+      localStorage.setItem('rajdhani_products', JSON.stringify(productsWithTimestamps));
+    }
+
+    // Check if individual products already exist in localStorage
+    const existingIndividualProducts = getFromStorage('rajdhani_individual_products');
+    if (existingIndividualProducts.length === 0) {
+      // Add sample individual products to localStorage
+      localStorage.setItem('rajdhani_individual_products', JSON.stringify(individualProducts));
+    }
+  };
+
+  // Save material recipe to localStorage
+  const handleSaveRecipe = () => {
+    if (!product) return;
+
+    // Get raw materials from inventory to match IDs
+    const rawMaterials = getFromStorage('rajdhani_raw_materials') || [];
+    
+    // Convert product materials to recipe format with actual raw material IDs
+    const recipeMaterials = (product.materialsUsed || []).map(material => {
+      // Try to find matching raw material by name with better matching logic
+      const matchingRawMaterial = rawMaterials.find(rm => {
+        const rmName = rm.name.toLowerCase();
+        const materialName = material.materialName.toLowerCase();
+        
+        // Exact match
+        if (rmName === materialName) return true;
+        
+        // Check if material name contains raw material name or vice versa
+        if (rmName.includes(materialName) || materialName.includes(rmName)) return true;
+        
+        // Check for key words (e.g., "Cotton Yarn" matches "Cotton Yarn (Premium)")
+        const rmKeywords = rmName.split(/[\s\(\)]+/).filter(word => word.length > 2);
+        const materialKeywords = materialName.split(/[\s\(\)]+/).filter(word => word.length > 2);
+        
+        return rmKeywords.some(keyword => 
+          materialKeywords.some(materialKeyword => 
+            keyword.includes(materialKeyword) || materialKeyword.includes(keyword)
+          )
+        );
+      });
+      
+      if (matchingRawMaterial) {
+        return {
+          id: matchingRawMaterial.id,
+          name: matchingRawMaterial.name,
+          selectedQuantity: material.quantity,
+          unit: material.unit,
+          costPerUnit: matchingRawMaterial.costPerUnit
+        };
+      } else {
+        // If no match found, create a placeholder with the original material name
+        return {
+          id: `MAT_${material.materialName.replace(/\s+/g, '_').toUpperCase()}`,
+          name: material.materialName,
+          selectedQuantity: material.quantity,
+          unit: material.unit,
+          costPerUnit: material.cost / material.quantity
+        };
+      }
+    });
+
+    const recipe = createRecipeFromMaterials(
+      product.id,
+      product.name,
+      recipeMaterials
+    );
+
+    console.log('Saving recipe:', recipe);
+    console.log('Raw materials available:', rawMaterials.map(rm => ({ id: rm.id, name: rm.name, brand: rm.brand, supplier: rm.supplier })));
+    saveProductRecipe(recipe);
+    setRecipeSaved(true);
+  };
+
+  // Save complete product data and individual stock details to localStorage
+  const handleSaveCompleteData = () => {
+    if (!product) return;
+
+    // Create complete product data with individual stock details
+    const completeProductData = {
+      ...product,
+      individualStocks: individualProducts,
+      savedAt: new Date().toISOString()
+    };
+
+    // Save to production product data storage
+    const existingProductData = getFromStorage('rajdhani_production_product_data');
+    const updatedProductData = existingProductData.filter((item: any) => item.id !== product.id);
+    updatedProductData.push(completeProductData);
+    localStorage.setItem('rajdhani_production_product_data', JSON.stringify(updatedProductData));
+
+    // Also save individual stock details separately
+    const existingIndividualStocks = getFromStorage('rajdhani_individual_products');
+    const updatedIndividualStocks = existingIndividualStocks.filter((item: any) => item.productId !== product.id);
+    updatedIndividualStocks.push(...individualProducts);
+    localStorage.setItem('rajdhani_individual_products', JSON.stringify(updatedIndividualStocks));
+  };
+
   const getSimilarProducts = (currentProduct: Product) => {
-    return sampleProducts.filter(p => 
-      p.pattern === currentProduct.pattern && 
-      p.id !== currentProduct.id
+    const allProducts = getFromStorage('rajdhani_products') || [];
+    return allProducts.filter(p => 
+      p?.pattern === currentProduct.pattern && 
+      p?.id !== currentProduct.id
     );
   };
 
   const getIndividualProducts = (productId: string) => {
-    return individualProducts.filter(ind => ind.productId === productId);
+    return (individualProducts || []).filter(ind => ind?.productId === productId);
   };
 
   // Calculate available pieces for each product (excluding sold and damaged)
   const getAvailablePieces = (productId: string) => {
-    return individualProducts.filter(ind => 
-      ind.productId === productId && ind.status === "available"
+    return (individualProducts || []).filter(ind => 
+      ind?.productId === productId && ind?.status === "available"
     ).length;
   };
 
@@ -272,7 +404,7 @@ export default function ProductDetail() {
               </CardHeader>
               <CardContent>
                 <div className="grid grid-cols-3 gap-4">
-                  {getSimilarProducts(product).map((similarProduct) => (
+                  {(getSimilarProducts(product) || []).map((similarProduct) => (
                     <div 
                       key={similarProduct.id} 
                       className="text-center cursor-pointer hover:bg-muted/50 rounded-lg p-2 transition-colors"
@@ -359,7 +491,17 @@ export default function ProductDetail() {
             <TabsContent value="overview" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Product Overview</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Product Overview</CardTitle>
+                    <Button 
+                      onClick={handleSaveCompleteData}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <Package className="w-4 h-4 mr-2" />
+                      Save Complete Data
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
@@ -447,11 +589,31 @@ export default function ProductDetail() {
             <TabsContent value="materials" className="space-y-4">
               <Card>
                 <CardHeader>
-                  <CardTitle>Materials Used</CardTitle>
+                  <div className="flex items-center justify-between">
+                    <CardTitle>Materials Used</CardTitle>
+                    <Button 
+                      onClick={handleSaveRecipe}
+                      variant={recipeSaved ? "secondary" : "default"}
+                      size="sm"
+                      className={recipeSaved ? "bg-green-100 text-green-700" : ""}
+                    >
+                      {recipeSaved ? (
+                        <>
+                          <CheckCircle className="w-4 h-4 mr-2" />
+                          Recipe Saved
+                        </>
+                      ) : (
+                        <>
+                          <Package className="w-4 h-4 mr-2" />
+                          Save Recipe
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
-                    {product.materialsUsed.map((material, index) => (
+                    {(product.materialsUsed || []).map((material, index) => (
                       <div key={index} className="flex justify-between items-center p-3 bg-muted/50 rounded-lg">
                         <div>
                           <p className="font-medium">{material.materialName}</p>
@@ -467,6 +629,13 @@ export default function ProductDetail() {
                       <p className="font-bold">₹{product.totalCost.toLocaleString()}</p>
                     </div>
                   </div>
+                  {recipeSaved && (
+                    <div className="mt-4 p-3 bg-green-50 border border-green-200 rounded-lg">
+                      <p className="text-sm text-green-700">
+                        ✅ Material recipe saved! This recipe will be auto-loaded when you add this product to production.
+                      </p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>
@@ -505,6 +674,50 @@ export default function ProductDetail() {
                       </div>
                     </div>
                   </div>
+                </CardContent>
+              </Card>
+
+              {/* Individual Stock Details */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Package className="w-5 h-5" />
+                    Individual Stock Details ({individualProducts.length} pieces)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {individualProducts.length > 0 ? (
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {(individualProducts || []).map((stock) => (
+                        <div key={stock.id} className="p-3 bg-muted/50 rounded-lg">
+                          <div className="grid grid-cols-2 gap-2 text-sm">
+                            <div><span className="text-gray-500">ID:</span> {stock.id}</div>
+                            <div><span className="text-gray-500">QR Code:</span> {stock.qrCode}</div>
+                            <div><span className="text-gray-500">Dimensions:</span> {stock.finalDimensions}</div>
+                            <div><span className="text-gray-500">Weight:</span> {stock.finalWeight}</div>
+                            <div><span className="text-gray-500">Thickness:</span> {stock.finalThickness}</div>
+                            <div><span className="text-gray-500">Pile Height:</span> {stock.finalPileHeight}</div>
+                            <div><span className="text-gray-500">Quality:</span> 
+                              <Badge variant={stock.qualityGrade === "A+" ? "default" : "secondary"} className="ml-1 text-xs">
+                                {stock.qualityGrade}
+                              </Badge>
+                            </div>
+                            <div><span className="text-gray-500">Status:</span> 
+                              <Badge variant={stock.status === "available" ? "default" : "secondary"} className="ml-1 text-xs">
+                                {stock.status}
+                              </Badge>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-gray-500">
+                      <Package className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                      <p>No individual stock details available</p>
+                      <p className="text-sm">Individual pieces will be created during production</p>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </TabsContent>

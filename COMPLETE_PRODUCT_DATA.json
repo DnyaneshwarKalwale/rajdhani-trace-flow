@@ -1,0 +1,350 @@
+{
+  "products": [
+    {
+      "id": "PROD001",
+      "qrCode": "QR-CARPET-001",
+      "name": "Traditional Persian Carpet",
+      "category": "Handmade",
+      "color": "Red & Gold",
+      "size": "8x10 feet",
+      "pattern": "Persian Medallion",
+      "quantity": 5,
+      "unit": "pieces",
+      "status": "in-stock",
+      "location": "Warehouse A - Shelf 1",
+      "totalCost": 12030,
+      "sellingPrice": 25000,
+      "dimensions": "8' x 10' (2.44m x 3.05m)",
+      "weight": "45 kg",
+      "thickness": "12 mm",
+      "pileHeight": "8 mm",
+      "materialComposition": "80% Cotton, 20% Wool",
+      "notes": "High-quality traditional design, perfect for living rooms",
+      "imageUrl": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "updatedAt": "2024-01-15T10:00:00.000Z"
+    },
+    {
+      "id": "PROD002",
+      "qrCode": "QR-CARPET-002",
+      "name": "Modern Geometric Carpet",
+      "category": "Machine Made",
+      "color": "Blue & White",
+      "size": "6x9 feet",
+      "pattern": "Geometric",
+      "quantity": 12,
+      "unit": "pieces",
+      "status": "in-stock",
+      "location": "Warehouse B - Shelf 3",
+      "totalCost": 10850,
+      "sellingPrice": 18000,
+      "dimensions": "6' x 9' (1.83m x 2.74m)",
+      "weight": "32 kg",
+      "thickness": "10 mm",
+      "pileHeight": "6 mm",
+      "materialComposition": "100% Synthetic",
+      "notes": "Contemporary design, suitable for modern interiors",
+      "imageUrl": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
+      "createdAt": "2024-01-20T10:00:00.000Z",
+      "updatedAt": "2024-01-20T10:00:00.000Z"
+    }
+  ],
+  "individualProducts": [
+    {
+      "id": "IND001",
+      "qrCode": "QR-CARPET-001-001",
+      "productId": "PROD001",
+      "manufacturingDate": "2024-01-15",
+      "finalDimensions": "8'2\" x 10'1\" (2.49m x 3.07m)",
+      "finalWeight": "46.2 kg",
+      "finalThickness": "12.5 mm",
+      "finalPileHeight": "8.2 mm",
+      "qualityGrade": "A+",
+      "inspector": "Ahmed Khan",
+      "notes": "Perfect finish, no defects",
+      "status": "available"
+    },
+    {
+      "id": "IND002",
+      "qrCode": "QR-CARPET-001-002",
+      "productId": "PROD001",
+      "manufacturingDate": "2024-01-15",
+      "finalDimensions": "8'0\" x 10'0\" (2.44m x 3.05m)",
+      "finalWeight": "45.0 kg",
+      "finalThickness": "12.0 mm",
+      "finalPileHeight": "8.0 mm",
+      "qualityGrade": "A",
+      "inspector": "Ahmed Khan",
+      "notes": "Minor color variation",
+      "status": "available"
+    },
+    {
+      "id": "IND003",
+      "qrCode": "QR-CARPET-001-003",
+      "productId": "PROD001",
+      "manufacturingDate": "2024-01-16",
+      "finalDimensions": "8'1\" x 10'0\" (2.46m x 3.05m)",
+      "finalWeight": "45.5 kg",
+      "finalThickness": "12.2 mm",
+      "finalPileHeight": "8.1 mm",
+      "qualityGrade": "A+",
+      "inspector": "Ahmed Khan",
+      "notes": "Excellent quality, premium finish",
+      "status": "sold"
+    },
+    {
+      "id": "IND004",
+      "qrCode": "QR-CARPET-001-004",
+      "productId": "PROD001",
+      "manufacturingDate": "2024-01-16",
+      "finalDimensions": "8'0\" x 10'1\" (2.44m x 3.07m)",
+      "finalWeight": "45.8 kg",
+      "finalThickness": "12.3 mm",
+      "finalPileHeight": "8.0 mm",
+      "qualityGrade": "A",
+      "inspector": "Ahmed Khan",
+      "notes": "Good quality, minor texture variation",
+      "status": "available"
+    },
+    {
+      "id": "IND005",
+      "qrCode": "QR-CARPET-001-005",
+      "productId": "PROD001",
+      "manufacturingDate": "2024-01-17",
+      "finalDimensions": "8'2\" x 10'0\" (2.49m x 3.05m)",
+      "finalWeight": "46.0 kg",
+      "finalThickness": "12.4 mm",
+      "finalPileHeight": "8.2 mm",
+      "qualityGrade": "A+",
+      "inspector": "Ahmed Khan",
+      "notes": "Perfect quality, no defects",
+      "status": "available"
+    }
+  ],
+  "productMaterials": [
+    {
+      "productId": "PROD001",
+      "materialsUsed": [
+        {
+          "materialName": "Cotton Yarn (Premium)",
+          "quantity": 15,
+          "unit": "rolls",
+          "cost": 6750
+        },
+        {
+          "materialName": "Red Dye (Industrial)",
+          "quantity": 8,
+          "unit": "liters",
+          "cost": 1440
+        },
+        {
+          "materialName": "Latex Solution",
+          "quantity": 12,
+          "unit": "liters",
+          "cost": 3840
+        }
+      ]
+    },
+    {
+      "productId": "PROD002",
+      "materialsUsed": [
+        {
+          "materialName": "Synthetic Yarn",
+          "quantity": 20,
+          "unit": "rolls",
+          "cost": 7600
+        },
+        {
+          "materialName": "Blue Dye (Industrial)",
+          "quantity": 10,
+          "unit": "liters",
+          "cost": 1900
+        },
+        {
+          "materialName": "Backing Cloth",
+          "quantity": 54,
+          "unit": "sqm",
+          "cost": 1350
+        }
+      ]
+    }
+  ],
+  "productRecipes": [
+    {
+      "productId": "PROD001",
+      "productName": "Traditional Persian Carpet",
+      "materials": [
+        {
+          "id": "MAT_COTTON_YARN_PREMIUM",
+          "name": "Cotton Yarn (Premium)",
+          "quantity": 15,
+          "unit": "rolls",
+          "costPerUnit": 450
+        },
+        {
+          "id": "MAT_RED_DYE_INDUSTRIAL",
+          "name": "Red Dye (Industrial)",
+          "quantity": 8,
+          "unit": "liters",
+          "costPerUnit": 180
+        },
+        {
+          "id": "MAT_LATEX_SOLUTION",
+          "name": "Latex Solution",
+          "quantity": 12,
+          "unit": "liters",
+          "costPerUnit": 320
+        }
+      ],
+      "createdAt": "2024-01-15T10:00:00.000Z",
+      "updatedAt": "2024-01-15T10:00:00.000Z"
+    },
+    {
+      "productId": "PROD002",
+      "productName": "Modern Geometric Carpet",
+      "materials": [
+        {
+          "id": "MAT_SYNTHETIC_YARN",
+          "name": "Synthetic Yarn",
+          "quantity": 20,
+          "unit": "rolls",
+          "costPerUnit": 380
+        },
+        {
+          "id": "MAT_BLUE_DYE_INDUSTRIAL",
+          "name": "Blue Dye (Industrial)",
+          "quantity": 10,
+          "unit": "liters",
+          "costPerUnit": 190
+        },
+        {
+          "id": "MAT_BACKING_CLOTH",
+          "name": "Backing Cloth",
+          "quantity": 54,
+          "unit": "sqm",
+          "costPerUnit": 25
+        }
+      ],
+      "createdAt": "2024-01-20T10:00:00.000Z",
+      "updatedAt": "2024-01-20T10:00:00.000Z"
+    }
+  ],
+  "productionBatches": [
+    {
+      "id": "PROD_BATCH_001",
+      "productId": "PROD001",
+      "productName": "Traditional Persian Carpet",
+      "status": "completed",
+      "startDate": "2024-01-15T08:00:00.000Z",
+      "endDate": "2024-01-17T18:00:00.000Z",
+      "expectedQuantity": 5,
+      "actualQuantity": 5,
+      "materialsConsumed": [
+        {
+          "materialId": "MAT_COTTON_YARN_PREMIUM",
+          "materialName": "Cotton Yarn (Premium)",
+          "quantity": 15,
+          "unit": "rolls",
+          "cost": 6750,
+          "consumedAt": "2024-01-15T08:30:00.000Z"
+        },
+        {
+          "materialId": "MAT_RED_DYE_INDUSTRIAL",
+          "materialName": "Red Dye (Industrial)",
+          "quantity": 8,
+          "unit": "liters",
+          "cost": 1440,
+          "consumedAt": "2024-01-15T09:00:00.000Z"
+        },
+        {
+          "materialId": "MAT_LATEX_SOLUTION",
+          "materialName": "Latex Solution",
+          "quantity": 12,
+          "unit": "liters",
+          "cost": 3840,
+          "consumedAt": "2024-01-15T09:30:00.000Z"
+        }
+      ],
+      "wasteGenerated": [
+        {
+          "materialId": "MAT_COTTON_YARN_PREMIUM",
+          "materialName": "Cotton Yarn (Premium)",
+          "quantity": 0.5,
+          "unit": "rolls",
+          "reason": "Cutting waste",
+          "generatedAt": "2024-01-15T10:00:00.000Z"
+        }
+      ],
+      "individualProductsCreated": [
+        "IND001", "IND002", "IND003", "IND004", "IND005"
+      ]
+    }
+  ],
+  "dataConnections": {
+    "productToIndividualProducts": {
+      "PROD001": ["IND001", "IND002", "IND003", "IND004", "IND005"],
+      "PROD002": []
+    },
+    "productToRecipe": {
+      "PROD001": "Traditional Persian Carpet Recipe",
+      "PROD002": "Modern Geometric Carpet Recipe"
+    },
+    "productToProductionBatches": {
+      "PROD001": ["PROD_BATCH_001"],
+      "PROD002": []
+    },
+    "individualProductToProduct": {
+      "IND001": "PROD001",
+      "IND002": "PROD001",
+      "IND003": "PROD001",
+      "IND004": "PROD001",
+      "IND005": "PROD001"
+    }
+  },
+  "businessLogic": {
+    "quantityCalculation": {
+      "PROD001": {
+        "totalQuantity": 5,
+        "availablePieces": 4,
+        "soldPieces": 1,
+        "damagedPieces": 0,
+        "calculation": "IND001(available) + IND002(available) + IND003(sold) + IND004(available) + IND005(available) = 4 available, 1 sold"
+      },
+      "PROD002": {
+        "totalQuantity": 12,
+        "availablePieces": 0,
+        "soldPieces": 0,
+        "damagedPieces": 0,
+        "calculation": "No individual products created yet - ready for production"
+      }
+    },
+    "costCalculation": {
+      "PROD001": {
+        "totalCost": 12030,
+        "costPerPiece": 2406,
+        "sellingPrice": 25000,
+        "pricePerPiece": 5000,
+        "profitPerPiece": 2594,
+        "totalProfit": 12970
+      },
+      "PROD002": {
+        "totalCost": 10850,
+        "costPerPiece": 904.17,
+        "sellingPrice": 18000,
+        "pricePerPiece": 1500,
+        "profitPerPiece": 595.83,
+        "totalProfit": 7150
+      }
+    }
+  },
+  "workflowExplanation": {
+    "step1": "Admin creates Product (PROD001) in Product Inventory with basic info",
+    "step2": "Admin views Product Details page to see complete specifications and materials",
+    "step3": "Admin saves Recipe from Product Details page (materials used to make this product)",
+    "step4": "Admin adds Product to Production using the saved Recipe",
+    "step5": "Production process consumes materials and creates Individual Products (IND001, IND002, etc.)",
+    "step6": "Individual Products are added to Product Stock with final specifications and quality grades",
+    "step7": "Product quantity is updated based on Individual Product status (available/sold/damaged)",
+    "step8": "Next time same product is added to production, Recipe auto-fills the materials"
+  }
+}

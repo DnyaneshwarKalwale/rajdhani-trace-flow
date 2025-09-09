@@ -27,8 +27,7 @@ interface OrderItem {
   unitPrice: number;
   totalPrice: number;
   availableStock: number;
-  needsProduction: boolean;
-  productionAlert: boolean;
+
   selectedIndividualProducts: IndividualProduct[]; // Track which specific pieces are selected
 }
 
@@ -184,8 +183,7 @@ export default function NewOrder() {
       unitPrice: 0,
       totalPrice: 0,
       availableStock: 0,
-      needsProduction: false,
-      productionAlert: false,
+
       selectedIndividualProducts: []
     };
     setOrderItems([...orderItems, newItem]);
@@ -202,9 +200,7 @@ export default function NewOrder() {
             updated.unitPrice = product.price;
             updated.totalPrice = updated.quantity * product.price;
             updated.availableStock = product.stock;
-            // Check if quantity exceeds available stock
-            updated.needsProduction = updated.quantity > product.stock;
-            updated.productionAlert = updated.quantity > product.stock;
+
             // Reset selected individual products when product changes
             updated.selectedIndividualProducts = [];
           }
@@ -213,8 +209,7 @@ export default function NewOrder() {
           const product = realProducts.find(p => p.id === updated.productId);
           if (product) {
             updated.totalPrice = updated.quantity * updated.unitPrice;
-            updated.needsProduction = updated.quantity > product.stock;
-            updated.productionAlert = updated.quantity > product.stock;
+
           }
         }
         if (field === 'quantity' || field === 'unitPrice') {
@@ -234,10 +229,7 @@ export default function NewOrder() {
     return orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
   };
 
-  const handleProductionAlert = (item: OrderItem) => {
-    setProductionAlertItem(item);
-    setShowProductionAlert(true);
-  };
+
 
   // Handle individual product selection
   const handleIndividualProductSelection = (orderItemId: string, individualProduct: IndividualProduct, isSelected: boolean) => {
@@ -691,48 +683,7 @@ export default function NewOrder() {
         </CardContent>
       </Card>
 
-      {/* Production Requirements Summary */}
-      {orderItems.some(item => item.needsProduction) && (
-        <Card className="border-red-200 bg-red-50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-red-700">
-              <Factory className="w-5 h-5" />
-              Production Requirements Summary
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-3">
-              <div className="text-sm text-red-700">
-                <strong>⚠️ Attention Required:</strong> This order contains items that need production planning.
-              </div>
-              <div className="grid gap-2">
-                {orderItems.filter(item => item.needsProduction).map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-2 bg-white rounded border border-red-200">
-                    <div className="flex items-center gap-3">
-                      <Package className="w-4 h-4 text-red-600" />
-                      <span className="font-medium">{item.productName}</span>
-                    </div>
-                    <div className="text-sm">
-                      <span className="text-red-600 font-medium">
-                        Need to produce: {item.quantity - item.availableStock} pieces
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="p-3 bg-white border border-red-300 rounded text-sm">
-                <div className="font-medium text-red-800 mb-2">Recommended Actions:</div>
-                <ul className="text-red-700 space-y-1">
-                  <li>• Review production capacity and timeline</li>
-                  <li>• Check raw material availability</li>
-                  <li>• Update customer delivery expectations</li>
-                  <li>• Coordinate with production team</li>
-                </ul>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       {/* Order Summary */}
       <Card>
@@ -890,31 +841,7 @@ export default function NewOrder() {
             </div>
           )}
 
-                     <DialogFooter>
-             <Button variant="outline" onClick={() => setShowProductionAlert(false)}>
-               Close
-             </Button>
-             <Button 
-               onClick={() => {
-                 setShowProductionAlert(false);
-                 // Navigate to production planning or send notifications
-                 toast({
-                   title: "Production Planning Started",
-                   description: "Product has been added to production planning. Production team will be notified.",
-                 });
-                 
-                 // Here you could:
-                 // 1. Navigate to production planning page
-                 // 2. Send API call to production system
-                 // 3. Create production batch automatically
-                 // 4. Send notifications to production team
-               }}
-               className="bg-green-600 hover:bg-green-700"
-             >
-               <Factory className="w-4 h-4 mr-2" />
-               Add to Production
-             </Button>
-           </DialogFooter>
+
         </DialogContent>
       </Dialog>
 

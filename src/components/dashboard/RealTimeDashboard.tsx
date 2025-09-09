@@ -26,7 +26,7 @@ export const RealTimeDashboard = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
-  const [productionBatches, setProductionBatches] = useState<any[]>([]);
+
   const [lastUpdate, setLastUpdate] = useState<string>('');
 
   // Real-time data subscription
@@ -48,16 +48,10 @@ export const RealTimeDashboard = () => {
       setMaterials(data);
       setLastUpdate(new Date().toLocaleTimeString());
     };
-    
-    const batchCallback = (data: any[]) => {
-      setProductionBatches(data);
-      setLastUpdate(new Date().toLocaleTimeString());
-    };
 
     sync.subscribe(STORAGE_KEYS.ORDERS, orderCallback);
     sync.subscribe(STORAGE_KEYS.INDIVIDUAL_PRODUCTS, productCallback);
     sync.subscribe(STORAGE_KEYS.RAW_MATERIALS, materialCallback);
-    sync.subscribe(STORAGE_KEYS.PRODUCTION_BATCHES, batchCallback);
 
     // Load initial data
     loadData();
@@ -67,7 +61,6 @@ export const RealTimeDashboard = () => {
       sync.unsubscribe(STORAGE_KEYS.ORDERS, orderCallback);
       sync.unsubscribe(STORAGE_KEYS.INDIVIDUAL_PRODUCTS, productCallback);
       sync.unsubscribe(STORAGE_KEYS.RAW_MATERIALS, materialCallback);
-      sync.unsubscribe(STORAGE_KEYS.PRODUCTION_BATCHES, batchCallback);
     };
   }, []);
 
@@ -75,7 +68,6 @@ export const RealTimeDashboard = () => {
     setOrders(getFromStorage(STORAGE_KEYS.ORDERS));
     setProducts(getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS));
     setMaterials(getFromStorage(STORAGE_KEYS.RAW_MATERIALS));
-    setProductionBatches(getFromStorage(STORAGE_KEYS.PRODUCTION_BATCHES));
     setLastUpdate(new Date().toLocaleTimeString());
   };
 
@@ -89,17 +81,15 @@ export const RealTimeDashboard = () => {
 
   // Calculate statistics
   const stats = {
-    totalOrders: orders.length,
-    pendingOrders: orders.filter(o => o.status === 'pending').length,
-    confirmedOrders: orders.filter(o => o.status === 'confirmed').length,
-    totalProducts: products.length,
-    availableProducts: products.filter(p => p.status === 'available').length,
-    soldProducts: products.filter(p => p.status === 'sold').length,
-    totalMaterials: materials.length,
-    lowStockMaterials: materials.filter(m => m.status === 'low-stock').length,
-    outOfStockMaterials: materials.filter(m => m.status === 'out-of-stock').length,
-    totalBatches: productionBatches.length,
-    activeBatches: productionBatches.filter(b => b.status === 'active').length
+    totalOrders: (orders || []).length,
+    pendingOrders: (orders || []).filter(o => o?.status === 'pending').length,
+    confirmedOrders: (orders || []).filter(o => o?.status === 'confirmed').length,
+    totalProducts: (products || []).length,
+    availableProducts: (products || []).filter(p => p?.status === 'available').length,
+    soldProducts: (products || []).filter(p => p?.status === 'sold').length,
+    totalMaterials: (materials || []).length,
+    lowStockMaterials: (materials || []).filter(m => m?.status === 'low-stock').length,
+    outOfStockMaterials: (materials || []).filter(m => m?.status === 'out-of-stock').length
   };
 
   return (
@@ -164,18 +154,7 @@ export const RealTimeDashboard = () => {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Production</CardTitle>
-            <Factory className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{stats.totalBatches}</div>
-            <div className="flex items-center gap-2 mt-2">
-              <Badge variant="outline">{stats.activeBatches} Active</Badge>
-            </div>
-          </CardContent>
-        </Card>
+
       </div>
 
       {/* Test Controls */}
@@ -204,16 +183,16 @@ export const RealTimeDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {orders.slice(-5).map((order) => (
-                <div key={order.id} className="flex items-center justify-between p-2 border rounded">
+              {(orders || []).slice(-5).map((order) => (
+                <div key={order?.id || 'unknown'} className="flex items-center justify-between p-2 border rounded">
                   <div>
-                    <div className="font-medium">Order {order.id.slice(-6)}</div>
+                    <div className="font-medium">Order {order?.id?.slice(-6) || 'Unknown'}</div>
                     <div className="text-sm text-muted-foreground">
-                      ₹{order.totalAmount} • {order.status}
+                      ₹{order?.totalAmount || 0} • {order?.status || 'Unknown'}
                     </div>
                   </div>
-                  <Badge variant={order.status === 'confirmed' ? 'default' : 'outline'}>
-                    {order.status}
+                  <Badge variant={order?.status === 'confirmed' ? 'default' : 'outline'}>
+                    {order?.status || 'Unknown'}
                   </Badge>
                 </div>
               ))}
@@ -232,16 +211,16 @@ export const RealTimeDashboard = () => {
           </CardHeader>
           <CardContent>
             <div className="space-y-2">
-              {products.slice(-5).map((product) => (
-                <div key={product.id} className="flex items-center justify-between p-2 border rounded">
+              {(products || []).slice(-5).map((product) => (
+                <div key={product?.id || 'unknown'} className="flex items-center justify-between p-2 border rounded">
                   <div>
-                    <div className="font-medium">Product {product.id.slice(-6)}</div>
+                    <div className="font-medium">Product {product?.id?.slice(-6) || 'Unknown'}</div>
                     <div className="text-sm text-muted-foreground">
-                      {product.qualityGrade} • {product.status}
+                      {product?.qualityGrade || 'N/A'} • {product?.status || 'Unknown'}
                     </div>
                   </div>
-                  <Badge variant={product.status === 'available' ? 'default' : 'secondary'}>
-                    {product.status}
+                  <Badge variant={product?.status === 'available' ? 'default' : 'secondary'}>
+                    {product?.status || 'Unknown'}
                   </Badge>
                 </div>
               ))}

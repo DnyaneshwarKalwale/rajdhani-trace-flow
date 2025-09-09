@@ -5,7 +5,10 @@ export const STORAGE_KEYS = {
   ORDERS: 'rajdhani_orders',
   PRODUCTS: 'rajdhani_products',
   INDIVIDUAL_PRODUCTS: 'rajdhani_individual_products',
-  PRODUCTION_BATCHES: 'rajdhani_production_batches',
+  PRODUCTION_PRODUCTS: 'rajdhani_production_products',
+  PRODUCT_RECIPES: 'rajdhani_product_recipes',
+  PRODUCTION_PRODUCT_DATA: 'rajdhani_production_product_data',
+
   RAW_MATERIALS: 'rajdhani_raw_materials',
   CUSTOMERS: 'rajdhani_customers',
   MATERIAL_CONSUMPTION: 'rajdhani_material_consumption',
@@ -20,7 +23,7 @@ export interface SystemData {
   orders: any[];
   products: any[];
   individualProducts: any[];
-  productionBatches: any[];
+
   rawMaterials: any[];
   customers: any[];
   materialConsumption: any[];
@@ -32,11 +35,28 @@ export interface AuditLog {
   id: string;
   timestamp: string;
   action: string;
-  module: 'orders' | 'products' | 'production' | 'materials';
+  module: 'orders' | 'products' | 'materials';
   userId: string;
   details: any;
   previousState?: any;
   newState?: any;
+}
+
+export interface ProductRecipe {
+  id: string;
+  productId: string;
+  productName: string;
+  materials: {
+    materialId: string;
+    materialName: string;
+    quantity: number;
+    unit: string;
+    costPerUnit: number;
+  }[];
+  totalCost: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
 }
 
 // Real-time Synchronization Class
@@ -143,6 +163,83 @@ export const deleteFromStorage = (key: string, itemId: string) => {
   }
 };
 
+// Recipe Management Functions
+export const getProductRecipe = (productId: string): ProductRecipe | null => {
+  try {
+    const recipes = getFromStorage(STORAGE_KEYS.PRODUCT_RECIPES);
+    console.log('All recipes in storage:', recipes);
+    console.log('Looking for productId:', productId);
+    const foundRecipe = recipes.find((recipe: ProductRecipe) => recipe.productId === productId);
+    console.log('Found recipe:', foundRecipe);
+    return foundRecipe || null;
+  } catch (error) {
+    console.error('Error getting product recipe:', error);
+    return null;
+  }
+};
+
+export const saveProductRecipe = (recipe: ProductRecipe): void => {
+  try {
+    const existingRecipes = getFromStorage(STORAGE_KEYS.PRODUCT_RECIPES);
+    console.log('Existing recipes before save:', existingRecipes);
+    const existingIndex = existingRecipes.findIndex((r: ProductRecipe) => r.productId === recipe.productId);
+    
+    if (existingIndex !== -1) {
+      // Update existing recipe
+      existingRecipes[existingIndex] = recipe;
+      console.log('Updated existing recipe at index:', existingIndex);
+    } else {
+      // Add new recipe
+      existingRecipes.push(recipe);
+      console.log('Added new recipe');
+    }
+    
+    console.log('Saving recipes to localStorage:', existingRecipes);
+    localStorage.setItem(STORAGE_KEYS.PRODUCT_RECIPES, JSON.stringify(existingRecipes));
+    RealTimeSync.getInstance().notify(STORAGE_KEYS.PRODUCT_RECIPES, existingRecipes);
+  } catch (error) {
+    console.error('Error saving product recipe:', error);
+  }
+};
+
+export const createRecipeFromMaterials = (
+  productId: string, 
+  productName: string, 
+  materials: any[], 
+  createdBy: string = 'admin'
+): ProductRecipe => {
+  const totalCost = materials.reduce((sum, material) => 
+    sum + ((material.costPerUnit || 0) * (material.selectedQuantity || 1)), 0
+  );
+
+  return {
+    id: generateUniqueId('RECIPE'),
+    productId,
+    productName,
+    materials: materials.map(material => ({
+      materialId: material.id,
+      materialName: material.name,
+      quantity: material.selectedQuantity || 1,
+      unit: material.unit,
+      costPerUnit: material.costPerUnit || 0
+    })),
+    totalCost,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    createdBy
+  };
+};
+
+export const getProductionProductData = (productId: string): any | null => {
+  try {
+    const productData = getFromStorage(STORAGE_KEYS.PRODUCTION_PRODUCT_DATA);
+    return productData.find((item: any) => item.id === productId) || null;
+  } catch (error) {
+    console.error('Error getting production product data:', error);
+    return null;
+  }
+};
+
 // Audit Logging System
 export const logAudit = (action: string, module: AuditLog['module'], details: any, userId: string = 'admin') => {
   try {
@@ -212,7 +309,7 @@ export class DataBackup {
           orders: getFromStorage(STORAGE_KEYS.ORDERS),
           products: getFromStorage(STORAGE_KEYS.PRODUCTS),
           individualProducts: getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS),
-          productionBatches: getFromStorage(STORAGE_KEYS.PRODUCTION_BATCHES),
+
           rawMaterials: getFromStorage(STORAGE_KEYS.RAW_MATERIALS),
           customers: getFromStorage(STORAGE_KEYS.CUSTOMERS),
           materialConsumption: getFromStorage(STORAGE_KEYS.MATERIAL_CONSUMPTION),
@@ -372,13 +469,13 @@ export class RajdhaniERP {
     try {
       const orders = getFromStorage(STORAGE_KEYS.ORDERS);
       const products = getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS);
-      const productionBatches = getFromStorage(STORAGE_KEYS.PRODUCTION_BATCHES);
+
       const rawMaterials = getFromStorage(STORAGE_KEYS.RAW_MATERIALS);
       
       return {
         totalOrders: orders.length,
         totalProducts: products.length,
-        totalBatches: productionBatches.length,
+
         totalMaterials: rawMaterials.length,
         lastSync: new Date().toISOString(),
         systemVersion: '1.0.0'

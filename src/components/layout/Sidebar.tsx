@@ -10,9 +10,12 @@ import {
   Settings,
   Users,
   AlertTriangle,
-  Home
+  Home,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
+import { useState } from "react";
 
 interface SidebarProps {
   className?: string;
@@ -39,7 +42,7 @@ const sidebarItems = [
   },
   {
     title: "Production",
-    icon: Cog,
+    icon: Factory,
     href: "/production",
     color: "text-production"
   },
@@ -78,29 +81,56 @@ const sidebarItems = [
     icon: Settings,
     href: "/settings",
     color: "text-muted-foreground"
+  },
+  {
+    title: "Data Initializer",
+    icon: Settings,
+    href: "/data-initializer",
+    color: "text-green-600"
   }
 ];
 
 export function Sidebar({ className }: SidebarProps) {
   const location = useLocation();
+  const [isCollapsed, setIsCollapsed] = useState(false);
 
   return (
-    <div className={cn("flex h-full w-64 flex-col bg-card border-r", className)}>
+    <div className={cn(
+      "flex h-full flex-col bg-card border-r transition-all duration-300",
+      isCollapsed ? "w-16" : "w-64",
+      className
+    )}>
       {/* Header */}
-      <div className="p-6 border-b">
-        <div className="flex items-center space-x-3">
-          <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary-hover rounded-lg flex items-center justify-center">
-            <Factory className="w-6 h-6 text-primary-foreground" />
+      <div className={cn("border-b", isCollapsed ? "p-2" : "p-6")}>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary-hover rounded-lg flex items-center justify-center">
+              <Factory className="w-6 h-6 text-primary-foreground" />
+            </div>
+            {!isCollapsed && (
+              <div>
+                <h1 className="text-xl font-bold text-primary">Rajdhani Carpet</h1>
+                <p className="text-sm text-muted-foreground">ERP System</p>
+              </div>
+            )}
           </div>
-          <div>
-            <h1 className="text-xl font-bold text-primary">Rajdhani Carpet</h1>
-            <p className="text-sm text-muted-foreground">ERP System</p>
-          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="h-8 w-8 p-0"
+          >
+            {isCollapsed ? (
+              <ChevronRight className="h-4 w-4" />
+            ) : (
+              <ChevronLeft className="h-4 w-4" />
+            )}
+          </Button>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 space-y-2">
+      <nav className={cn("flex-1 space-y-2", isCollapsed ? "p-2" : "p-4")}>
         {sidebarItems.map((item) => {
           const isActive = location.pathname === item.href;
           const Icon = item.icon;
@@ -110,13 +140,21 @@ export function Sidebar({ className }: SidebarProps) {
               <Button
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
-                  "w-full justify-start h-12 text-left",
+                  "w-full h-12 text-left",
+                  isCollapsed ? "justify-center px-0" : "justify-start",
                   isActive && "bg-primary/10 text-primary hover:bg-primary/15",
                   !isActive && "hover:bg-muted"
                 )}
+                title={isCollapsed ? item.title : undefined}
               >
-                <Icon className={cn("mr-3 h-5 w-5", isActive ? "text-primary" : item.color)} />
-                <span className="font-medium">{item.title}</span>
+                <Icon className={cn(
+                  "h-5 w-5", 
+                  isActive ? "text-primary" : item.color,
+                  !isCollapsed && "mr-3"
+                )} />
+                {!isCollapsed && (
+                  <span className="font-medium">{item.title}</span>
+                )}
               </Button>
             </Link>
           );
@@ -124,10 +162,12 @@ export function Sidebar({ className }: SidebarProps) {
       </nav>
 
       {/* Footer */}
-      <div className="p-4 border-t">
-        <div className="text-xs text-muted-foreground text-center">
-          Version 1.0.0
-        </div>
+      <div className={cn("border-t", isCollapsed ? "p-2" : "p-4")}>
+        {!isCollapsed && (
+          <div className="text-xs text-muted-foreground text-center">
+            Version 1.0.0
+          </div>
+        )}
       </div>
     </div>
   );

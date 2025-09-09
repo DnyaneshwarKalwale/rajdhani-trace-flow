@@ -1062,7 +1062,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
           <TabsList className="w-fit">
             <TabsTrigger value="inventory">Material Inventory</TabsTrigger>
             <TabsTrigger value="consumption">Usage Analytics</TabsTrigger>
-
+            <TabsTrigger value="notifications">Production Notifications</TabsTrigger>
             <TabsTrigger value="waste">Waste Management</TabsTrigger>
           </TabsList>
           
@@ -1942,6 +1942,10 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
 
 
 
+        <TabsContent value="notifications" className="space-y-6">
+          <ProductionNotifications />
+        </TabsContent>
+
         <TabsContent value="waste" className="space-y-6">
           {/* Waste Overview Cards */}
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -2514,6 +2518,154 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// Production Notifications Component
+function ProductionNotifications() {
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Load notifications from localStorage
+    const storedNotifications = JSON.parse(localStorage.getItem('rajdhani_material_notifications') || '[]');
+    console.log('Loading notifications from localStorage:', storedNotifications);
+    setNotifications(storedNotifications);
+    setIsLoading(false);
+  }, []);
+
+  const markAsResolved = (notificationId: string) => {
+    const updatedNotifications = notifications.map(notification => 
+      notification.id === notificationId 
+        ? { ...notification, status: 'resolved' }
+        : notification
+    );
+    setNotifications(updatedNotifications);
+    localStorage.setItem('rajdhani_material_notifications', JSON.stringify(updatedNotifications));
+  };
+
+  const deleteNotification = (notificationId: string) => {
+    const updatedNotifications = notifications.filter(notification => notification.id !== notificationId);
+    setNotifications(updatedNotifications);
+    localStorage.setItem('rajdhani_material_notifications', JSON.stringify(updatedNotifications));
+  };
+
+
+  const pendingNotifications = notifications.filter(n => n.status === 'pending');
+  const resolvedNotifications = notifications.filter(n => n.status === 'resolved');
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Pending Notifications */}
+      <div>
+        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <AlertTriangle className="w-5 h-5 text-orange-500" />
+          Pending Notifications ({pendingNotifications.length})
+        </h3>
+        
+        {pendingNotifications.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <CheckCircle className="w-12 h-12 mx-auto mb-4 text-green-500" />
+            <p>No pending material shortage notifications</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {pendingNotifications.map((notification) => (
+              <div key={notification.id} className="border border-orange-200 bg-orange-50 rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge variant="destructive" className="text-xs">HIGH PRIORITY</Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {new Date(notification.createdAt).toLocaleDateString()}
+                      </Badge>
+                    </div>
+                    <h4 className="font-semibold text-orange-900 mb-1">
+                      {notification.materialName} - Shortage Alert
+                    </h4>
+                    <div className="text-sm text-orange-800 space-y-1">
+                      <p><strong>Required:</strong> {notification.requiredQuantity} {notification.unit}</p>
+                      <p><strong>Current Stock:</strong> {notification.currentStock} {notification.unit}</p>
+                      <p><strong>Supplier:</strong> {notification.supplier}</p>
+                      <p><strong>Estimated Cost:</strong> ₹{notification.estimatedCost.toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 ml-4">
+                    <Button
+                      size="sm"
+                      onClick={() => markAsResolved(notification.id)}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      <CheckCircle className="w-4 h-4 mr-1" />
+                      Mark Resolved
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => deleteNotification(notification.id)}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <X className="w-4 h-4 mr-1" />
+                      Delete
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Resolved Notifications */}
+      {resolvedNotifications.length > 0 && (
+        <div>
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <CheckCircle className="w-5 h-5 text-green-500" />
+            Resolved Notifications ({resolvedNotifications.length})
+          </h3>
+          <div className="space-y-3">
+            {resolvedNotifications.map((notification) => (
+              <div key={notification.id} className="border border-green-200 bg-green-50 rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Badge variant="secondary" className="text-xs">RESOLVED</Badge>
+                      <Badge variant="outline" className="text-xs">
+                        {new Date(notification.createdAt).toLocaleDateString()}
+                      </Badge>
+                    </div>
+                    <h4 className="font-semibold text-green-900 mb-1">
+                      {notification.materialName} - Shortage Resolved
+                    </h4>
+                    <div className="text-sm text-green-800">
+                      <p><strong>Required:</strong> {notification.requiredQuantity} {notification.unit}</p>
+                      <p><strong>Supplier:</strong> {notification.supplier}</p>
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => deleteNotification(notification.id)}
+                    className="text-red-600 hover:text-red-700"
+                  >
+                    <X className="w-4 h-4 mr-1" />
+                    Delete
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

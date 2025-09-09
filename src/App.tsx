@@ -12,9 +12,10 @@ import OrderDetails from "./pages/orders/OrderDetails";
 import Inventory from "./pages/Inventory";
 import FinishedGoods from "./pages/inventory/FinishedGoods";
 import LowStocks from "./pages/inventory/LowStocks";
+
 import Production from "./pages/Production";
 import NewBatch from "./pages/production/NewBatch";
-import Planning from "./pages/production/Planning";
+import ProductionDetail from "./pages/ProductionDetail";
 import Complete from "./pages/production/Complete";
 import Materials from "./pages/Materials";
 import ManageStock from "./pages/ManageStock";
@@ -24,7 +25,8 @@ import NotFound from "./pages/NotFound";
 import Products from "./pages/Products";
 import ProductDetail from "./pages/ProductDetail";
 import ProductStock from "./pages/ProductStock";
-import ProductionDetail from "./pages/ProductionDetail";
+import DataInitializer from "./components/DataInitializer";
+
 import RajdhaniERP from "@/lib/storage";
 import { useEffect } from "react";
 
@@ -45,7 +47,7 @@ const App = () => {
         <BrowserRouter>
           <div className="flex h-screen bg-background">
             <Sidebar />
-            <main className="flex-1 overflow-auto">
+            <main className="flex-1 overflow-auto min-w-0">
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/orders" element={<Orders />} />
@@ -57,8 +59,9 @@ const App = () => {
                 <Route path="/inventory/low-stocks" element={<LowStocks />} />
                 <Route path="/production" element={<Production />} />
                 <Route path="/production/new-batch" element={<NewBatch />} />
-                <Route path="/production/planning" element={<Planning />} />
-                <Route path="/production/complete" element={<Complete />} />
+                <Route path="/production-detail/:productId" element={<ProductionDetail />} />
+                <Route path="/production/complete/:productId" element={<Complete />} />
+
                 <Route path="/materials" element={<Materials />} />
                 <Route path="/manage-stock" element={<ManageStock />} />
                 <Route path="/customers" element={<Customers />} />
@@ -66,7 +69,8 @@ const App = () => {
                 <Route path="/products" element={<Products />} />
                 <Route path="/product/:productId" element={<ProductDetail />} />
                 <Route path="/product-stock/:productId" element={<ProductStock />} />
-                <Route path="/production/:productId" element={<ProductionDetail />} />
+                <Route path="/data-initializer" element={<DataInitializer />} />
+
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>

@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Cog, AlertTriangle, CheckCircle } from "lucide-react";
+import { Factory, AlertTriangle, CheckCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 interface ProductionBatch {
@@ -19,41 +19,30 @@ interface ProductionBatch {
   expectedCompletion: string;
 }
 
-// Load from localStorage
-const loadProductionBatches = (): ProductionBatch[] => {
-  const saved = localStorage.getItem('rajdhani_production_products');
-  if (!saved) return [];
-  
-  const products = JSON.parse(saved);
-  return products.slice(0, 3).map((product: any) => ({
-    id: product.id,
-    productName: product.name,
-    batchNumber: product.batchNumber,
-    quantity: product.targetQuantity,
-    currentStep: product.currentStep,
-    totalSteps: product.totalSteps,
-    stepName: product.steps[product.currentStep - 1]?.name || "Not Started",
-    progress: product.steps.filter((s: any) => s.status === "completed").length / product.totalSteps * 100,
-    status: product.status === "in-progress" ? "on-track" : 
-            product.status === "completed" ? "completed" :
-            product.status === "on-hold" ? "delayed" : "on-track",
-    expectedCompletion: new Date(product.expectedCompletion).toLocaleDateString()
-  }));
-};
-
-const statusStyles = {
-  "on-track": "bg-success text-success-foreground",
-  "delayed": "bg-warning text-warning-foreground",
-  "completed": "bg-primary text-primary-foreground",
-  "issue": "bg-destructive text-destructive-foreground"
-};
-
 export function ProductionOverview() {
   const navigate = useNavigate();
   const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
 
   useEffect(() => {
-    setProductionBatches(loadProductionBatches());
+    const saved = localStorage.getItem('rajdhani_production_products');
+    if (saved) {
+      const products = JSON.parse(saved);
+      const batches = products.slice(0, 3).map((product: any) => ({
+        id: product.id,
+        productName: product.name,
+        batchNumber: product.id,
+        quantity: product.targetQuantity,
+        currentStep: product.currentStep,
+        totalSteps: product.totalSteps,
+        stepName: product.steps[product.currentStep - 1]?.name || "Not Started",
+        progress: product.steps.filter((s: any) => s.status === "completed").length / product.totalSteps * 100,
+        status: product.status === "in-progress" ? "on-track" : 
+                product.status === "completed" ? "completed" :
+                product.status === "on-hold" ? "delayed" : "on-track",
+        expectedCompletion: new Date(product.expectedCompletion).toLocaleDateString()
+      }));
+      setProductionBatches(batches);
+    }
   }, []);
 
   const handleViewAll = () => {
@@ -64,7 +53,7 @@ export function ProductionOverview() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between pb-4">
         <CardTitle className="flex items-center gap-2 text-lg">
-          <Cog className="w-5 h-5 text-production" />
+          <Factory className="w-5 h-5 text-production" />
           Production Overview
         </CardTitle>
         <Button 
@@ -87,7 +76,12 @@ export function ProductionOverview() {
                     {batch.batchNumber} • Qty: {batch.quantity}
                   </p>
                 </div>
-                <Badge className={statusStyles[batch.status]}>
+                <Badge className={
+                  batch.status === "on-track" ? "bg-success text-success-foreground" :
+                  batch.status === "delayed" ? "bg-warning text-warning-foreground" :
+                  batch.status === "completed" ? "bg-primary text-primary-foreground" :
+                  "bg-destructive text-destructive-foreground"
+                }>
                   {batch.status.replace("-", " ")}
                 </Badge>
               </div>
@@ -116,7 +110,7 @@ export function ProductionOverview() {
         
         {productionBatches.length === 0 && (
           <div className="text-center py-8 text-muted-foreground">
-            <Cog className="w-12 h-12 mx-auto mb-4 opacity-50" />
+            <Factory className="w-12 h-12 mx-auto mb-4 opacity-50" />
             <p>No active production batches</p>
           </div>
         )}

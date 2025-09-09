@@ -121,14 +121,7 @@ export default function LowStocks() {
     });
   };
 
-  const handleAddToProduction = (item: LowStockItem) => {
-    if (item.category === "finished_goods") {
-      toast({
-        title: "Production Scheduled",
-        description: `${item.name} added to production queue`,
-      });
-    }
-  };
+
 
   const getStockPercentage = (current: number, minimum: number) => {
     return Math.round((current / minimum) * 100);
@@ -304,13 +297,7 @@ export default function LowStocks() {
                     <ShoppingCart className="w-4 h-4 mr-2" />
                     Reorder
                   </Button>
-                  
-                  {item.category === "finished_goods" && (
-                    <Button size="sm" variant="outline" onClick={() => handleAddToProduction(item)}>
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add to Production
-                    </Button>
-                  )}
+
                 </div>
               </div>
             </CardContent>

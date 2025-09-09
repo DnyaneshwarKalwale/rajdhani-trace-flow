@@ -7,9 +7,7 @@ import { RealTimeDashboard } from "@/components/dashboard/RealTimeDashboard";
 import { 
   Package, 
   ShoppingCart, 
-  Cog, 
   Factory, 
-  TrendingUp, 
   Users,
   DollarSign,
   AlertTriangle
@@ -24,7 +22,7 @@ export default function Dashboard() {
       />
       
       {/* Key Metrics */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-3">
         <StatsCard
           title="Active Orders"
           value="127"
@@ -41,14 +39,7 @@ export default function Dashboard() {
           trend={{ value: -5, isPositive: false }}
           color="text-inventory"
         />
-        <StatsCard
-          title="Production Batches"
-          value="15"
-          description="3 completing today"
-          icon={Cog}
-          trend={{ value: 8, isPositive: true }}
-          color="text-production"
-        />
+
         <StatsCard
           title="Raw Materials"
           value="1,245"
@@ -60,7 +51,7 @@ export default function Dashboard() {
       </div>
 
       {/* Secondary Metrics */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-3">
         <StatsCard
           title="Monthly Revenue"
           value="₹12.5L"
@@ -77,14 +68,7 @@ export default function Dashboard() {
           trend={{ value: 23, isPositive: true }}
           color="text-primary"
         />
-        <StatsCard
-          title="Production Efficiency"
-          value="94.2%"
-          description="above target"
-          icon={TrendingUp}
-          trend={{ value: 2.1, isPositive: true }}
-          color="text-success"
-        />
+
         <StatsCard
           title="Urgent Alerts"
           value="8"
