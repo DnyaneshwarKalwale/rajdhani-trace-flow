@@ -137,7 +137,7 @@ export default function NewOrder() {
         id: product.id,
         name: product.name,
         price: product.sellingPrice || product.totalCost || 0,
-        stock: product.individualStockTracking === false ? product.quantity : availableIndividualProducts.length, // Use quantity for bulk products, individual count for tracked products
+        quantity: product.individualStockTracking === false ? product.quantity : availableIndividualProducts.length, // Use quantity for bulk products, individual count for tracked products
         category: product.category,
         color: product.color,
         size: product.size,
@@ -157,7 +157,7 @@ export default function NewOrder() {
       id: material.id,
       name: material.name,
       price: material.costPerUnit || 0,
-      stock: material.currentStock || 0, // Use stock field for UI consistency
+      quantity: material.currentStock || 0, // Use quantity field for consistency
       category: material.category,
       brand: material.brand,
       unit: material.unit,
@@ -205,8 +205,8 @@ export default function NewOrder() {
             updated.productName = product.name;
             updated.unitPrice = product.price;
             updated.totalPrice = updated.quantity * product.price;
-            updated.availableStock = product.stock || 0;
-            updated.needsProduction = updated.quantity > (product.stock || 0);
+            updated.availableStock = product.quantity || 0;
+            updated.needsProduction = updated.quantity > (product.quantity || 0);
 
             // Reset selected individual products when product changes
             updated.selectedIndividualProducts = [];
@@ -218,8 +218,7 @@ export default function NewOrder() {
             : realProducts.find(p => p.id === updated.productId);
           if (product) {
             updated.totalPrice = updated.quantity * updated.unitPrice;
-            // Both products and raw materials now use stock field
-            updated.needsProduction = updated.quantity > (product.stock || 0);
+            updated.needsProduction = updated.quantity > (product.quantity || 0);
           }
         }
         if (field === 'quantity' || field === 'unitPrice') {
@@ -313,17 +312,7 @@ export default function NewOrder() {
     }
     
     const product = realProducts.find(p => p.id === productId);
-    const hasIndividual = product && product.individualStockTracking !== false;
-    
-    // Debug logging
-    console.log(`🔍 hasIndividualStock check for ${productId}:`, {
-      productType,
-      product: product?.name,
-      individualStockTracking: product?.individualStockTracking,
-      hasIndividual
-    });
-    
-    return hasIndividual;
+    return product && product.individualStockTracking !== false;
   };
 
   // Get the correct unit for display based on product type
@@ -1650,19 +1639,8 @@ export default function NewOrder() {
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                   onClick={() => {
-                    // Update both productId and unitPrice in a single operation
-                    setOrderItems(items => items.map(item => {
-                      if (item.id === currentOrderItem!.id) {
-                        const updated = { ...item, productId: product.id, unitPrice: product.price };
-                        updated.productName = product.name;
-                        updated.totalPrice = updated.quantity * product.price;
-                        updated.availableStock = product.stock || 0;
-                        updated.needsProduction = updated.quantity > (product.stock || 0);
-                        updated.selectedIndividualProducts = []; // Reset selected individual products
-                        return updated;
-                      }
-                      return item;
-                    }));
+                    updateOrderItem(currentOrderItem!.id, 'productId', product.id);
+                    updateOrderItem(currentOrderItem!.id, 'unitPrice', product.price);
                     setShowProductSearch(false);
                   }}
                 >

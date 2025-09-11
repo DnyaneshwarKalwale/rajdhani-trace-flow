@@ -571,17 +571,17 @@ export default function ProductionDetail() {
       );
     } else {
       // Recipe exists - always update it with current materials
-      const updatedRecipe = createRecipeFromMaterials(
-        productionProduct.productId,
-        productionProduct.productName,
-        availableMaterials
-      );
-      // Keep the original creation info but update the recipe
-      updatedRecipe.id = existingRecipe.id;
-      updatedRecipe.createdAt = existingRecipe.createdAt;
-      updatedRecipe.createdBy = existingRecipe.createdBy;
-      
-      saveProductRecipe(updatedRecipe);
+        const updatedRecipe = createRecipeFromMaterials(
+          productionProduct.productId,
+          productionProduct.productName,
+          availableMaterials
+        );
+        // Keep the original creation info but update the recipe
+        updatedRecipe.id = existingRecipe.id;
+        updatedRecipe.createdAt = existingRecipe.createdAt;
+        updatedRecipe.createdBy = existingRecipe.createdBy;
+        
+        saveProductRecipe(updatedRecipe);
       
       // Update the product's materialsUsed field in the main products storage
       updateProductMaterialsInStorage(productionProduct.productId, availableMaterials);
@@ -925,8 +925,8 @@ export default function ProductionDetail() {
         "Please add at least one material before proceeding to individual product details.", 
         "error"
       );
-      return;
-    }
+            return;
+          }
     
     
     // Navigate to individual product details page without changing status
