@@ -28,6 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
+import { getFromStorage, saveToStorage, generateUniqueId } from "@/lib/storage";
 
 interface ProductMaterial {
   materialName: string;
@@ -60,378 +61,44 @@ interface IndividualProduct {
   finalDimensions: string;
   finalWeight: string;
   finalThickness: string;
-  finalPileHeight: string;
+  finalWidth: string;
+  finalHeight: string;
   qualityGrade: string;
   inspector: string;
   notes: string;
   status: "available" | "sold" | "damaged";
+  // Production steps data (kept in background, not displayed in UI)
+  productionSteps?: Array<{
+    stepName: string;
+    machineUsed: string;
+    completedAt: string;
+    inspector: string;
+    qualityNotes?: string;
+  }>;
 }
 
-// Sample data (in real app, this would come from API)
-const sampleProducts: Product[] = [
-  {
-    id: "PROD001",
-    qrCode: "QR-CARPET-001",
-    name: "Traditional Persian Carpet",
-    category: "Handmade",
-    color: "Red & Gold",
-    size: "8x10 feet",
-    pattern: "Persian Medallion",
-    quantity: 5,
-    unit: "pieces",
-    manufacturingDate: "2024-01-15",
-    imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
-    location: "Warehouse A - Shelf 1"
-  },
-  {
-    id: "PROD002",
-    qrCode: "QR-CARPET-002",
-    name: "Modern Geometric Carpet",
-    category: "Machine Made",
-    color: "Blue & White",
-    size: "6x9 feet",
-    pattern: "Geometric",
-    quantity: 12,
-    unit: "pieces",
-    manufacturingDate: "2024-01-20",
-    imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
-    location: "Warehouse B - Shelf 3"
-  }
-];
 
-const individualProducts: IndividualProduct[] = [
-  // Traditional Persian Carpet (PROD001) - 5 pieces
-  {
-    id: "IND001",
-    qrCode: "QR-CARPET-001-001",
-    productId: "PROD001",
-    manufacturingDate: "2024-01-15",
-    materialsUsed: [
-      { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
-      { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
-      { materialName: "Latex Solution", quantity: 2.4, unit: "liters", cost: 768 }
-    ],
-    finalDimensions: "8'2\" x 10'1\" (2.49m x 3.07m)",
-    finalWeight: "46.2 kg",
-    finalThickness: "12.5 mm",
-    finalPileHeight: "8.2 mm",
-    qualityGrade: "A+",
-    inspector: "Ahmed Khan",
-    notes: "Perfect finish, no defects",
-    status: "available"
-  },
-  {
-    id: "IND002",
-    qrCode: "QR-CARPET-001-002",
-    productId: "PROD001",
-    manufacturingDate: "2024-01-15",
-    materialsUsed: [
-      { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
-      { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
-      { materialName: "Latex Solution", quantity: 2.4, unit: "liters", cost: 768 }
-    ],
-    finalDimensions: "8'0\" x 10'0\" (2.44m x 3.05m)",
-    finalWeight: "45.0 kg",
-    finalThickness: "12.0 mm",
-    finalPileHeight: "8.0 mm",
-    qualityGrade: "A",
-    inspector: "Ahmed Khan",
-    notes: "Minor color variation",
-    status: "sold"
-  },
-  {
-    id: "IND003",
-    qrCode: "QR-CARPET-001-003",
-    productId: "PROD001",
-    manufacturingDate: "2024-01-15",
-    materialsUsed: [
-      { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
-      { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
-      { materialName: "Latex Solution", quantity: 2.4, unit: "liters", cost: 768 }
-    ],
-    finalDimensions: "8'1\" x 10'0\" (2.46m x 3.05m)",
-    finalWeight: "45.5 kg",
-    finalThickness: "12.2 mm",
-    finalPileHeight: "8.1 mm",
-    qualityGrade: "A+",
-    inspector: "Ahmed Khan",
-    notes: "Excellent quality, premium finish",
-    status: "available"
-  },
-  {
-    id: "IND004",
-    qrCode: "QR-CARPET-001-004",
-    productId: "PROD001",
-    manufacturingDate: "2024-01-15",
-    materialsUsed: [
-      { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
-      { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
-      { materialName: "Latex Solution", quantity: 2.4, unit: "liters", cost: 768 }
-    ],
-    finalDimensions: "8'0\" x 10'1\" (2.44m x 3.07m)",
-    finalWeight: "45.8 kg",
-    finalThickness: "12.3 mm",
-    finalPileHeight: "8.0 mm",
-    qualityGrade: "A",
-    inspector: "Ahmed Khan",
-    notes: "Standard quality, good finish",
-    status: "damaged"
-  },
-  {
-    id: "IND005",
-    qrCode: "QR-CARPET-001-005",
-    productId: "PROD001",
-    manufacturingDate: "2024-01-15",
-    materialsUsed: [
-      { materialName: "Cotton Yarn (Premium)", quantity: 3, unit: "rolls", cost: 1350 },
-      { materialName: "Red Dye (Industrial)", quantity: 1.6, unit: "liters", cost: 288 },
-      { materialName: "Latex Solution", quantity: 2.4, unit: "liters", cost: 768 }
-    ],
-    finalDimensions: "8'1\" x 10'1\" (2.46m x 3.07m)",
-    finalWeight: "46.0 kg",
-    finalThickness: "12.4 mm",
-    finalPileHeight: "8.1 mm",
-    qualityGrade: "A+",
-    inspector: "Ahmed Khan",
-    notes: "Perfect dimensions, premium quality",
-    status: "available"
-  },
 
-  // Modern Geometric Carpet (PROD002) - 12 pieces
-  {
-    id: "IND006",
-    qrCode: "QR-CARPET-002-001",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-    finalWeight: "33.5 kg",
-    finalThickness: "10.2 mm",
-    finalPileHeight: "6.1 mm",
-    qualityGrade: "A+",
-    inspector: "Priya Sharma",
-    notes: "Excellent geometric precision",
-    status: "available"
-  },
-  {
-    id: "IND007",
-    qrCode: "QR-CARPET-002-002",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-    finalWeight: "32.0 kg",
-    finalThickness: "10.0 mm",
-    finalPileHeight: "6.0 mm",
-    qualityGrade: "A",
-    inspector: "Priya Sharma",
-    notes: "Standard quality",
-    status: "sold"
-  },
-  {
-    id: "IND008",
-    qrCode: "QR-CARPET-002-003",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-    finalWeight: "32.8 kg",
-    finalThickness: "10.1 mm",
-    finalPileHeight: "6.0 mm",
-    qualityGrade: "A",
-    inspector: "Priya Sharma",
-    notes: "Slight size variation",
-    status: "available"
-  },
-  {
-    id: "IND009",
-    qrCode: "QR-CARPET-002-004",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'1\" x 9'1\" (1.85m x 2.77m)",
-    finalWeight: "33.2 kg",
-    finalThickness: "10.3 mm",
-    finalPileHeight: "6.2 mm",
-    qualityGrade: "A+",
-    inspector: "Priya Sharma",
-    notes: "Perfect geometric alignment",
-    status: "available"
-  },
-  {
-    id: "IND010",
-    qrCode: "QR-CARPET-002-005",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-    finalWeight: "32.0 kg",
-    finalThickness: "10.0 mm",
-    finalPileHeight: "6.0 mm",
-    qualityGrade: "A",
-    inspector: "Priya Sharma",
-    notes: "Good quality finish",
-    status: "sold"
-  },
-  {
-    id: "IND011",
-    qrCode: "QR-CARPET-002-006",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-    finalWeight: "33.1 kg",
-    finalThickness: "10.1 mm",
-    finalPileHeight: "6.1 mm",
-    qualityGrade: "A+",
-    inspector: "Priya Sharma",
-    notes: "Excellent precision",
-    status: "available"
-  },
-  {
-    id: "IND012",
-    qrCode: "QR-CARPET-002-007",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-    finalWeight: "32.5 kg",
-    finalThickness: "10.2 mm",
-    finalPileHeight: "6.0 mm",
-    qualityGrade: "A",
-    inspector: "Priya Sharma",
-    notes: "Standard finish",
-    status: "available"
-  },
-  {
-    id: "IND013",
-    qrCode: "QR-CARPET-002-008",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'1\" x 9'1\" (1.85m x 2.77m)",
-    finalWeight: "33.3 kg",
-    finalThickness: "10.3 mm",
-    finalPileHeight: "6.2 mm",
-    qualityGrade: "A+",
-    inspector: "Priya Sharma",
-    notes: "Premium quality",
-    status: "sold"
-  },
-  {
-    id: "IND014",
-    qrCode: "QR-CARPET-002-009",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-    finalWeight: "32.2 kg",
-    finalThickness: "10.1 mm",
-    finalPileHeight: "6.0 mm",
-    qualityGrade: "A",
-    inspector: "Priya Sharma",
-    notes: "Good geometric pattern",
-    status: "available"
-  },
-  {
-    id: "IND015",
-    qrCode: "QR-CARPET-002-010",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-    finalWeight: "33.0 kg",
-    finalThickness: "10.2 mm",
-    finalPileHeight: "6.1 mm",
-    qualityGrade: "A+",
-    inspector: "Priya Sharma",
-    notes: "Perfect finish",
-    status: "available"
-  },
-  {
-    id: "IND016",
-    qrCode: "QR-CARPET-002-011",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-    finalWeight: "32.7 kg",
-    finalThickness: "10.1 mm",
-    finalPileHeight: "6.0 mm",
-    qualityGrade: "A",
-    inspector: "Priya Sharma",
-    notes: "Standard quality",
-    status: "damaged"
-  },
-  {
-    id: "IND017",
-    qrCode: "QR-CARPET-002-012",
-    productId: "PROD002",
-    manufacturingDate: "2024-01-20",
-    materialsUsed: [
-      { materialName: "Synthetic Yarn", quantity: 1.67, unit: "rolls", cost: 633 },
-      { materialName: "Blue Dye (Industrial)", quantity: 0.83, unit: "liters", cost: 158 },
-      { materialName: "Backing Cloth", quantity: 4.5, unit: "sqm", cost: 112 }
-    ],
-    finalDimensions: "6'1\" x 9'1\" (1.85m x 2.77m)",
-    finalWeight: "33.4 kg",
-    finalThickness: "10.3 mm",
-    finalPileHeight: "6.2 mm",
-    qualityGrade: "A+",
-    inspector: "Priya Sharma",
-    notes: "Excellent geometric precision",
-    status: "available"
-  }
-];
+// Function to calculate dimensions from size
+const calculateDimensionsFromSize = (size: string) => {
+  const sizeMap: { [key: string]: { width: string, height: string, dimensions: string } } = {
+    "3x5 feet": { width: "0.91m", height: "1.52m", dimensions: "3' x 5' (0.91m x 1.52m)" },
+    "5x7 feet": { width: "1.52m", height: "2.13m", dimensions: "5' x 7' (1.52m x 2.13m)" },
+    "6x9 feet": { width: "1.83m", height: "2.74m", dimensions: "6' x 9' (1.83m x 2.74m)" },
+    "8x10 feet": { width: "2.44m", height: "3.05m", dimensions: "8' x 10' (2.44m x 3.05m)" },
+    "9x12 feet": { width: "2.74m", height: "3.66m", dimensions: "9' x 12' (2.74m x 3.66m)" },
+    "10x14 feet": { width: "3.05m", height: "4.27m", dimensions: "10' x 14' (3.05m x 4.27m)" },
+    "Custom": { width: "", height: "", dimensions: "" }
+  };
+  
+  return sizeMap[size] || { width: "", height: "", dimensions: "" };
+};
 
 export default function ProductStock() {
   const { productId } = useParams();
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
+  const [individualProducts, setIndividualProducts] = useState<IndividualProduct[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [qualityFilter, setQualityFilter] = useState("all");
@@ -442,7 +109,8 @@ export default function ProductStock() {
     finalDimensions: '',
     finalWeight: '',
     finalThickness: '',
-    finalPileHeight: '',
+    finalWidth: '',
+    finalHeight: '',
     qualityGrade: '',
     inspector: '',
     notes: '',
@@ -450,15 +118,40 @@ export default function ProductStock() {
   });
 
   useEffect(() => {
-    // Find product by ID
-    const foundProduct = sampleProducts.find(p => p.id === productId);
+    if (productId) {
+      // Load product from localStorage
+      const products = getFromStorage('rajdhani_products') || [];
+      const foundProduct = products.find((p: Product) => p.id === productId);
     if (foundProduct) {
       setProduct(foundProduct);
+      }
+
+      // Load individual products from localStorage
+      const individualProductsData = getFromStorage('rajdhani_individual_products') || [];
+      const productIndividualStocks = individualProductsData.filter((ind: IndividualProduct) => 
+        ind.productId === productId
+      );
+      setIndividualProducts(productIndividualStocks);
     }
   }, [productId]);
 
   const getIndividualProducts = (productId: string) => {
     return individualProducts.filter(ind => ind.productId === productId);
+  };
+
+  // Function to auto-calculate dimensions for individual products
+  const autoCalculateDimensions = (individualProduct: IndividualProduct) => {
+    if (product && individualProduct.finalDimensions) {
+      const calculatedDimensions = calculateDimensionsFromSize(product.size);
+      if (calculatedDimensions.width && calculatedDimensions.height) {
+        return {
+          ...individualProduct,
+          finalWidth: calculatedDimensions.width,
+          finalHeight: calculatedDimensions.height
+        };
+      }
+    }
+    return individualProduct;
   };
 
   const handleEditItem = (item: IndividualProduct) => {
@@ -467,7 +160,8 @@ export default function ProductStock() {
       finalDimensions: item.finalDimensions,
       finalWeight: item.finalWeight,
       finalThickness: item.finalThickness,
-      finalPileHeight: item.finalPileHeight,
+      finalWidth: item.finalWidth,
+      finalHeight: item.finalHeight,
       qualityGrade: item.qualityGrade,
       inspector: item.inspector,
       notes: item.notes,
@@ -480,23 +174,26 @@ export default function ProductStock() {
     if (!editingItem) return;
     
     // Update the individual product in localStorage
-    const existingIndividualProducts = JSON.parse(localStorage.getItem('rajdhani_individual_products') || '[]');
+    const existingIndividualProducts = getFromStorage('rajdhani_individual_products') || [];
     const updatedProducts = existingIndividualProducts.map((item: IndividualProduct) => 
       item.id === editingItem.id 
         ? { ...item, ...editForm }
         : item
     );
-    localStorage.setItem('rajdhani_individual_products', JSON.stringify(updatedProducts));
+    saveToStorage('rajdhani_individual_products', updatedProducts);
     
     // Update local state
     const updatedItem = { ...editingItem, ...editForm };
     setSelectedItem(updatedItem);
     
+    // Update the individualProducts state
+    setIndividualProducts(updatedProducts.filter((ind: IndividualProduct) => ind.productId === productId));
+    
     setIsEditDialogOpen(false);
     setEditingItem(null);
   };
 
-  const filteredItems = getIndividualProducts(productId || "").filter(item => {
+  const filteredItems = getIndividualProducts(productId || "").map(item => autoCalculateDimensions(item)).filter(item => {
     const matchesSearch = item.qrCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.inspector.toLowerCase().includes(searchTerm.toLowerCase());
@@ -828,8 +525,12 @@ export default function ProductStock() {
                   <p className="text-sm">{selectedItem.finalThickness}</p>
                 </div>
                 <div>
-                  <Label className="text-sm font-medium">Final Pile Height</Label>
-                  <p className="text-sm">{selectedItem.finalPileHeight}</p>
+                  <Label className="text-sm font-medium">Final Width</Label>
+                  <p className="text-sm">{selectedItem.finalWidth}</p>
+                </div>
+                <div>
+                  <Label className="text-sm font-medium">Final Height</Label>
+                  <p className="text-sm">{selectedItem.finalHeight}</p>
                 </div>
               </div>
 
@@ -905,12 +606,22 @@ export default function ProductStock() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="finalPileHeight">Final Pile Height</Label>
+              <Label htmlFor="finalWidth">Final Width (meters)</Label>
               <Input
-                id="finalPileHeight"
-                value={editForm.finalPileHeight}
-                onChange={(e) => setEditForm({...editForm, finalPileHeight: e.target.value})}
-                placeholder="e.g., 1.2 cm"
+                id="finalWidth"
+                value={editForm.finalWidth}
+                onChange={(e) => setEditForm({...editForm, finalWidth: e.target.value})}
+                placeholder="e.g., 2.44m"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="finalHeight">Final Height (meters)</Label>
+              <Input
+                id="finalHeight"
+                value={editForm.finalHeight}
+                onChange={(e) => setEditForm({...editForm, finalHeight: e.target.value})}
+                placeholder="e.g., 3.05m"
               />
             </div>
             

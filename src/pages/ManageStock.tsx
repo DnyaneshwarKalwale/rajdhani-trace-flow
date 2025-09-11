@@ -52,61 +52,7 @@ interface StockOrder {
   isRestock?: boolean; // Indicates if this is a restock order
 }
 
-const initialOrders: StockOrder[] = [
-  {
-    id: "1",
-    materialName: "Cotton Yarn (Premium)",
-    supplier: "ABC Textiles Ltd.",
-    quantity: 500,
-    unit: "rolls",
-    costPerUnit: 1200,
-    totalCost: 600000,
-    orderDate: "2024-01-15",
-    expectedDelivery: "2024-01-25",
-    status: "delivered",
-    notes: "High-quality yarn for premium carpets",
-    actualDelivery: "2024-01-23"
-  },
-  {
-    id: "2",
-    materialName: "Red Dye (Industrial)",
-    supplier: "ColorChem Industries",
-    quantity: 200,
-    unit: "liters",
-    costPerUnit: 850,
-    totalCost: 170000,
-    orderDate: "2024-01-20",
-    expectedDelivery: "2024-01-30",
-    status: "in-transit",
-    notes: "Fast-drying industrial dye"
-  },
-  {
-    id: "3",
-    materialName: "Latex Solution",
-    supplier: "RubberCorp Solutions",
-    quantity: 150,
-    unit: "liters",
-    costPerUnit: 1200,
-    totalCost: 180000,
-    orderDate: "2024-01-18",
-    expectedDelivery: "2024-01-28",
-    status: "ordered",
-    notes: "High-adhesion latex for carpet backing"
-  },
-  {
-    id: "4",
-    materialName: "Backing Cloth",
-    supplier: "FabricWorld Ltd.",
-    quantity: 1000,
-    unit: "sqm",
-    costPerUnit: 45,
-    totalCost: 45000,
-    orderDate: "2024-01-22",
-    expectedDelivery: "2024-02-01",
-    status: "ordered",
-    notes: "Durable backing material"
-  }
-];
+// No hardcoded orders - all orders are now loaded from localStorage
 
 const statusConfig = {
   "ordered": { label: "Ordered", icon: Clock, color: "bg-blue-100 text-blue-800" },
@@ -323,6 +269,8 @@ export default function ManageStock() {
       const updateRawMaterialStock = (deliveredOrder: StockOrder) => {
     try {
       const rawMaterials = rawMaterialsStorage.getAll();
+      console.log('📦 Processing delivered order:', deliveredOrder);
+      console.log('📋 Current raw materials in inventory:', rawMaterials.length);
       
               // Check if this is EXACTLY the same material (ALL fields must match for restock)
         // SMART RESTOCK LOGIC: Only supplier, brand, and quality matter for restock
@@ -335,19 +283,44 @@ export default function ManageStock() {
         // 4. NEW MATERIAL: Cotton Yarn + ABC Textiles + Standard + Rolls = NEW MATERIAL (different quality)
         // 5. NEW MATERIAL: Cotton Yarn + ABC Textiles + Premium + Kg = NEW MATERIAL (different unit)
         
-        // SMART RESTOCK LOGIC: Only check supplier, brand, and quality for restock
-        // Price changes are allowed and don't create new materials
-        // 
-        // RESTOCK: Same name + same supplier + same brand + same quality (price can vary)
-        // NEW MATERIAL: Different supplier OR different brand OR different quality
-        const existingMaterial = rawMaterials.find(material => 
-          material.name === deliveredOrder.materialName &&
-          material.brand === deliveredOrder.materialBrand &&
-          material.category === deliveredOrder.materialCategory &&
-          material.supplier === deliveredOrder.supplier &&
-          material.qualityGrade === deliveredOrder.qualityGrade &&
-          material.unit === deliveredOrder.unit
-        );
+        // SMART RESTOCK LOGIC: Prioritize restock orders marked with isRestock flag
+        // For restock orders: Match by name + supplier (most important fields)
+        // For new orders: Match by all fields (name, brand, category, supplier, quality, unit)
+        let existingMaterial;
+        
+        if (deliveredOrder.isRestock) {
+          // RESTOCK ORDER: More flexible matching - prioritize name and supplier
+          existingMaterial = rawMaterials.find(material => 
+            material.name === deliveredOrder.materialName &&
+            material.supplier === deliveredOrder.supplier &&
+            material.unit === deliveredOrder.unit
+          );
+          console.log('🔄 Restock order detected - using flexible matching');
+        } else {
+          // NEW ORDER: Strict matching - all fields must match
+          existingMaterial = rawMaterials.find(material => 
+            material.name === deliveredOrder.materialName &&
+            material.brand === deliveredOrder.materialBrand &&
+            material.category === deliveredOrder.materialCategory &&
+            material.supplier === deliveredOrder.supplier &&
+            material.qualityGrade === deliveredOrder.qualityGrade &&
+            material.unit === deliveredOrder.unit
+          );
+          console.log('🆕 New order detected - using strict matching');
+        }
+        
+        console.log('🔍 Searching for existing material with criteria:');
+        console.log('  - Name:', deliveredOrder.materialName);
+        console.log('  - Brand:', deliveredOrder.materialBrand);
+        console.log('  - Category:', deliveredOrder.materialCategory);
+        console.log('  - Supplier:', deliveredOrder.supplier);
+        console.log('  - Quality Grade:', deliveredOrder.qualityGrade);
+        console.log('  - Unit:', deliveredOrder.unit);
+        console.log('  - Is Restock Order:', deliveredOrder.isRestock);
+        console.log('🎯 Match found:', !!existingMaterial);
+        if (existingMaterial) {
+          console.log('✅ Existing material:', existingMaterial);
+        }
       
       if (existingMaterial) {
         // This is an EXACT match - automatically treat as RESTOCK
@@ -357,7 +330,10 @@ export default function ManageStock() {
           currentStock: newStock,
           lastRestocked: new Date().toISOString().split('T')[0],
           status: newStock === 0 ? 'out-of-stock' : 
-                  newStock <= existingMaterial.minThreshold ? 'low-stock' : 'in-stock'
+                  newStock <= existingMaterial.minThreshold ? 'low-stock' : 'in-stock',
+          // Update cost per unit if it's different (allow price changes)
+          costPerUnit: deliveredOrder.costPerUnit,
+          totalValue: newStock * deliveredOrder.costPerUnit
         };
         rawMaterialsStorage.update(existingMaterial.id, updatedMaterial);
         
@@ -365,8 +341,8 @@ export default function ManageStock() {
         
         // Auto-detect action type: If fields match exactly, it's a restock
         const isAutoRestock = true; // Since we found an exact match
-        const actionType = 'restock_completed';
-        const title = "✅ Stock Restocked Successfully!";
+        const actionType = deliveredOrder.isRestock ? 'restock_completed' : 'stock_updated';
+        const title = deliveredOrder.isRestock ? "✅ Stock Restocked Successfully!" : "✅ Stock Updated Successfully!";
         
         toast({
           title: title,
@@ -403,7 +379,8 @@ export default function ManageStock() {
           expiryDate: "",
           imageUrl: "",
           lastRestocked: new Date().toISOString().split('T')[0],
-          status: 'in-stock'
+          status: 'in-stock',
+          totalValue: deliveredOrder.quantity * deliveredOrder.costPerUnit
         };
         
         rawMaterialsStorage.add(newMaterial);

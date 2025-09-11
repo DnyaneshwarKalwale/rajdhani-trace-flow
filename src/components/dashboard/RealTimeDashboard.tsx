@@ -7,8 +7,7 @@ import {
   getFromStorage, 
   saveToStorage, 
   updateStorage, 
-  generateUniqueId,
-  RealTimeSync 
+  generateUniqueId
 } from '@/lib/storage';
 import { 
   Package, 
@@ -29,39 +28,9 @@ export const RealTimeDashboard = () => {
 
   const [lastUpdate, setLastUpdate] = useState<string>('');
 
-  // Real-time data subscription
+  // Load data on component mount
   useEffect(() => {
-    const sync = RealTimeSync.getInstance();
-    
-    // Subscribe to all data changes
-    const orderCallback = (data: any[]) => {
-      setOrders(data);
-      setLastUpdate(new Date().toLocaleTimeString());
-    };
-    
-    const productCallback = (data: any[]) => {
-      setProducts(data);
-      setLastUpdate(new Date().toLocaleTimeString());
-    };
-    
-    const materialCallback = (data: any[]) => {
-      setMaterials(data);
-      setLastUpdate(new Date().toLocaleTimeString());
-    };
-
-    sync.subscribe(STORAGE_KEYS.ORDERS, orderCallback);
-    sync.subscribe(STORAGE_KEYS.INDIVIDUAL_PRODUCTS, productCallback);
-    sync.subscribe(STORAGE_KEYS.RAW_MATERIALS, materialCallback);
-
-    // Load initial data
     loadData();
-
-    // Cleanup subscriptions
-    return () => {
-      sync.unsubscribe(STORAGE_KEYS.ORDERS, orderCallback);
-      sync.unsubscribe(STORAGE_KEYS.INDIVIDUAL_PRODUCTS, productCallback);
-      sync.unsubscribe(STORAGE_KEYS.RAW_MATERIALS, materialCallback);
-    };
   }, []);
 
   const loadData = () => {
@@ -97,9 +66,9 @@ export const RealTimeDashboard = () => {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold">Real-Time Dashboard</h2>
+          <h2 className="text-2xl font-bold">Dashboard</h2>
           <p className="text-muted-foreground">
-            Live data from localStorage - Last updated: {lastUpdate}
+            Data from localStorage - Last updated: {lastUpdate}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -157,20 +126,20 @@ export const RealTimeDashboard = () => {
 
       </div>
 
-      {/* Test Controls */}
+      {/* Dashboard Controls */}
       <Card>
         <CardHeader>
-          <CardTitle>Real-Time Test Controls</CardTitle>
+          <CardTitle>Dashboard Controls</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-wrap gap-2">
-
-
-
-
+            <Button onClick={loadData} variant="outline" size="sm">
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Data
+            </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-2">
-            Real-time data synchronization is active. Statistics update automatically as data changes.
+            Click "Refresh Data" to update statistics with latest data from localStorage.
           </p>
         </CardContent>
       </Card>
@@ -242,7 +211,7 @@ export const RealTimeDashboard = () => {
         <CardContent>
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-green-600" />
-            <span className="text-sm">Real-time synchronization active</span>
+            <span className="text-sm">Dashboard system active</span>
           </div>
           <div className="flex items-center gap-2 mt-1">
             <Clock className="w-4 h-4 text-blue-600" />

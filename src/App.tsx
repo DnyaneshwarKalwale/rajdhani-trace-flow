@@ -17,6 +17,8 @@ import Production from "./pages/Production";
 import NewBatch from "./pages/production/NewBatch";
 import ProductionDetail from "./pages/ProductionDetail";
 import Complete from "./pages/production/Complete";
+import DynamicProductionFlow from "./pages/production/DynamicProductionFlow";
+import WasteGeneration from "./pages/production/WasteGeneration";
 import Materials from "./pages/Materials";
 import ManageStock from "./pages/ManageStock";
 import Customers from "./pages/Customers";
@@ -60,6 +62,8 @@ const App = () => {
                 <Route path="/production" element={<Production />} />
                 <Route path="/production/new-batch" element={<NewBatch />} />
                 <Route path="/production-detail/:productId" element={<ProductionDetail />} />
+                <Route path="/production/:productId/dynamic-flow" element={<DynamicProductionFlow />} />
+                <Route path="/production/:productId/waste-generation" element={<WasteGeneration />} />
                 <Route path="/production/complete/:productId" element={<Complete />} />
 
                 <Route path="/materials" element={<Materials />} />

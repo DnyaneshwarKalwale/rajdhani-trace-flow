@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Trash2, AlertTriangle, Factory, Package, X, CheckCircle, Eye } from "lucide-react";
+import { Plus, Search, Trash2, AlertTriangle, Factory, Package, X, CheckCircle, Eye, Save, Bell } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
+import { saveToStorage, getFromStorage, STORAGE_KEYS, generateUniqueId, createNotification, fixNestedArray } from "@/lib/storage";
 import { 
   Dialog,
   DialogContent,
@@ -27,7 +28,7 @@ interface OrderItem {
   unitPrice: number;
   totalPrice: number;
   availableStock: number;
-
+  needsProduction: boolean; // Whether this item requires production
   selectedIndividualProducts: IndividualProduct[]; // Track which specific pieces are selected
 }
 
@@ -37,13 +38,19 @@ interface Customer {
   email: string;
   phone: string;
   address: string;
+  city: string;
+  state: string;
+  pincode: string;
+  customerType: "individual" | "business";
+  status: "active" | "inactive";
+  totalOrders: number;
+  totalValue: number;
+  lastOrderDate: string;
+  registrationDate: string;
+  gstNumber?: string;
+  companyName?: string;
 }
 
-const mockCustomers: Customer[] = [
-  { id: "1", name: "Sharma Enterprises", email: "contact@sharma.com", phone: "+91 9876543210", address: "Mumbai, MH" },
-  { id: "2", name: "Royal Interiors", email: "info@royal.com", phone: "+91 9876543211", address: "Delhi, DL" },
-  { id: "3", name: "Modern Living Co.", email: "sales@modern.com", phone: "+91 9876543212", address: "Bangalore, KA" },
-];
 
 // Individual product details (this would come from API in real app)
 interface IndividualProduct {
@@ -61,106 +68,26 @@ interface IndividualProduct {
   age: number; // days since manufacturing
 }
 
-// Sample individual products for each main product
-const individualProducts: IndividualProduct[] = [
-  // Traditional Persian Carpet - 50 pieces
-  ...Array.from({ length: 50 }, (_, i) => ({
-    id: `IND001_${String(i + 1).padStart(3, '0')}`,
-    qrCode: `QR-PERSIAN-${String(i + 1).padStart(3, '0')}`,
-    productId: "PROD001",
-    productName: "Traditional Persian Carpet",
-    manufacturingDate: new Date(Date.now() - Math.random() * 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Random date within 90 days
-    dimensions: "4x6ft",
-    weight: "45kg",
-    qualityGrade: Math.random() > 0.8 ? "A+" : Math.random() > 0.6 ? "A" : "B",
-    inspector: "Inspector " + (Math.floor(Math.random() * 3) + 1),
-    status: "available" as const,
-    location: `Warehouse A - Shelf ${Math.floor(Math.random() * 5) + 1}`,
-    age: Math.floor(Math.random() * 90)
-  })),
-  
-  // Modern Geometric Carpet - 25 pieces
-  ...Array.from({ length: 25 }, (_, i) => ({
-    id: `IND002_${String(i + 1).padStart(3, '0')}`,
-    qrCode: `QR-GEOMETRIC-${String(i + 1).padStart(3, '0')}`,
-    productId: "PROD002",
-    productName: "Modern Geometric Carpet",
-    manufacturingDate: new Date(Date.now() - Math.random() * 60 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Random date within 60 days
-    dimensions: "6x8ft",
-    weight: "65kg",
-    qualityGrade: Math.random() > 0.8 ? "A+" : Math.random() > 0.6 ? "A" : "B",
-    inspector: "Inspector " + (Math.floor(Math.random() * 3) + 1),
-    status: "available" as const,
-    location: `Warehouse B - Shelf ${Math.floor(Math.random() * 5) + 1}`,
-    age: Math.floor(Math.random() * 60)
-  })),
-  
-  // Luxury Wool Carpet - 75 pieces
-  ...Array.from({ length: 75 }, (_, i) => ({
-    id: `IND003_${String(i + 1).padStart(3, '0')}`,
-    qrCode: `QR-WOOL-${String(i + 1).padStart(3, '0')}`,
-    productId: "PROD003",
-    productName: "Luxury Wool Carpet",
-    manufacturingDate: new Date(Date.now() - Math.random() * 120 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Random date within 120 days
-    dimensions: "5x7ft",
-    weight: "55kg",
-    qualityGrade: Math.random() > 0.8 ? "A+" : Math.random() > 0.6 ? "A" : "B",
-    inspector: "Inspector " + (Math.floor(Math.random() * 3) + 1),
-    status: "available" as const,
-    location: `Warehouse C - Shelf ${Math.floor(Math.random() * 5) + 1}`,
-    age: Math.floor(Math.random() * 120)
-  }))
-];
-
-// Group products by main product ID
-const getProductStock = (productId: string) => {
-  return individualProducts.filter(p => p.productId === productId && p.status === "available");
-};
-
-// Real products from inventory (this would come from API in real app)
-const realProducts = [
-  { 
-    id: "PROD001", 
-    name: "Traditional Persian Carpet", 
-    price: 2500, 
-    stock: getProductStock("PROD001").length,
-    category: "Carpet",
-    pattern: "Persian",
-    color: "Red",
-    size: "4x6ft"
-  },
-  { 
-    id: "PROD002", 
-    name: "Modern Geometric Carpet", 
-    price: 3500, 
-    stock: getProductStock("PROD002").length,
-    category: "Carpet", 
-    pattern: "Geometric",
-    color: "Blue",
-    size: "6x8ft"
-  },
-  { 
-    id: "PROD003", 
-    name: "Luxury Wool Carpet", 
-    price: 3000, 
-    stock: getProductStock("PROD003").length,
-    category: "Carpet",
-    pattern: "Traditional",
-    color: "Green", 
-    size: "5x7ft"
-  },
-];
 
 export default function NewOrder() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [realProducts, setRealProducts] = useState<any[]>([]);
+  const [individualProducts, setIndividualProducts] = useState<any[]>([]);
   const [newCustomer, setNewCustomer] = useState({
     name: "",
     email: "",
     phone: "",
-    address: ""
+    address: "",
+    city: "",
+    state: "",
+    pincode: "",
+    customerType: "individual" as "individual" | "business",
+    gstNumber: "",
+    companyName: ""
   });
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false);
   const [orderDetails, setOrderDetails] = useState({
@@ -174,16 +101,69 @@ export default function NewOrder() {
   const [showProductSearch, setShowProductSearch] = useState(false);
   const [currentOrderItem, setCurrentOrderItem] = useState<OrderItem | null>(null);
 
+  // Load customers and products from storage on component mount
+  useEffect(() => {
+    const storedCustomers = getFromStorage(STORAGE_KEYS.CUSTOMERS);
+    setCustomers(storedCustomers);
+    
+    const storedProducts = getFromStorage(STORAGE_KEYS.PRODUCTS);
+    const storedIndividualProducts = getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS);
+    
+    // Transform stored products to match the expected format and calculate stock
+    const transformedProducts = storedProducts.map((product: any) => {
+      // Only count products that are actually available (not sold or damaged)
+      const availableIndividualProducts = storedIndividualProducts.filter(
+        (item: any) => item.productId === product.id && item.status === "available"
+      );
+      
+      // Count total individual products for debugging
+      const totalIndividualProducts = storedIndividualProducts.filter(
+        (item: any) => item.productId === product.id
+      );
+      const soldProducts = totalIndividualProducts.filter(item => item.status === "sold");
+      const damagedProducts = totalIndividualProducts.filter(item => item.status === "damaged");
+      
+      console.log(`📦 Product ${product.name}:`, {
+        total: totalIndividualProducts.length,
+        available: availableIndividualProducts.length,
+        sold: soldProducts.length,
+        damaged: damagedProducts.length
+      });
+
+      return {
+        id: product.id,
+        name: product.name,
+        price: product.sellingPrice || product.totalCost || 0,
+        stock: availableIndividualProducts.length, // Only available products
+        category: product.category,
+        color: product.color,
+        size: product.size,
+        pattern: product.pattern,
+        dimensions: product.dimensions,
+        weight: product.weight,
+        imageUrl: product.imageUrl,
+        status: product.status,
+        location: product.location
+      };
+    });
+    
+    setRealProducts(transformedProducts);
+    setIndividualProducts(storedIndividualProducts);
+    
+    console.log('📦 Loaded products from storage:', transformedProducts.length);
+    console.log('🔍 Loaded individual products from storage:', storedIndividualProducts.length);
+  }, []);
+
   const addOrderItem = () => {
     const newItem: OrderItem = {
-      id: Date.now().toString(),
+      id: generateUniqueId('ORDITEM'),
       productId: "",
       productName: "",
       quantity: 1,
       unitPrice: 0,
       totalPrice: 0,
       availableStock: 0,
-
+      needsProduction: false,
       selectedIndividualProducts: []
     };
     setOrderItems([...orderItems, newItem]);
@@ -200,6 +180,7 @@ export default function NewOrder() {
             updated.unitPrice = product.price;
             updated.totalPrice = updated.quantity * product.price;
             updated.availableStock = product.stock;
+            updated.needsProduction = updated.quantity > product.stock;
 
             // Reset selected individual products when product changes
             updated.selectedIndividualProducts = [];
@@ -209,7 +190,7 @@ export default function NewOrder() {
           const product = realProducts.find(p => p.id === updated.productId);
           if (product) {
             updated.totalPrice = updated.quantity * updated.unitPrice;
-
+            updated.needsProduction = updated.quantity > product.stock;
           }
         }
         if (field === 'quantity' || field === 'unitPrice') {
@@ -295,11 +276,49 @@ export default function NewOrder() {
     }));
   };
 
-  // Get available individual products for a product
+  // Get available individual products for a product (only available ones for ordering)
   const getAvailableIndividualProducts = (productId: string) => {
     return individualProducts
-      .filter(p => p.productId === productId && p.status === "available")
+      .filter(p => p.productId === productId && p.status === "available") // Only available products
+      .map(p => ({
+        ...p,
+        // Calculate age in days from manufacturing date
+        age: Math.floor((new Date().getTime() - new Date(p.manufacturingDate).getTime()) / (1000 * 60 * 60 * 24)),
+        // Map fields to match expected interface
+        dimensions: p.finalDimensions || p.dimensions || "N/A",
+        weight: p.finalWeight || p.weight || "N/A",
+        productName: realProducts.find(rp => rp.id === productId)?.name || "Unknown Product",
+        location: p.location || "Warehouse"
+      }))
       .sort((a, b) => a.age - b.age); // Sort by age (oldest first)
+  };
+
+  // Get all products for display (including damaged for information)
+  const getAllIndividualProducts = (productId: string) => {
+    return individualProducts
+      .filter(p => p.productId === productId)
+      .map(p => ({
+        ...p,
+        // Calculate age in days from manufacturing date
+        age: Math.floor((new Date().getTime() - new Date(p.manufacturingDate).getTime()) / (1000 * 60 * 60 * 24)),
+        // Map fields to match expected interface
+        dimensions: p.finalDimensions || p.dimensions || "N/A",
+        weight: p.finalWeight || p.weight || "N/A",
+        productName: realProducts.find(rp => rp.id === productId)?.name || "Unknown Product",
+        location: p.location || "Warehouse",
+        isDamaged: p.status === "damaged",
+        isSold: p.status === "sold"
+      }))
+      .sort((a, b) => {
+        // Sort: available first, then damaged, then sold
+        if (a.status !== b.status) {
+          if (a.status === "available") return -1;
+          if (b.status === "available") return 1;
+          if (a.status === "damaged") return -1;
+          if (b.status === "damaged") return 1;
+        }
+        return a.age - b.age;
+      });
   };
 
   const getStockStatus = (item: OrderItem) => {
@@ -310,6 +329,11 @@ export default function NewOrder() {
     } else {
       return { status: "insufficient", color: "text-red-600", bg: "bg-red-50", border: "border-red-200" };
     }
+  };
+
+  const handleProductionAlert = (item: OrderItem) => {
+    setProductionAlertItem(item);
+    setShowProductionAlert(true);
   };
 
   const handleSubmit = () => {
@@ -331,6 +355,106 @@ export default function NewOrder() {
       return;
     }
 
+    // Calculate order totals for validation
+    const subtotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const gstRate = 18;
+    const gstAmount = (subtotal * gstRate) / 100;
+    const totalAmount = subtotal + gstAmount;
+
+    // Validate minimum payment requirement
+    if (orderDetails.paidAmount <= 0) {
+      toast({
+        title: "Payment Required",
+        description: "A minimum payment is required to accept the order. Please enter an advance amount.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (orderDetails.paidAmount < totalAmount * 0.1) {
+      toast({
+        title: "Insufficient Advance Payment",
+        description: `Minimum 10% advance payment required (₹${Math.ceil(totalAmount * 0.1).toLocaleString()}). Current: ₹${orderDetails.paidAmount.toLocaleString()}`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      // Calculate order totals
+      const subtotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      const gstRate = 18; // 18% GST
+      const gstAmount = (subtotal * gstRate) / 100;
+      const totalAmount = subtotal + gstAmount;
+      const paidAmount = orderDetails.paidAmount || 0;
+      const outstandingAmount = totalAmount - paidAmount;
+
+      // Create the order
+      const newOrder = {
+        id: generateUniqueId('ORD'),
+        orderNumber: `ORD-${Date.now()}`,
+        customerId: selectedCustomer?.id || '',
+        customerName: selectedCustomer?.name || '',
+        customerEmail: selectedCustomer?.email || '',
+        customerPhone: selectedCustomer?.phone || '',
+        orderDate: new Date().toISOString().split('T')[0],
+        expectedDelivery: orderDetails.expectedDelivery || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        items: orderItems.map(item => ({
+          productId: item.productId,
+          productName: item.productName,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          totalPrice: item.totalPrice,
+          selectedProducts: item.selectedIndividualProducts,
+          qualityGrade: item.selectedIndividualProducts.length > 0 ? item.selectedIndividualProducts[0].qualityGrade : 'A'
+        })),
+        subtotal,
+        gstRate,
+        gstAmount,
+        discountAmount: 0,
+        totalAmount,
+        paidAmount,
+        outstandingAmount,
+        paymentMethod: paidAmount > 0 ? "cash" : "credit",
+        paymentTerms: paidAmount > 0 ? "Paid in full" : "30 days",
+        dueDate: paidAmount > 0 ? undefined : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        status: "accepted" as const,
+        workflowStep: "accept" as const,
+        acceptedAt: new Date().toISOString(),
+        notes: orderDetails.notes || ""
+      };
+
+      // Save order to localStorage
+      const existingOrders = getFromStorage(STORAGE_KEYS.ORDERS) || [];
+      
+      // Ensure existingOrders is a flat array (fix nested array issue)
+      const flatExistingOrders = fixNestedArray(existingOrders);
+      if (flatExistingOrders !== existingOrders) {
+        console.log('🔧 Fixed nested orders array before adding new order');
+      }
+      
+      const updatedOrders = [...flatExistingOrders, newOrder];
+      saveToStorage(STORAGE_KEYS.ORDERS, updatedOrders);
+
+      // Note: Stock will be deducted only when order is dispatched, not when accepted
+      // This allows orders to be accepted even with low stock, and production can be planned
+
+      // Update customer order history
+      if (selectedCustomer) {
+        const updatedCustomers = customers.map(customer => {
+          if (customer.id === selectedCustomer.id) {
+            return {
+              ...customer,
+              totalOrders: customer.totalOrders + 1,
+              totalValue: customer.totalValue + totalAmount,
+              lastOrderDate: newOrder.orderDate
+            };
+          }
+          return customer;
+        });
+        saveToStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
+    }
+
     // Check if any items need production
     const itemsNeedingProduction = orderItems.filter(item => item.needsProduction);
     
@@ -340,14 +464,28 @@ export default function NewOrder() {
       setShowProductionAlert(true);
       
       toast({
-        title: "Order Accepted - Production Required",
-        description: `Order accepted! ${itemsNeedingProduction.length} items need production planning.`,
+          title: "✅ Order Created - Production Required",
+          description: `Order ${newOrder.orderNumber} created! ${itemsNeedingProduction.length} items need production.`,
       });
     } else {
       // All items have sufficient stock
     toast({
-        title: "Order Created Successfully",
-        description: "Order has been created and can be fulfilled immediately.",
+          title: "✅ Order Created Successfully",
+          description: `Order ${newOrder.orderNumber} created and inventory updated!`,
+        });
+      }
+
+      // Navigate back to orders list
+      setTimeout(() => {
+        navigate('/orders');
+      }, 2000);
+
+    } catch (error) {
+      console.error('Error creating order:', error);
+      toast({
+        title: "❌ Order Creation Failed",
+        description: "Failed to create order. Please try again.",
+        variant: "destructive"
     });
     }
   };
@@ -387,7 +525,7 @@ export default function NewOrder() {
                 <Input placeholder="Search customers..." className="pl-10" />
               </div>
               <div className="grid gap-2">
-                {mockCustomers.map((customer) => (
+                {customers.map((customer) => (
                   <div 
                     key={customer.id}
                     className={`p-3 border rounded-lg cursor-pointer transition-colors ${
@@ -398,46 +536,232 @@ export default function NewOrder() {
                     onClick={() => setSelectedCustomer(customer)}
                   >
                     <div className="font-medium">{customer.name}</div>
+                    {customer.companyName && (
+                      <div className="text-sm text-muted-foreground">{customer.companyName}</div>
+                    )}
                     <div className="text-sm text-muted-foreground">{customer.email} • {customer.phone}</div>
-                    <div className="text-sm text-muted-foreground">{customer.address}</div>
+                    <div className="text-sm text-muted-foreground">{customer.address}, {customer.city}, {customer.state} - {customer.pincode}</div>
+                    {customer.gstNumber && (
+                      <div className="text-xs text-muted-foreground">GST: {customer.gstNumber}</div>
+                    )}
                   </div>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="customerName">Customer Name</Label>
-                <Input 
-                  id="customerName"
-                  value={newCustomer.name}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, name: e.target.value }))}
-                />
+            <div className="space-y-6">
+              {/* Customer Type Selection */}
+              <div className="space-y-3">
+                <Label className="text-sm font-medium">Customer Type *</Label>
+                <Select 
+                  value={newCustomer.customerType} 
+                  onValueChange={(value: "individual" | "business") => 
+                    setNewCustomer({...newCustomer, customerType: value})
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="individual">Individual</SelectItem>
+                    <SelectItem value="business">Business</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div>
-                <Label htmlFor="customerEmail">Email</Label>
-                <Input 
-                  id="customerEmail"
-                  type="email"
-                  value={newCustomer.email}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, email: e.target.value }))}
-                />
+
+              {/* Basic Information */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Full Name *</Label>
+                    <Input
+                      id="name"
+                      value={newCustomer.name}
+                      onChange={(e) => setNewCustomer({...newCustomer, name: e.target.value})}
+                      placeholder="Enter customer full name"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Email Address *</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={newCustomer.email}
+                      onChange={(e) => setNewCustomer({...newCustomer, email: e.target.value})}
+                      placeholder="Enter email address (e.g., customer@gmail.com)"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Phone Number *</Label>
+                    <Input
+                      id="phone"
+                      value={newCustomer.phone}
+                      onChange={(e) => setNewCustomer({...newCustomer, phone: e.target.value})}
+                      placeholder="+91 9876543210"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="gstNumber">GST Number</Label>
+                    <Input
+                      id="gstNumber"
+                      value={newCustomer.gstNumber}
+                      onChange={(e) => setNewCustomer({...newCustomer, gstNumber: e.target.value})}
+                      placeholder="Enter GST number (optional)"
+                    />
+                  </div>
+                </div>
+
+                {newCustomer.customerType === "business" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="companyName">Company Name</Label>
+                    <Input
+                      id="companyName"
+                      value={newCustomer.companyName}
+                      onChange={(e) => setNewCustomer({...newCustomer, companyName: e.target.value})}
+                      placeholder="Enter company name"
+                    />
+                  </div>
+                )}
               </div>
-              <div>
-                <Label htmlFor="customerPhone">Phone</Label>
-                <Input 
-                  id="customerPhone"
-                  value={newCustomer.phone}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, phone: e.target.value }))}
-                />
+
+              {/* Address Information */}
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="address">Address</Label>
+                  <Textarea
+                    id="address"
+                    value={newCustomer.address}
+                    onChange={(e) => setNewCustomer({...newCustomer, address: e.target.value})}
+                    placeholder="Enter full address"
+                    rows={2}
+                  />
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="city">City</Label>
+                    <Input
+                      id="city"
+                      value={newCustomer.city}
+                      onChange={(e) => setNewCustomer({...newCustomer, city: e.target.value})}
+                      placeholder="Enter city"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="state">State</Label>
+                    <Input
+                      id="state"
+                      value={newCustomer.state}
+                      onChange={(e) => setNewCustomer({...newCustomer, state: e.target.value})}
+                      placeholder="Enter state"
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="pincode">Pincode</Label>
+                    <Input
+                      id="pincode"
+                      value={newCustomer.pincode}
+                      onChange={(e) => setNewCustomer({...newCustomer, pincode: e.target.value})}
+                      placeholder="Enter pincode"
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <Label htmlFor="customerAddress">Address</Label>
-                <Input 
-                  id="customerAddress"
-                  value={newCustomer.address}
-                  onChange={(e) => setNewCustomer(prev => ({ ...prev, address: e.target.value }))}
-                />
+
+              {/* Add Customer Button */}
+              <div className="flex gap-2 pt-4 border-t">
+                <Button 
+                  variant="outline" 
+                  onClick={() => {
+                    setNewCustomer({
+                      name: "",
+                      email: "",
+                      phone: "",
+                      address: "",
+                      city: "",
+                      state: "",
+                      pincode: "",
+                      customerType: "individual",
+                      gstNumber: "",
+                      companyName: ""
+                    });
+                    setShowNewCustomerForm(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button 
+                  onClick={() => {
+                    // Basic validation
+                    if (!newCustomer.name.trim() || !newCustomer.email.trim() || !newCustomer.phone.trim()) {
+                      toast({
+                        title: "Error",
+                        description: "Please fill in required fields: Name, Email, and Phone",
+                        variant: "destructive"
+                      });
+                      return;
+                    }
+
+                    // Create new customer and save to localStorage
+                    const newCustomerData: Customer = {
+                      id: generateUniqueId('ORDITEM'),
+                      name: newCustomer.name.trim(),
+                      email: newCustomer.email.trim(),
+                      phone: newCustomer.phone.trim(),
+                      address: newCustomer.address.trim(),
+                      city: newCustomer.city.trim(),
+                      state: newCustomer.state.trim(),
+                      pincode: newCustomer.pincode.trim(),
+                      customerType: newCustomer.customerType,
+                      status: "active",
+                      totalOrders: 0,
+                      totalValue: 0,
+                      lastOrderDate: "",
+                      registrationDate: new Date().toISOString().split('T')[0],
+                      gstNumber: newCustomer.gstNumber.trim() || undefined,
+                      companyName: newCustomer.companyName.trim() || undefined
+                    };
+
+                    // Add to customers array and save to localStorage
+                    const updatedCustomers = [...customers, newCustomerData];
+                    setCustomers(updatedCustomers);
+                    saveToStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
+                    
+                    // Select the newly created customer
+                    setSelectedCustomer(newCustomerData);
+                    
+                    // Reset form and hide form
+                    setNewCustomer({
+                      name: "",
+                      email: "",
+                      phone: "",
+                      address: "",
+                      city: "",
+                      state: "",
+                      pincode: "",
+                      customerType: "individual",
+                      gstNumber: "",
+                      companyName: ""
+                    });
+                    setShowNewCustomerForm(false);
+                    
+                    toast({
+                      title: "Success",
+                      description: `Customer "${newCustomerData.name}" added successfully and selected for this order!`,
+                    });
+                  }}
+                  disabled={!newCustomer.name.trim() || !newCustomer.email.trim() || !newCustomer.phone.trim()}
+                >
+                  <Save className="w-4 h-4 mr-2" />
+                  Add Customer
+                </Button>
               </div>
             </div>
           )}
@@ -473,11 +797,11 @@ export default function NewOrder() {
                       <Button 
                         variant="outline" 
                         size="sm" 
-                        className="mt-2 text-red-600 border-red-300 hover:bg-red-100"
+                        className="mt-2 text-orange-600 border-orange-300 hover:bg-orange-100"
                         onClick={() => handleProductionAlert(item)}
                       >
-                        <Factory className="w-4 h-4 mr-2" />
-                        View Production Details
+                        <AlertTriangle className="w-4 h-4 mr-2" />
+                        Stock Low - Notify
                       </Button>
                     </div>
                   )}
@@ -663,13 +987,18 @@ export default function NewOrder() {
             />
           </div>
           <div>
-            <Label htmlFor="paidAmount">Paid Amount</Label>
+            <Label htmlFor="paidAmount">Advance Payment (Required)</Label>
             <Input 
               id="paidAmount"
               type="number"
               value={orderDetails.paidAmount}
               onChange={(e) => setOrderDetails(prev => ({ ...prev, paidAmount: parseFloat(e.target.value) || 0 }))}
+              placeholder={`Min: ₹${Math.ceil(calculateTotal() * 0.1).toLocaleString()}`}
+              className={orderDetails.paidAmount < calculateTotal() * 0.1 ? 'border-red-300' : ''}
             />
+            <p className="text-xs text-muted-foreground mt-1">
+              Minimum 10% advance required (₹{Math.ceil(calculateTotal() * 0.1).toLocaleString()})
+            </p>
           </div>
           <div className="col-span-2">
             <Label htmlFor="notes">Notes</Label>
@@ -730,8 +1059,8 @@ export default function NewOrder() {
                disabled={orderItems.length === 0}
              >
                {orderItems.some(item => item.needsProduction) 
-                 ? "Accept Order & Plan Production" 
-                 : "Create Order"
+                 ? "Accept Order (Plan Production)" 
+                 : "Accept Order"
                }
              </Button>
            </div>
@@ -760,88 +1089,101 @@ export default function NewOrder() {
 
       {/* Production Alert Dialog */}
       <Dialog open={showProductionAlert} onOpenChange={setShowProductionAlert}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
+            <DialogTitle className="flex items-center gap-2 text-orange-600">
               <AlertTriangle className="w-5 h-5" />
-              Production Required Alert
+              Stock Low Alert
             </DialogTitle>
             <DialogDescription>
-              This order requires production planning. Current stock is insufficient.
+              This product has insufficient stock for the order.
             </DialogDescription>
           </DialogHeader>
 
           {productionAlertItem && (
             <div className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Order Item Details</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <Label className="text-muted-foreground">Product</Label>
-                      <div className="font-medium">{productionAlertItem.productName}</div>
+              <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                <div className="text-center">
+                  <h3 className="font-semibold text-orange-800 mb-2">{productionAlertItem.productName}</h3>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Available:</span>
+                      <span className="font-medium text-green-600">{productionAlertItem.availableStock}</span>
                     </div>
-                    <div>
-                      <Label className="text-muted-foreground">Required Quantity</Label>
-                      <div className="font-medium text-red-600">{productionAlertItem.quantity} pieces</div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Required:</span>
+                      <span className="font-medium text-red-600">{productionAlertItem.quantity}</span>
                     </div>
-                    <div>
-                      <Label className="text-muted-foreground">Available Stock</Label>
-                      <div className="font-medium text-green-600">{productionAlertItem.availableStock} pieces</div>
+                    <div className="flex justify-between border-t pt-1">
+                      <span className="text-gray-600">Need to produce:</span>
+                      <span className="font-bold text-orange-600">
+                        {productionAlertItem.quantity - productionAlertItem.availableStock} more pieces
+                      </span>
                     </div>
-                    <div>
-                      <Label className="text-muted-foreground">Production Needed</Label>
-                      <div className="font-medium text-red-600 font-bold">
-                        {productionAlertItem.quantity - productionAlertItem.availableStock} pieces
                       </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
 
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center gap-2">
-                    <Factory className="w-5 h-5 text-blue-600" />
-                    Production Planning Required
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                      <div className="flex items-center gap-2 text-blue-800">
-                        <Package className="w-4 h-4" />
-                        <span className="font-medium">Action Required:</span>
-                      </div>
-                      <div className="text-sm text-blue-700 mt-1">
-                        • Add this product to production planning<br/>
-                        • Estimate production timeline<br/>
-                        • Coordinate with manufacturing team<br/>
-                        • Update customer on delivery timeline
-                      </div>
-                    </div>
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowProductionAlert(false)}
+                  className="flex-1"
+                >
+                  Close
+                </Button>
+                <Button
+                  onClick={() => {
+                    // Check if notification already exists to prevent duplicates
+                    const existingNotifications = getFromStorage('rajdhani_notifications') || [];
+                    const flattenedNotifications = existingNotifications.flat(Infinity);
+                    const hasExistingNotification = flattenedNotifications.some(n => 
+                      n && n.type === 'production_request' && 
+                      n.relatedId === productionAlertItem.productId && 
+                      n.status === 'unread'
+                    );
                     
-                    <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-                      <div className="flex items-center gap-2 text-yellow-800">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span className="font-medium">Important Notes:</span>
+                    if (!hasExistingNotification) {
+                      // Create notification when user clicks "Notify Production"
+                      createNotification({
+                        type: 'production_request',
+                        title: `Production Request - ${productionAlertItem.productName}`,
+                        message: `Order requires ${productionAlertItem.quantity} units of ${productionAlertItem.productName}. Current stock: ${productionAlertItem.availableStock} units.`,
+                        priority: 'high',
+                        status: 'unread',
+                        module: 'production',
+                        relatedId: productionAlertItem.productId,
+                        relatedData: {
+                          productId: productionAlertItem.productId,
+                          productName: productionAlertItem.productName,
+                          requiredQuantity: productionAlertItem.quantity,
+                          availableStock: productionAlertItem.availableStock,
+                          shortfall: productionAlertItem.quantity - productionAlertItem.availableStock
+                        },
+                        createdBy: 'user'
+                      });
+                      
+                      toast({
+                        title: "✅ Production Notification Sent",
+                        description: "Production team has been notified about this request.",
+                      });
+                    } else {
+                      toast({
+                        title: "ℹ️ Notification Already Exists",
+                        description: "A production request for this product already exists.",
+                      });
+                    }
+                    
+                    setShowProductionAlert(false);
+                  }}
+                  className="flex-1 bg-orange-600 hover:bg-orange-700"
+                >
+                  <Bell className="w-4 h-4 mr-2" />
+                  Notify Production
+                </Button>
                       </div>
-                      <div className="text-sm text-yellow-700 mt-1">
-                        • Order can be accepted but delivery will be delayed<br/>
-                        • Production time: typically 2-4 weeks<br/>
-                        • Consider material availability<br/>
-                        • Update customer expectations
-                      </div>
-                    </div>
-          </div>
-        </CardContent>
-      </Card>
             </div>
           )}
-
-
         </DialogContent>
       </Dialog>
 
@@ -916,7 +1258,14 @@ export default function NewOrder() {
 
               {/* Individual Products Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto border border-gray-200 rounded p-2">
-                {getAvailableIndividualProducts(currentOrderItem.productId).map((product) => {
+                {getAvailableIndividualProducts(currentOrderItem.productId).length === 0 ? (
+                  <div className="col-span-full text-center py-12 text-muted-foreground">
+                    <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                    <p>No individual products available</p>
+                    <p className="text-sm mt-2">Individual pieces will appear here when available in inventory</p>
+                  </div>
+                ) : (
+                  getAvailableIndividualProducts(currentOrderItem.productId).map((product) => {
                   const isSelected = currentOrderItem.selectedIndividualProducts.some(p => p.id === product.id);
                   const isDisabled = !isSelected && currentOrderItem.selectedIndividualProducts.length >= currentOrderItem.quantity;
                   
@@ -1001,9 +1350,22 @@ export default function NewOrder() {
                           </div>
                           <div className="flex justify-between">
                             <span>Location:</span>
-                            <span className="truncate">{product.location}</span>
+                            <span className="truncate">{product.location || "Warehouse"}</span>
                           </div>
+                          {product.inspector && (
+                            <div className="flex justify-between">
+                              <span>Inspector:</span>
+                              <span>{product.inspector}</span>
+                            </div>
+                          )}
                         </div>
+
+                        {product.notes && (
+                          <div className="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-700">
+                            <div className="font-medium">Notes:</div>
+                            <div>{product.notes}</div>
+                          </div>
+                        )}
 
                         {isSelected && (
                           <div className="mt-2 p-2 bg-blue-100 rounded text-xs text-blue-800">
@@ -1014,7 +1376,8 @@ export default function NewOrder() {
                       </CardContent>
                     </Card>
                   );
-                })}
+                })
+                )}
               </div>
 
               {/* Selection Summary */}
@@ -1154,9 +1517,17 @@ export default function NewOrder() {
                     setShowProductSearch(false);
                   }}
                 >
-                  {/* Product Image Placeholder */}
-                  <div className="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg mb-3 flex items-center justify-center">
+                  {/* Product Image */}
+                  <div className="w-full h-32 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg mb-3 flex items-center justify-center overflow-hidden">
+                    {product.imageUrl ? (
+                      <img 
+                        src={product.imageUrl} 
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
                     <Package className="w-12 h-12 text-gray-400" />
+                    )}
                   </div>
                   
                   {/* Product Info */}
@@ -1165,6 +1536,16 @@ export default function NewOrder() {
                     <div className="text-xs text-muted-foreground">
                       {product.category} • {product.color} • {product.size}
                     </div>
+                    {product.pattern && (
+                      <div className="text-xs text-muted-foreground">
+                        Pattern: {product.pattern}
+                      </div>
+                    )}
+                    {product.location && (
+                      <div className="text-xs text-muted-foreground">
+                        📍 {product.location}
+                      </div>
+                    )}
                     
                     {/* Stock Status */}
                     <div className="flex items-center justify-between">
@@ -1210,11 +1591,21 @@ export default function NewOrder() {
               ))}
             </div>
 
+            {realProducts.length === 0 && (
+              <div className="text-center py-12 text-muted-foreground">
+                <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No products available</p>
+                <p className="text-sm mt-2">Products will be loaded from inventory when available</p>
+              </div>
+            )}
+
             {/* Quick Stats */}
+            {realProducts.length > 0 && (
             <div className="flex items-center justify-between text-sm text-muted-foreground border-t pt-4">
               <span>Showing {realProducts.length} products</span>
               <span>Click on a product to select it for your order</span>
             </div>
+            )}
           </div>
 
           <DialogFooter>

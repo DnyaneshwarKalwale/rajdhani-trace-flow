@@ -23,9 +23,16 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, TrendingDown, Package, AlertTriangle, Recycle, ShoppingCart, History, Upload, Image, X, Download, FileSpreadsheet, CheckCircle, AlertCircle, Clock } from "lucide-react";
+import { Plus, Search, TrendingDown, Package, AlertTriangle, Recycle, ShoppingCart, History, Upload, Image, X, Download, FileSpreadsheet, CheckCircle, AlertCircle, Clock, RotateCcw } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { rawMaterialsStorage, materialOrdersStorage, suppliersStorage } from "@/utils/localStorage";
+
+// Generate unique ID function
+const generateUniqueId = (prefix: string): string => {
+  const timestamp = Date.now().toString(36);
+  const randomStr = Math.random().toString(36).substr(2, 5);
+  return `${prefix}_${timestamp}_${randomStr}`;
+};
 import { useToast } from "@/hooks/use-toast";
 
 /*
@@ -70,8 +77,7 @@ interface RawMaterial {
   costPerUnit: number;
   totalValue: number;
   batchNumber: string;
-
-
+  qualityGrade?: string;
   imageUrl?: string;
   materialsUsed: MaterialConsumption[];
   supplierPerformance: number;
@@ -144,6 +150,7 @@ export default function Materials() {
   const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false); // New state for details
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
+  const [wasteRecoveryRefresh, setWasteRecoveryRefresh] = useState(0); // For refreshing waste recovery count
   const [newMaterial, setNewMaterial] = useState({
     name: "",
     brand: "",
@@ -171,6 +178,14 @@ export default function Materials() {
     costPerUnit: "",
     imageUrl: ""
   });
+  
+  // Dynamic dropdown states
+  const [customCategories, setCustomCategories] = useState<string[]>([]);
+  const [customUnits, setCustomUnits] = useState<string[]>([]);
+  const [showAddCategory, setShowAddCategory] = useState(false);
+  const [showAddUnit, setShowAddUnit] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [newUnitName, setNewUnitName] = useState("");
   const [orderDetails, setOrderDetails] = useState({
     quantity: "",
     unit: "",
@@ -229,6 +244,45 @@ export default function Materials() {
       setIsOrderDialogOpen(true);
     }
   }, [location.state]);
+
+  // Get waste recovery count for the dashboard
+  const getWasteRecoveryCount = () => {
+    try {
+      const wasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
+      const flatWasteData = Array.isArray(wasteData) && wasteData.length > 0 && Array.isArray(wasteData[0]) 
+        ? wasteData.flat() 
+        : wasteData;
+      const count = flatWasteData.filter((waste: any) => waste.status === 'added_to_inventory').length;
+      // Use the refresh state to trigger re-renders
+      wasteRecoveryRefresh; // This ensures the component re-renders when this value changes
+      return count;
+    } catch (error) {
+      console.error('Error getting waste recovery count:', error);
+      return 0;
+    }
+  };
+
+  // Load custom categories and units from localStorage
+  useEffect(() => {
+    const savedCategories = localStorage.getItem('rajdhani_custom_categories');
+    const savedUnits = localStorage.getItem('rajdhani_custom_units');
+    
+    if (savedCategories) {
+      try {
+        setCustomCategories(JSON.parse(savedCategories));
+      } catch (error) {
+        console.error('Error loading custom categories:', error);
+      }
+    }
+    
+    if (savedUnits) {
+      try {
+        setCustomUnits(JSON.parse(savedUnits));
+      } catch (error) {
+        console.error('Error loading custom units:', error);
+      }
+    }
+  }, []);
   
   // Show stock update notifications when page loads
   useEffect(() => {
@@ -443,6 +497,48 @@ export default function Materials() {
     setNewMaterial({ ...newMaterial, imageUrl: "" });
   };
 
+  // Handle adding new category
+  const handleAddCategory = () => {
+    if (newCategoryName.trim() && !customCategories.includes(newCategoryName.trim())) {
+      const updatedCategories = [...customCategories, newCategoryName.trim()];
+      setCustomCategories(updatedCategories);
+      setNewInventoryMaterial({...newInventoryMaterial, category: newCategoryName.trim()});
+      
+      // Save to localStorage
+      localStorage.setItem('rajdhani_custom_categories', JSON.stringify(updatedCategories));
+      
+      setNewCategoryName("");
+      setShowAddCategory(false);
+    }
+  };
+
+  // Handle adding new unit
+  const handleAddUnit = () => {
+    if (newUnitName.trim() && !customUnits.includes(newUnitName.trim())) {
+      const updatedUnits = [...customUnits, newUnitName.trim()];
+      setCustomUnits(updatedUnits);
+      setNewInventoryMaterial({...newInventoryMaterial, unit: newUnitName.trim()});
+      
+      // Save to localStorage
+      localStorage.setItem('rajdhani_custom_units', JSON.stringify(updatedUnits));
+      
+      setNewUnitName("");
+      setShowAddUnit(false);
+    }
+  };
+
+  // Get all available categories (default + custom)
+  const getAllCategories = () => {
+    const defaultCategories = ["Yarn", "Dye", "Chemical", "Fabric", "Other"];
+    return [...defaultCategories, ...customCategories];
+  };
+
+  // Get all available units (default + custom)
+  const getAllUnits = () => {
+    const defaultUnits = ["rolls", "liters", "kg", "sqm", "pieces"];
+    return [...defaultUnits, ...customUnits];
+  };
+
   // Handle opening restock dialog
   const handleOpenRestockDialog = (material: RawMaterial) => {
     setSelectedRestockMaterial(material);
@@ -512,9 +608,9 @@ export default function Materials() {
       // Create order (restock or new order based on material status)
       const orderIsOutOfStock = selectedRestockMaterial.status === "out-of-stock";
       const orderData = {
-        id: Date.now().toString(),
+        id: generateUniqueId('ORD'),
         materialName: selectedRestockMaterial.name,
-        materialBrand: restockForm.brand,
+        materialBrand: restockForm.brand || selectedRestockMaterial.brand,
         materialCategory: selectedRestockMaterial.category,
         materialBatchNumber: generateUniqueBatchNumber(),
         supplier: restockForm.supplier,
@@ -528,6 +624,7 @@ export default function Materials() {
         notes: restockForm.notes,
         minThreshold: selectedRestockMaterial.minThreshold,
         maxCapacity: selectedRestockMaterial.maxCapacity,
+        qualityGrade: selectedRestockMaterial.qualityGrade || "A", // Add missing quality grade
         isRestock: !orderIsOutOfStock // Mark as restock order only if not out of stock
       };
 
@@ -717,7 +814,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
         
         // Create material object
         const material: RawMaterial = {
-          id: Date.now().toString() + index,
+          id: generateUniqueId('MAT'),
           name: row['Material Name'],
           brand: row['Brand'],
           category: row['Category'],
@@ -847,30 +944,53 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
     }
 
     try {
-      // Store the name before resetting the form
+      // Store the values before resetting the form
       const materialName = newMaterial.name;
+      const orderQuantity = parseInt(newMaterial.currentStock) || 0;
       
-      // IMPORTANT: "Create Material Order" ALWAYS creates NEW materials
-      // Even if the name is the same, different supplier/price/quality = NEW material
-      // Only "Restock" feature merges with existing materials
-      const materialOrder = {
-        id: Date.now().toString(),
-        materialName: newMaterial.name,
-        materialBrand: newMaterial.brand,
-        materialCategory: newMaterial.category,
-        materialBatchNumber: newMaterial.batchNumber,
-        quantity: parseInt(newMaterial.currentStock) || 0,
+      // Step 1: Add material to inventory with 0 quantity
+      const newInventoryMaterialData = {
+        name: newMaterial.name,
+        brand: newMaterial.brand,
+        category: newMaterial.category,
+        batchNumber: newMaterial.batchNumber,
+        currentStock: 0, // Always start with 0 quantity
         unit: newMaterial.unit,
         minThreshold: parseInt(newMaterial.minThreshold) || 0,
         maxCapacity: parseInt(newMaterial.maxCapacity) || 0,
         supplier: newMaterial.supplier,
         costPerUnit: parseFloat(newMaterial.costPerUnit) || 0,
-        totalCost: (parseInt(newMaterial.currentStock) || 0) * (parseFloat(newMaterial.costPerUnit) || 0),
-        expectedDelivery: newMaterial.expectedDelivery || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], // Use user input or default to 30 days
-        status: "ordered",
-        orderDate: new Date().toISOString().split('T')[0],
-        notes: `New material procurement order for ${newMaterial.name}`,
-        imageUrl: imagePreview || newMaterial.imageUrl || ""
+        imageUrl: imagePreview || newMaterial.imageUrl || "",
+        status: "out-of-stock",
+        lastRestocked: new Date().toISOString().split('T')[0],
+        dailyUsage: 0,
+        qualityGrade: "A",
+        manufacturingDate: new Date().toISOString().split('T')[0],
+        expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+      };
+      
+      // Add to localStorage using the utility function
+      const addedMaterial = rawMaterialsStorage.add(newInventoryMaterialData);
+      console.log('Added new material to inventory with 0 stock:', addedMaterial);
+      
+      // Update local state with the new material
+      const updatedMaterials = rawMaterialsStorage.getAll();
+      const uniqueMaterials = removeDuplicateBatchNumbers(updatedMaterials);
+      setRawMaterials(uniqueMaterials);
+      
+      // Step 2: Create material order for the quantity requested
+      const materialOrder = {
+        materialName: newMaterial.name,
+        materialBrand: newMaterial.brand,
+        materialCategory: newMaterial.category,
+        materialBatchNumber: newMaterial.batchNumber,
+        supplier: newMaterial.supplier,
+        quantity: orderQuantity,
+        unit: newMaterial.unit,
+        costPerUnit: parseFloat(newMaterial.costPerUnit) || 0,
+        expectedDelivery: newMaterial.expectedDelivery || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        minThreshold: parseInt(newMaterial.minThreshold) || 0,
+        maxCapacity: parseInt(newMaterial.maxCapacity) || 0
       };
 
       // Reset form
@@ -1033,12 +1153,19 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
         state: { 
           prefillOrder: {
             materialName: selectedMaterial.name,
+            materialBrand: selectedMaterial.brand,
+            materialCategory: selectedMaterial.category,
+            materialBatchNumber: selectedMaterial.batchNumber,
             supplier: orderDetails.supplier,
             quantity: orderDetails.quantity,
             unit: orderDetails.unit,
             costPerUnit: orderDetails.costPerUnit,
             expectedDelivery: orderDetails.expectedDelivery,
-            notes: orderDetails.notes
+            minThreshold: selectedMaterial.minThreshold,
+            maxCapacity: selectedMaterial.maxCapacity,
+            qualityGrade: selectedMaterial.qualityGrade || "A",
+            notes: orderDetails.notes,
+            isRestock: false
           }
         }
       });
@@ -1281,7 +1408,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                     Add to Inventory
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Add Material to Inventory</DialogTitle>
                     <DialogDescription>
@@ -1347,30 +1474,65 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="inventoryBrand">Brand *</Label>
+                        <Label htmlFor="inventorySupplier">Supplier Name *</Label>
                         <Input
-                          id="inventoryBrand"
-                          value={newInventoryMaterial.brand}
-                          onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, brand: e.target.value})}
-                          placeholder="e.g., TextilePro"
+                          id="inventorySupplier"
+                          value={newInventoryMaterial.supplier}
+                          onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, supplier: e.target.value})}
+                          placeholder="e.g., ABC Textiles Ltd."
                           required
                         />
                       </div>
                       <div>
                         <Label htmlFor="inventoryCategory">Category *</Label>
-                        <Select value={newInventoryMaterial.category} onValueChange={(value) => setNewInventoryMaterial({...newInventoryMaterial, category: value})}>
+                        <div className="space-y-2">
+                          <Select value={newInventoryMaterial.category} onValueChange={(value) => {
+                            if (value === "add_new") {
+                              setShowAddCategory(true);
+                            } else {
+                              setNewInventoryMaterial({...newInventoryMaterial, category: value});
+                            }
+                          }}>
                           <SelectTrigger>
                             <SelectValue placeholder="Select category" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Yarn">Yarn</SelectItem>
-                            <SelectItem value="Dye">Dye</SelectItem>
-                            <SelectItem value="Chemical">Chemical</SelectItem>
-                            <SelectItem value="Fabric">Fabric</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
+                              {getAllCategories().map(category => (
+                                <SelectItem key={category} value={category}>{category}</SelectItem>
+                              ))}
+                              <SelectItem value="add_new" className="text-blue-600 font-medium">
+                                <div className="flex items-center gap-2">
+                                  <Plus className="w-4 h-4" />
+                                  Add New Category
+                                </div>
+                              </SelectItem>
                           </SelectContent>
                         </Select>
+                          {showAddCategory && (
+                            <div className="flex gap-2">
+                              <Input
+                                value={newCategoryName}
+                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                placeholder="Enter new category"
+                                className="flex-1"
+                              />
+                              <Button type="button" size="sm" onClick={handleAddCategory}>Add</Button>
+                              <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddCategory(false); setNewCategoryName("");}}>Cancel</Button>
                       </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="inventoryBrand">Brand Name *</Label>
+                      <Input
+                        id="inventoryBrand"
+                        value={newInventoryMaterial.brand}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, brand: e.target.value})}
+                        placeholder="e.g., TextilePro"
+                        required
+                      />
                     </div>
                     
                     <div>
@@ -1383,31 +1545,43 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                         required
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="inventoryUnit">Unit *</Label>
-                        <Select value={newInventoryMaterial.unit} onValueChange={(value) => setNewInventoryMaterial({...newInventoryMaterial, unit: value})}>
+                      <div className="space-y-2">
+                        <Select value={newInventoryMaterial.unit} onValueChange={(value) => {
+                          if (value === "add_new") {
+                            setShowAddUnit(true);
+                          } else {
+                            setNewInventoryMaterial({...newInventoryMaterial, unit: value});
+                          }
+                        }}>
                           <SelectTrigger>
                             <SelectValue placeholder="Select unit" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="rolls">Rolls</SelectItem>
-                            <SelectItem value="liters">Liters</SelectItem>
-                            <SelectItem value="kg">Kilograms</SelectItem>
-                            <SelectItem value="sqm">Square Meters</SelectItem>
-                            <SelectItem value="pieces">Pieces</SelectItem>
+                            {getAllUnits().map(unit => (
+                              <SelectItem key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</SelectItem>
+                            ))}
+                            <SelectItem value="add_new" className="text-blue-600 font-medium">
+                              <div className="flex items-center gap-2">
+                                <Plus className="w-4 h-4" />
+                                Add New Unit
+                              </div>
+                            </SelectItem>
                           </SelectContent>
                         </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="inventorySupplier">Supplier *</Label>
+                        {showAddUnit && (
+                          <div className="flex gap-2">
                         <Input
-                          id="inventorySupplier"
-                          value={newInventoryMaterial.supplier}
-                          onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, supplier: e.target.value})}
-                          placeholder="e.g., ABC Textiles Ltd."
-                          required
-                        />
+                              value={newUnitName}
+                              onChange={(e) => setNewUnitName(e.target.value)}
+                              placeholder="Enter new unit"
+                              className="flex-1"
+                            />
+                            <Button type="button" size="sm" onClick={handleAddUnit}>Add</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddUnit(false); setNewUnitName("");}}>Cancel</Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="grid grid-cols-3 gap-4">
@@ -1487,11 +1661,11 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
               Create Material Order
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                   <DialogHeader>
                                       <DialogTitle>Create Material Procurement Order</DialogTitle>
                   <DialogDescription>
-                    Create a new material order that will be sent to Manage Stock for procurement.
+                    Create a new material order that will be sent to Manage Stock for procurement. The material will be added with 0 quantity first, then orders will manage stock levels.
                   </DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
@@ -1552,29 +1726,72 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="brand">Brand</Label>
+                        <Label htmlFor="supplier">Supplier Name *</Label>
                         <Input
-                          id="brand"
-                          value={newMaterial.brand}
-                          onChange={(e) => setNewMaterial({...newMaterial, brand: e.target.value})}
-                          placeholder="e.g., TextilePro"
+                          id="supplier"
+                          value={newMaterial.supplier}
+                          onChange={(e) => setNewMaterial({...newMaterial, supplier: e.target.value})}
+                          placeholder="e.g., ABC Textiles Ltd."
                         />
                       </div>
                       <div>
-                        <Label htmlFor="category">Category</Label>
-                        <Select value={newMaterial.category} onValueChange={(value) => setNewMaterial({...newMaterial, category: value})}
-                        >
+                        <Label htmlFor="category">Category *</Label>
+                        <div className="space-y-2">
+                          <Select value={newMaterial.category} onValueChange={(value) => {
+                            if (value === "add_new") {
+                              setShowAddCategory(true);
+                            } else {
+                              setNewMaterial({...newMaterial, category: value});
+                            }
+                          }}>
                           <SelectTrigger>
                             <SelectValue placeholder="Select category" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="Yarn">Yarn</SelectItem>
-                            <SelectItem value="Dye">Dye</SelectItem>
-                            <SelectItem value="Fabric">Fabric</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
+                              {getAllCategories().map(category => (
+                                <SelectItem key={category} value={category}>{category}</SelectItem>
+                              ))}
+                              <SelectItem value="add_new" className="text-blue-600 font-medium">
+                                <div className="flex items-center gap-2">
+                                  <Plus className="w-4 h-4" />
+                                  Add New Category
+                                </div>
+                              </SelectItem>
                           </SelectContent>
                         </Select>
+                          {showAddCategory && (
+                            <div className="flex gap-2">
+                              <Input
+                                value={newCategoryName}
+                                onChange={(e) => setNewCategoryName(e.target.value)}
+                                placeholder="Enter new category"
+                                className="flex-1"
+                              />
+                              <Button type="button" size="sm" onClick={() => {
+                                if (newCategoryName.trim() && !customCategories.includes(newCategoryName.trim())) {
+                                  const updatedCategories = [...customCategories, newCategoryName.trim()];
+                                  setCustomCategories(updatedCategories);
+                                  setNewMaterial({...newMaterial, category: newCategoryName.trim()});
+                                  localStorage.setItem('rajdhani_custom_categories', JSON.stringify(updatedCategories));
+                                  setNewCategoryName("");
+                                  setShowAddCategory(false);
+                                }
+                              }}>Add</Button>
+                              <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddCategory(false); setNewCategoryName("");}}>Cancel</Button>
                       </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <Label htmlFor="brand">Brand Name *</Label>
+                      <Input
+                        id="brand"
+                        value={newMaterial.brand}
+                        onChange={(e) => setNewMaterial({...newMaterial, brand: e.target.value})}
+                        placeholder="e.g., TextilePro"
+                      />
                     </div>
                     
                     <div>
@@ -1586,42 +1803,65 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                         placeholder="e.g., BATCH-2024-001"
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="unit">Unit</Label>
-                        <Select value={newMaterial.unit} onValueChange={(value) => setNewMaterial({...newMaterial, unit: value})}>
+                      <Label htmlFor="unit">Unit *</Label>
+                      <div className="space-y-2">
+                        <Select value={newMaterial.unit} onValueChange={(value) => {
+                          if (value === "add_new") {
+                            setShowAddUnit(true);
+                          } else {
+                            setNewMaterial({...newMaterial, unit: value});
+                          }
+                        }}>
                           <SelectTrigger>
                             <SelectValue placeholder="Select unit" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="rolls">Rolls</SelectItem>
-                            <SelectItem value="liters">Liters</SelectItem>
-                            <SelectItem value="kg">Kilograms</SelectItem>
-                            <SelectItem value="sqm">Square Meters</SelectItem>
-                            <SelectItem value="pieces">Pieces</SelectItem>
+                            {getAllUnits().map(unit => (
+                              <SelectItem key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</SelectItem>
+                            ))}
+                            <SelectItem value="add_new" className="text-blue-600 font-medium">
+                              <div className="flex items-center gap-2">
+                                <Plus className="w-4 h-4" />
+                                Add New Unit
+                              </div>
+                            </SelectItem>
                           </SelectContent>
                         </Select>
-                      </div>
-                      <div>
-                        <Label htmlFor="supplier">Supplier</Label>
+                        {showAddUnit && (
+                          <div className="flex gap-2">
                         <Input
-                          id="supplier"
-                          value={newMaterial.supplier}
-                          onChange={(e) => setNewMaterial({...newMaterial, supplier: e.target.value})}
-                          placeholder="e.g., ABC Textiles Ltd."
-                        />
+                              value={newUnitName}
+                              onChange={(e) => setNewUnitName(e.target.value)}
+                              placeholder="Enter new unit"
+                              className="flex-1"
+                            />
+                            <Button type="button" size="sm" onClick={() => {
+                              if (newUnitName.trim() && !customUnits.includes(newUnitName.trim())) {
+                                const updatedUnits = [...customUnits, newUnitName.trim()];
+                                setCustomUnits(updatedUnits);
+                                setNewMaterial({...newMaterial, unit: newUnitName.trim()});
+                                localStorage.setItem('rajdhani_custom_units', JSON.stringify(updatedUnits));
+                                setNewUnitName("");
+                                setShowAddUnit(false);
+                              }
+                            }}>Add</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddUnit(false); setNewUnitName("");}}>Cancel</Button>
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="grid grid-cols-3 gap-4">
                       <div>
-                        <Label htmlFor="currentStock">Current Stock</Label>
+                        <Label htmlFor="orderStock">Order Stock</Label>
                         <Input
-                          id="currentStock"
+                          id="orderStock"
                           type="number"
                           value={newMaterial.currentStock || ""}
                           onChange={(e) => setNewMaterial({...newMaterial, currentStock: e.target.value})}
-                          placeholder="0"
+                          placeholder="100"
                         />
+                        <p className="text-xs text-muted-foreground mt-1">Quantity to order for this material</p>
                       </div>
                       <div>
                         <Label htmlFor="minThreshold">Min Threshold</Label>
@@ -1726,12 +1966,22 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Waste Recovery</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setWasteRecoveryRefresh(prev => prev + 1)}
+                    className="h-6 w-6 p-0"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                  </Button>
                 <Recycle className="h-4 w-4 text-success" />
+                </div>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">--</div>
+                <div className="text-2xl font-bold">{getWasteRecoveryCount()}</div>
                 <p className="text-xs text-muted-foreground">
-                  No data available
+                  Items recovered from waste
                 </p>
               </CardContent>
             </Card>
@@ -1947,57 +2197,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
         </TabsContent>
 
         <TabsContent value="waste" className="space-y-6">
-          {/* Waste Overview Cards */}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Waste</CardTitle>
-                <Recycle className="h-4 w-4 text-destructive" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">--</div>
-                <p className="text-xs text-muted-foreground">
-                  No production data
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Waste Value</CardTitle>
-                <TrendingDown className="h-4 w-4 text-destructive" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">₹--</div>
-                <p className="text-xs text-muted-foreground">
-                  Cost of wasted materials
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Recycling Rate</CardTitle>
-                <Recycle className="h-4 w-4 text-success" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">--</div>
-                <p className="text-xs text-muted-foreground">
-                  % of waste recycled
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Most Wasted</CardTitle>
-                <AlertTriangle className="h-4 w-4 text-warning" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">--</div>
-                <p className="text-xs text-muted-foreground">
-                  Top wasted material
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          <WasteManagement />
 
           {/* Waste Analysis Table */}
           <Card>
@@ -2525,6 +2725,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
 // Production Notifications Component
 function ProductionNotifications() {
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [wasteData, setWasteData] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -2532,6 +2733,12 @@ function ProductionNotifications() {
     const storedNotifications = JSON.parse(localStorage.getItem('rajdhani_material_notifications') || '[]');
     console.log('Loading notifications from localStorage:', storedNotifications);
     setNotifications(storedNotifications);
+    
+    // Load waste data from localStorage
+    const storedWasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
+    console.log('Loading waste data from localStorage:', storedWasteData);
+    setWasteData(storedWasteData);
+    
     setIsLoading(false);
   }, []);
 
@@ -2667,5 +2874,326 @@ function ProductionNotifications() {
         </div>
       )}
     </div>
+  );
+}
+
+// Waste Management Component
+function WasteManagement() {
+  const [wasteData, setWasteData] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    // Load waste data from localStorage
+    const storedWasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
+    console.log('Loading waste data from localStorage:', storedWasteData);
+    
+    // Flatten the data if it's nested and fix localStorage
+    let flatWasteData = storedWasteData;
+    if (Array.isArray(storedWasteData) && storedWasteData.length > 0 && Array.isArray(storedWasteData[0])) {
+      flatWasteData = storedWasteData.flat();
+      console.log('Flattened waste data:', flatWasteData);
+      
+      // Fix the localStorage data structure
+      localStorage.setItem('rajdhani_waste_management', JSON.stringify(flatWasteData));
+      console.log('Fixed localStorage waste data structure');
+    }
+    
+    setWasteData(flatWasteData);
+    setIsLoading(false);
+  }, []);
+
+  // Calculate waste statistics
+  const totalWasteItems = wasteData.length;
+  const totalWasteQuantity = wasteData.reduce((sum, waste) => sum + waste.quantity, 0);
+  const reusableWaste = wasteData.filter(waste => waste.canBeReused && waste.status === 'available_for_reuse').length;
+  const addedWaste = wasteData.filter(waste => waste.status === 'added_to_inventory').length;
+  const recyclingRate = totalWasteItems > 0 ? Math.round((reusableWaste / totalWasteItems) * 100) : 0;
+  
+  // Find most wasted material
+  const materialWasteCount = wasteData.reduce((acc, waste) => {
+    acc[waste.materialName] = (acc[waste.materialName] || 0) + waste.quantity;
+    return acc;
+  }, {} as Record<string, number>);
+  const mostWastedMaterial = Object.entries(materialWasteCount).reduce((max, [material, count]) => 
+    (count as number) > max.count ? { material, count: count as number } : max, 
+    { material: 'None', count: 0 }
+  );
+
+  const handleReturnToInventory = (waste: any) => {
+    // Get current raw materials
+    const rawMaterials = JSON.parse(localStorage.getItem('rajdhani_raw_materials') || '[]');
+    
+    // Find the material in raw materials inventory
+    const materialIndex = rawMaterials.findIndex((material: any) => material.id === waste.materialId);
+    
+    if (materialIndex !== -1) {
+      // Update the material's current stock
+      rawMaterials[materialIndex].currentStock += waste.quantity;
+      
+      // Update material status based on new stock level
+      const newStock = rawMaterials[materialIndex].currentStock;
+      rawMaterials[materialIndex].status = newStock <= 0 ? "out-of-stock" : 
+                                          newStock <= 10 ? "low-stock" : "in-stock";
+      
+      // Save updated raw materials
+      localStorage.setItem('rajdhani_raw_materials', JSON.stringify(rawMaterials));
+      
+      // Update waste item status to 'added_to_inventory'
+      const updatedWasteData = wasteData.map(w => 
+        w.id === waste.id 
+          ? { ...w, status: 'added_to_inventory', addedAt: new Date().toISOString() }
+          : w
+      );
+      
+      // Save updated waste data
+      localStorage.setItem('rajdhani_waste_management', JSON.stringify(updatedWasteData));
+      setWasteData(updatedWasteData);
+      
+      console.log(`✅ ${waste.quantity} ${waste.unit} of ${waste.materialName} added back to inventory`);
+      console.log(`📈 Material stock increased from ${rawMaterials[materialIndex].currentStock - waste.quantity} to ${rawMaterials[materialIndex].currentStock} ${waste.unit}`);
+      
+      // Show success message with stock details
+      alert(`✅ Successfully added ${waste.quantity} ${waste.unit} of ${waste.materialName} back to inventory!\n\nStock increased to: ${rawMaterials[materialIndex].currentStock} ${waste.unit}\nStatus: ${rawMaterials[materialIndex].status}`);
+    } else {
+      console.error('Material not found in raw materials inventory:', waste.materialId);
+      alert('Error: Material not found in inventory. Please check the material ID.');
+    }
+  };
+
+  if (isLoading) {
+    return <div className="text-center py-8">Loading waste data...</div>;
+  }
+
+  return (
+    <>
+      {/* Waste Overview Cards */}
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Waste Items</CardTitle>
+            <Recycle className="h-4 w-4 text-destructive" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{totalWasteItems}</div>
+            <p className="text-xs text-muted-foreground">
+              {totalWasteItems === 0 ? 'No waste recorded' : `${totalWasteQuantity} total units`}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Reusable Waste</CardTitle>
+            <Recycle className="h-4 w-4 text-success" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{reusableWaste}</div>
+            <p className="text-xs text-muted-foreground">
+              Items available for reuse
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Added to Inventory</CardTitle>
+            <Package className="h-4 w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{addedWaste}</div>
+            <p className="text-xs text-muted-foreground">
+              Items added back to stock
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Recycling Rate</CardTitle>
+            <Recycle className="h-4 w-4 text-success" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{recyclingRate}%</div>
+            <p className="text-xs text-muted-foreground">
+              % of waste that can be reused
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Most Wasted</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-warning" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{mostWastedMaterial.count.toString()}</div>
+            <p className="text-xs text-muted-foreground">
+              {mostWastedMaterial.material}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Waste Recovery Summary */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-orange-600" />
+            Waste Recovery Summary
+          </CardTitle>
+          <CardDescription>
+            Track which materials became waste and their recovery status
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {Object.entries(materialWasteCount).map(([materialName, totalWaste]) => {
+              const materialWasteItems = wasteData.filter(w => w.materialName === materialName);
+              const addedItems = materialWasteItems.filter(w => w.status === 'added_to_inventory');
+              const availableItems = materialWasteItems.filter(w => w.status === 'available_for_reuse');
+              const disposedItems = materialWasteItems.filter(w => w.status === 'disposed');
+              
+              return (
+                <div key={materialName} className="border rounded-lg p-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium">{materialName}</h4>
+                    <Badge variant="outline">{totalWaste.toString()} units wasted</Badge>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 text-sm">
+                    <div className="text-center">
+                      <div className="text-green-600 font-medium">{addedItems.length}</div>
+                      <div className="text-muted-foreground">Added to Inventory</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-blue-600 font-medium">{availableItems.length}</div>
+                      <div className="text-muted-foreground">Available for Reuse</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-red-600 font-medium">{disposedItems.length}</div>
+                      <div className="text-muted-foreground">Disposed</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Waste Items Table */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Recycle className="w-5 h-5 text-success" />
+                Waste Items
+              </CardTitle>
+              <CardDescription>
+                Track all waste generated during production processes
+              </CardDescription>
+            </div>
+            <Button 
+              variant="outline" 
+              size="sm"
+              onClick={() => {
+                const storedWasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
+                let flatWasteData = storedWasteData;
+                if (Array.isArray(storedWasteData) && storedWasteData.length > 0 && Array.isArray(storedWasteData[0])) {
+                  flatWasteData = storedWasteData.flat();
+                  localStorage.setItem('rajdhani_waste_management', JSON.stringify(flatWasteData));
+                }
+                setWasteData(flatWasteData);
+              }}
+            >
+              Refresh Data
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {wasteData.length === 0 ? (
+            <div className="text-center py-12">
+              <Recycle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-foreground mb-2">No Waste Data</h3>
+              <p className="text-muted-foreground max-w-md mx-auto">
+                Waste items will appear here once production processes generate waste materials.
+              </p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b">
+                    <th className="text-left p-3 font-medium">Material</th>
+                    <th className="text-left p-3 font-medium">Quantity</th>
+                    <th className="text-left p-3 font-medium">Type</th>
+                    <th className="text-left p-3 font-medium">Status</th>
+                    <th className="text-left p-3 font-medium">Waste Source</th>
+                    <th className="text-left p-3 font-medium">Generated Date</th>
+                    <th className="text-left p-3 font-medium">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {wasteData.map((waste) => (
+                    <tr key={waste.id} className="border-b hover:bg-gray-50">
+                      <td className="p-3">
+                        <div className="font-medium">{waste.materialName}</div>
+                        <div className="text-sm text-muted-foreground">{waste.materialId}</div>
+                      </td>
+                      <td className="p-3">
+                        {waste.quantity} {waste.unit}
+                      </td>
+                      <td className="p-3">
+                        <Badge variant={waste.wasteType === 'scrap' ? 'secondary' : 
+                                      waste.wasteType === 'defective' ? 'destructive' : 'outline'}>
+                          {waste.wasteType}
+                        </Badge>
+                      </td>
+                      <td className="p-3">
+                        <Badge variant={
+                          waste.status === 'available_for_reuse' ? 'default' : 
+                          waste.status === 'added_to_inventory' ? 'outline' : 'secondary'
+                        }>
+                          {waste.status === 'available_for_reuse' ? 'Reusable' : 
+                           waste.status === 'added_to_inventory' ? 'Added' : 'Disposed'}
+                        </Badge>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-sm font-medium">{waste.productName}</div>
+                        <div className="text-xs text-muted-foreground">Production: {waste.productionId}</div>
+                        <div className="text-xs text-blue-600">Waste Type: {waste.wasteType}</div>
+                      </td>
+                      <td className="p-3 text-sm text-muted-foreground">
+                        <div>{new Date(waste.generatedAt).toLocaleDateString()}</div>
+                        <div className="text-xs">{new Date(waste.generatedAt).toLocaleTimeString()}</div>
+                        {waste.addedAt && (
+                          <div className="text-xs text-green-600 mt-1">
+                            Added: {new Date(waste.addedAt).toLocaleDateString()}
+                          </div>
+                        )}
+                      </td>
+                      <td className="p-3">
+                        {waste.status === 'available_for_reuse' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleReturnToInventory(waste)}
+                            className="text-green-600 hover:text-green-700 border-green-200 hover:border-green-300"
+                          >
+                            <Package className="w-4 h-4 mr-1" />
+                            Return to Inventory
+                          </Button>
+                        )}
+                        {waste.status === 'added_to_inventory' && (
+                          <div className="text-sm text-green-600 font-medium">
+                            ✓ Added
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </>
   );
 }

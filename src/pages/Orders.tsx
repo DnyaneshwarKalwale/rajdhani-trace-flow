@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
+import { getFromStorage, fixNestedArray, saveToStorage } from "@/lib/storage";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { useToast } from "@/hooks/use-toast";
 import {
   Plus, Search, Filter, Eye, Edit, MoreHorizontal, Users, Package, 
   ShoppingCart, Calendar, TrendingUp, AlertTriangle, CheckCircle,
@@ -100,129 +102,26 @@ interface Order {
   paymentMethod: "cash" | "card" | "bank-transfer" | "credit";
   paymentTerms: string;
   dueDate?: string;
-  status: "pending" | "confirmed" | "ready-to-ship" | "completed" | "cancelled";
+  status: "pending" | "accepted" | "dispatched" | "delivered" | "cancelled";
+  workflowStep: "accept" | "dispatch" | "delivered";
+  acceptedAt?: string;
+  dispatchedAt?: string;
+  deliveredAt?: string;
   notes: string;
 
 }
 
 
 
-// Sample data
-const sampleCustomers: Customer[] = [
-  {
-    id: "CUST001",
-    name: "Sharma Enterprises",
-    email: "sharma@enterprises.com",
-    phone: "+91-9876543210",
-    address: "123 Business Park, Mumbai, Maharashtra",
-    company: "Sharma Enterprises",
-    taxId: "GST123456789",
-    creditLimit: 500000,
-    outstandingAmount: 75000,
-    status: "active",
-    orderHistory: []
-  },
-  {
-    id: "CUST002",
-    name: "Royal Interiors",
-    email: "info@royalinteriors.com",
-    phone: "+91-9876543211",
-    address: "456 Luxury Lane, Delhi, NCR",
-    company: "Royal Interiors Ltd",
-    taxId: "GST987654321",
-    creditLimit: 1000000,
-    outstandingAmount: 0,
-    status: "active",
-    orderHistory: []
-  }
-];
+// No hardcoded data - all data is now loaded from localStorage
 
-const sampleProducts: Product[] = [
-  {
-    id: "PROD001",
-    name: "Traditional Persian Carpet",
-    category: "Handmade",
-    color: "Red & Gold",
-    size: "8x10 feet",
-    pattern: "Persian Medallion",
-    quantity: 5,
-    sellingPrice: 25000,
-    status: "in-stock",
-    individualProducts: [
-      {
-        id: "IND001",
-        qrCode: "QR-CARPET-001-001",
-        productId: "PROD001",
-        manufacturingDate: "2024-01-15",
-        finalDimensions: "8x10 feet",
-        finalWeight: "45 kg",
-        finalThickness: "2.5 cm",
-        finalPileHeight: "1.2 cm",
-        qualityGrade: "A+",
-        inspector: "John Smith",
-        status: "available",
-        batchNumber: "BATCH-2024-001"
-      },
-      {
-        id: "IND002",
-        qrCode: "QR-CARPET-001-002",
-        productId: "PROD001",
-        manufacturingDate: "2024-01-15",
-        finalDimensions: "8x10 feet",
-        finalWeight: "44 kg",
-        finalThickness: "2.4 cm",
-        finalPileHeight: "1.1 cm",
-        qualityGrade: "A",
-        inspector: "John Smith",
-        status: "available",
-        batchNumber: "BATCH-2024-001"
-      }
-    ]
-  }
-];
-
-const sampleOrders: Order[] = [
-  {
-    id: "1",
-    orderNumber: "ORD-2024-001",
-    customerId: "CUST001",
-    customerName: "Sharma Enterprises",
-    customerEmail: "sharma@enterprises.com",
-    customerPhone: "+91-9876543210",
-    orderDate: "2024-01-15",
-    expectedDelivery: "2024-01-25",
-    items: [
-      {
-        productId: "PROD001",
-        productName: "Traditional Persian Carpet",
-        quantity: 2,
-        unitPrice: 25000,
-        totalPrice: 50000,
-        selectedProducts: [],
-        qualityGrade: "A+"
-      }
-    ],
-    subtotal: 50000,
-    gstRate: 18,
-    gstAmount: 9000,
-    discountAmount: 0,
-    totalAmount: 59000,
-    paidAmount: 35000,
-    outstandingAmount: 24000,
-    paymentMethod: "credit",
-    paymentTerms: "30 days",
-    dueDate: "2024-02-14",
-    status: "confirmed",
-    notes: "Premium quality required"
-  }
-];
+// No hardcoded orders - all orders are now loaded from localStorage
 
 const statusStyles = {
   pending: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  confirmed: "bg-blue-100 text-blue-800 border-blue-200",
-  "in-production": "bg-orange-100 text-orange-800 border-orange-200",
-  "ready-to-ship": "bg-green-100 text-green-800 border-green-200",
-  completed: "bg-green-100 text-green-800 border-green-200",
+  accepted: "bg-blue-100 text-blue-800 border-blue-200",
+  dispatched: "bg-orange-100 text-orange-800 border-orange-200",
+  delivered: "bg-green-100 text-green-800 border-green-200",
   cancelled: "bg-red-100 text-red-800 border-red-200"
 };
 
@@ -236,9 +135,10 @@ const qualityStyles = {
 export default function Orders() {
   const navigate = useNavigate();
   const location = useLocation();
-  const [orders, setOrders] = useState<Order[]>(sampleOrders);
-  const [customers, setCustomers] = useState<Customer[]>(sampleCustomers);
-  const [products, setProducts] = useState<Product[]>(sampleProducts);
+  const { toast } = useToast();
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [customerFilter, setCustomerFilter] = useState("all");
@@ -250,10 +150,140 @@ export default function Orders() {
   const [customerSearchTerm, setCustomerSearchTerm] = useState("");
   const [productSearchTerm, setProductSearchTerm] = useState("");
 
+  // Load data from localStorage
+  useEffect(() => {
+    const storedOrders = getFromStorage('rajdhani_orders') || [];
+    const storedCustomers = getFromStorage('rajdhani_customers') || [];
+    const storedProducts = getFromStorage('rajdhani_products') || [];
+    
+    // Fix nested array issue for orders
+    const flatOrders = fixNestedArray(storedOrders);
+    if (flatOrders !== storedOrders) {
+      console.log('🔧 Fixed nested orders array, flattened from', storedOrders.length, 'to', flatOrders.length);
+      // Save the flattened array back to localStorage
+      localStorage.setItem('rajdhani_orders', JSON.stringify(flatOrders));
+    }
+    
+    setOrders(flatOrders);
+    setCustomers(storedCustomers);
+    setProducts(storedProducts);
+    
+    console.log('📦 Loaded data from storage:');
+    console.log('  - Orders:', flatOrders.length);
+    console.log('  - Customers:', storedCustomers.length);
+    console.log('  - Products:', storedProducts.length);
+    console.log('📋 Orders data:', flatOrders);
+  }, []);
+
+  // Handle order dispatch - deduct stock and mark as dispatched
+  const handleDispatchOrder = (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    // Deduct stock from products
+    const updatedProducts = products.map(product => {
+      const orderedItem = order.items.find(item => item.productId === product.id);
+      if (orderedItem) {
+        const newQuantity = product.quantity - orderedItem.quantity;
+        return {
+          ...product,
+          quantity: Math.max(0, newQuantity),
+          status: newQuantity <= 0 ? 'out-of-stock' as const : 
+                 newQuantity <= 5 ? 'low-stock' as const : 'in-stock' as const
+        };
+      }
+      return product;
+    });
+
+    // Update individual products status
+    const updatedIndividualProducts = getFromStorage('rajdhani_individual_products') || [];
+    const updatedIndProducts = updatedIndividualProducts.map(indProduct => {
+      const selectedInOrder = order.items.some(item => 
+        item.selectedProducts && item.selectedProducts.some(selected => selected.id === indProduct.id)
+      );
+      if (selectedInOrder) {
+        return {
+          ...indProduct,
+          status: "sold",
+          soldDate: new Date().toISOString().split('T')[0],
+          customerId: order.customerId,
+          orderId: order.id
+        };
+      }
+      return indProduct;
+    });
+
+    // Update order status
+    const updatedOrders = orders.map(o => 
+      o.id === orderId 
+        ? { 
+            ...o, 
+            status: 'dispatched' as const, 
+            workflowStep: 'dispatch' as const,
+            dispatchedAt: new Date().toISOString()
+          }
+        : o
+    );
+
+    // Save to localStorage
+    saveToStorage('rajdhani_orders', updatedOrders);
+    saveToStorage('rajdhani_products', updatedProducts);
+    saveToStorage('rajdhani_individual_products', updatedIndProducts);
+
+    // Update local state
+    setOrders(updatedOrders);
+    setProducts(updatedProducts);
+
+    toast({
+      title: "✅ Order Dispatched",
+      description: "Stock has been deducted and order is ready for delivery.",
+    });
+  };
+
+  // Handle order delivery - mark as delivered
+  const handleDeliverOrder = (orderId: string) => {
+    const order = orders.find(o => o.id === orderId);
+    if (!order) return;
+
+    // Check if full payment is collected
+    if (order.outstandingAmount > 0) {
+      toast({
+        title: "❌ Payment Required",
+        description: `Full payment must be collected before delivery. Outstanding: ₹${order.outstandingAmount.toLocaleString()}`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const updatedOrders = orders.map(o => 
+      o.id === orderId 
+        ? { 
+            ...o, 
+            status: 'delivered' as const, 
+            workflowStep: 'delivered' as const,
+            deliveredAt: new Date().toISOString()
+          }
+        : o
+    );
+
+    // Save to localStorage
+    saveToStorage('rajdhani_orders', updatedOrders);
+
+    // Update local state
+    setOrders(updatedOrders);
+
+    toast({
+      title: "🎉 Order Delivered",
+      description: "Order has been successfully delivered to the customer.",
+    });
+  };
+
   // Filter orders
   const filteredOrders = orders.filter(order => {
-    const matchesSearch = order.orderNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         order.customerName.toLowerCase().includes(searchTerm.toLowerCase());
+    if (!order) return false;
+    
+    const matchesSearch = (order.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         (order.customerName || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === "all" || order.status === statusFilter;
     const matchesCustomer = customerFilter === "all" || order.customerId === customerFilter;
     return matchesSearch && matchesStatus && matchesCustomer;
@@ -261,6 +291,8 @@ export default function Orders() {
 
   // Enhanced Order Card Component
   const OrderCard = ({ order }: { order: Order }) => {
+    if (!order) return null;
+    
     const getStatusIcon = (status: string) => {
       switch (status) {
         case "pending": return <Clock className="w-4 h-4" />;
@@ -277,10 +309,9 @@ export default function Orders() {
       <Card className="group relative overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer border-2 hover:border-blue-200">
         {/* Status Indicator Bar */}
         <div className={`absolute top-0 left-0 right-0 h-1 ${
-          order.status === "completed" ? "bg-green-500" :
-          order.status === "ready-to-ship" ? "bg-green-500" :
-          order.status === "in-production" ? "bg-orange-500" :
-          order.status === "confirmed" ? "bg-blue-500" :
+          order.status === "delivered" ? "bg-green-500" :
+          order.status === "dispatched" ? "bg-orange-500" :
+          order.status === "accepted" ? "bg-blue-500" :
           order.status === "cancelled" ? "bg-red-500" :
           "bg-yellow-500"
         }`} />
@@ -289,59 +320,134 @@ export default function Orders() {
           <div className="flex items-start justify-between mb-4">
             <div>
               <h3 className="font-bold text-lg group-hover:text-blue-600 transition-colors">
-                {order.orderNumber}
+                {order.orderNumber || 'N/A'}
               </h3>
-              <p className="text-sm text-muted-foreground">{order.customerName}</p>
+              <p className="text-sm text-muted-foreground">{order.customerName || 'N/A'}</p>
             </div>
-            <Badge className={`${statusStyles[order.status]} shadow-sm`}>
+            <Badge className={`${statusStyles[order.status] || statusStyles.pending} shadow-sm`}>
               {getStatusIcon(order.status)}
-              <span className="ml-1">{order.status}</span>
+              <span className="ml-1">{order.status || 'pending'}</span>
             </Badge>
+          </div>
+
+          {/* Workflow Progress Bar */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between text-xs text-muted-foreground mb-2">
+              <span>Order Progress</span>
+              <span>{order.workflowStep || 'accept'}</span>
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="flex-1 bg-gray-200 rounded-full h-2">
+                <div 
+                  className={`h-2 rounded-full transition-all duration-300 ${
+                    order.status === 'delivered' ? 'bg-green-500' :
+                    order.status === 'dispatched' ? 'bg-orange-500' :
+                    order.status === 'accepted' ? 'bg-blue-500' :
+                    'bg-gray-300'
+                  }`}
+                  style={{
+                    width: order.status === 'delivered' ? '100%' :
+                           order.status === 'dispatched' ? '66%' :
+                           order.status === 'accepted' ? '33%' : '0%'
+                  }}
+                />
+              </div>
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground mt-1">
+              <span className={order.status === 'accepted' ? 'text-blue-600 font-medium' : ''}>Accept</span>
+              <span className={order.status === 'dispatched' ? 'text-orange-600 font-medium' : ''}>Dispatch</span>
+              <span className={order.status === 'delivered' ? 'text-green-600 font-medium' : ''}>Delivered</span>
+            </div>
           </div>
 
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Order Date:</span>
-                <div className="font-medium">{new Date(order.orderDate).toLocaleDateString()}</div>
+                <div className="font-medium">
+                  {order.orderDate ? new Date(order.orderDate).toLocaleDateString() : 'N/A'}
+                </div>
               </div>
               <div>
                 <span className="text-muted-foreground">Expected Delivery:</span>
-                <div className="font-medium">{new Date(order.expectedDelivery).toLocaleDateString()}</div>
+                <div className="font-medium">
+                  {order.expectedDelivery ? new Date(order.expectedDelivery).toLocaleDateString() : 'N/A'}
+                </div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Items:</span>
-                <div className="font-medium">{order.items.length} products</div>
+                <div className="font-medium">{order.items?.length || 0} products</div>
               </div>
               <div>
                 <span className="text-muted-foreground">Total Amount:</span>
-                <div className="font-medium">₹{order.totalAmount.toLocaleString()}</div>
+                <div className="font-medium">₹{(order.totalAmount || 0).toLocaleString()}</div>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Paid:</span>
-                <div className="font-medium text-green-600">₹{order.paidAmount.toLocaleString()}</div>
+                <div className="font-medium text-green-600">₹{(order.paidAmount || 0).toLocaleString()}</div>
               </div>
               <div>
                 <span className="text-muted-foreground">Outstanding:</span>
-                <div className="font-medium text-red-600">₹{order.outstandingAmount.toLocaleString()}</div>
+                <div className="font-medium text-red-600">₹{(order.outstandingAmount || 0).toLocaleString()}</div>
               </div>
             </div>
 
-            {order.productionRequests && order.productionRequests.length > 0 && (
-              <div className="bg-orange-50 p-3 rounded-lg">
-                <div className="flex items-center gap-2 text-orange-700 font-medium">
-                  <Factory className="w-4 h-4" />
-                  <span>Production in Progress</span>
+            {order.status === "accepted" && (
+              <div className="bg-blue-50 p-3 rounded-lg">
+                <div className="flex items-center gap-2 text-blue-700 font-medium">
+                  <CheckCircle className="w-4 h-4" />
+                  <span>Order Accepted</span>
                 </div>
-                <p className="text-orange-600 text-sm mt-1">
-                  {order.productionRequests.length} product(s) being manufactured
+                <p className="text-blue-600 text-sm mt-1">
+                  Order is ready for dispatch when stock is available
                 </p>
+              </div>
+            )}
+
+            {/* Workflow Action Buttons */}
+            {order.status === 'accepted' && (
+              <div className="bg-blue-50 p-3 rounded-lg mb-3">
+                <div className="flex items-center gap-2 text-blue-700 font-medium mb-2">
+                  <CheckCircle className="w-4 h-4" />
+                  <span>Order Accepted - Ready to Dispatch</span>
+                </div>
+                <Button 
+                  className="w-full bg-orange-600 hover:bg-orange-700"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDispatchOrder(order.id);
+                  }}
+                >
+                  <Package className="w-4 h-4 mr-2" />
+                  Dispatch Order
+                </Button>
+              </div>
+            )}
+
+            {order.status === 'dispatched' && (
+              <div className="bg-orange-50 p-3 rounded-lg mb-3">
+                <div className="flex items-center gap-2 text-orange-700 font-medium mb-2">
+                  <Package className="w-4 h-4" />
+                  <span>Order Dispatched - Ready to Deliver</span>
+                </div>
+                <Button 
+                  className="w-full bg-green-600 hover:bg-green-700"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeliverOrder(order.id);
+                  }}
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Mark as Delivered
+                </Button>
               </div>
             )}
 
@@ -352,7 +458,9 @@ export default function Orders() {
                 size="sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate(`/orders/${order.id}`);
+                  if (order.id) {
+                    navigate(`/orders/${order.id}`);
+                  }
                 }}
               >
                 <Eye className="w-4 h-4 mr-2" />
@@ -363,7 +471,9 @@ export default function Orders() {
                 size="sm"
                 onClick={(e) => {
                   e.stopPropagation();
-                  navigate('/orders/edit-order', { state: { order } });
+                  if (order.id) {
+                    navigate('/orders/edit-order', { state: { order } });
+                  }
                 }}
               >
                 <Edit className="w-4 h-4" />

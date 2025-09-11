@@ -42,8 +42,8 @@ interface Product {
   dimensions: string;
   weight: string;
   thickness: string;
-  pileHeight: string;
-  materialComposition: string;
+  width: string;
+  height: string;
 }
 
 interface IndividualProduct {
@@ -55,7 +55,8 @@ interface IndividualProduct {
   finalDimensions: string;
   finalWeight: string;
   finalThickness: string;
-  finalPileHeight: string;
+  finalWidth: string;
+  finalHeight: string;
   qualityGrade: string;
   inspector: string;
   notes: string;
@@ -89,8 +90,8 @@ const sampleProducts: Product[] = [
     dimensions: "8' x 10' (2.44m x 3.05m)",
     weight: "45 kg",
     thickness: "12 mm",
-    pileHeight: "8 mm",
-    materialComposition: "80% Cotton, 20% Wool"
+    width: "2.44m",
+    height: "3.05m"
   },
   {
     id: "PROD002",
@@ -117,8 +118,8 @@ const sampleProducts: Product[] = [
     dimensions: "6' x 9' (1.83m x 2.74m)",
     weight: "32 kg",
     thickness: "10 mm",
-    pileHeight: "6 mm",
-    materialComposition: "100% Synthetic"
+    width: "1.83m",
+    height: "2.74m"
   }
 ];
 
@@ -136,7 +137,8 @@ const individualProducts: IndividualProduct[] = [
     finalDimensions: "8'2\" x 10'1\" (2.49m x 3.07m)",
     finalWeight: "46.2 kg",
     finalThickness: "12.5 mm",
-    finalPileHeight: "8.2 mm",
+    finalWidth: "2.49m",
+    finalHeight: "3.07m",
     qualityGrade: "A+",
     inspector: "Ahmed Khan",
     notes: "Perfect finish, no defects",
@@ -155,7 +157,8 @@ const individualProducts: IndividualProduct[] = [
     finalDimensions: "8'0\" x 10'0\" (2.44m x 3.05m)",
     finalWeight: "45.0 kg",
     finalThickness: "12.0 mm",
-    finalPileHeight: "8.0 mm",
+    finalWidth: "2.44m",
+    finalHeight: "3.05m",
     qualityGrade: "A",
     inspector: "Ahmed Khan",
     notes: "Minor color variation",
@@ -552,26 +555,32 @@ export default function ProductDetail() {
                   <CardTitle>Technical Specifications</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 gap-6">
+                  <div className="grid grid-cols-3 gap-6">
                     <div className="space-y-4">
                       <div>
-                        <Label className="text-sm font-medium">Material Composition</Label>
-                        <p className="text-sm text-muted-foreground">{product.materialComposition}</p>
+                        <Label className="text-sm font-medium">Dimensions</Label>
+                        <p className="text-sm text-muted-foreground">{product.dimensions}</p>
+                      </div>
+                      <div>
+                        <Label className="text-sm font-medium">Weight</Label>
+                        <p className="text-sm text-muted-foreground">{product.weight}</p>
                       </div>
                       <div>
                         <Label className="text-sm font-medium">Thickness</Label>
                         <p className="text-sm text-muted-foreground">{product.thickness}</p>
                       </div>
-                      <div>
-                        <Label className="text-sm font-medium">Pile Height</Label>
-                        <p className="text-sm text-muted-foreground">{product.pileHeight}</p>
-                      </div>
                     </div>
                     <div className="space-y-4">
                       <div>
-                        <Label className="text-sm font-medium">Size</Label>
-                        <p className="text-sm text-muted-foreground">{product.size}</p>
+                        <Label className="text-sm font-medium">Width</Label>
+                        <p className="text-sm text-muted-foreground">{product.width}</p>
                       </div>
+                      <div>
+                        <Label className="text-sm font-medium">Height</Label>
+                        <p className="text-sm text-muted-foreground">{product.height}</p>
+                      </div>
+                    </div>
+                    <div className="space-y-4">
                       <div>
                         <Label className="text-sm font-medium">Color</Label>
                         <p className="text-sm text-muted-foreground">{product.color}</p>
@@ -690,13 +699,14 @@ export default function ProductDetail() {
                     <div className="space-y-3 max-h-60 overflow-y-auto">
                       {(individualProducts || []).map((stock) => (
                         <div key={stock.id} className="p-3 bg-muted/50 rounded-lg">
-                          <div className="grid grid-cols-2 gap-2 text-sm">
+                          <div className="grid grid-cols-3 gap-3 text-sm">
                             <div><span className="text-gray-500">ID:</span> {stock.id}</div>
                             <div><span className="text-gray-500">QR Code:</span> {stock.qrCode}</div>
                             <div><span className="text-gray-500">Dimensions:</span> {stock.finalDimensions}</div>
                             <div><span className="text-gray-500">Weight:</span> {stock.finalWeight}</div>
                             <div><span className="text-gray-500">Thickness:</span> {stock.finalThickness}</div>
-                            <div><span className="text-gray-500">Pile Height:</span> {stock.finalPileHeight}</div>
+                            <div><span className="text-gray-500">Width:</span> {stock.finalWidth}</div>
+                            <div><span className="text-gray-500">Height:</span> {stock.finalHeight}</div>
                             <div><span className="text-gray-500">Quality:</span> 
                               <Badge variant={stock.qualityGrade === "A+" ? "default" : "secondary"} className="ml-1 text-xs">
                                 {stock.qualityGrade}

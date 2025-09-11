@@ -10,13 +10,20 @@ import { Textarea } from "@/components/ui/textarea";
 import { 
   ArrowLeft, Package, Factory, Plus, Trash2, Save,
   Truck, AlertTriangle, FileSpreadsheet, CheckCircle, Info, Search,
-  XCircle, X
+  XCircle, X, Settings, User
 } from "lucide-react";
-import { getFromStorage, updateStorage, getProductRecipe, saveProductRecipe, createRecipeFromMaterials, getProductionProductData } from "@/lib/storage";
-import { ProductionFlowComponent } from "@/components/production/ProductionFlow";
+import { getFromStorage, updateStorage, replaceStorage, getProductRecipe, saveProductRecipe, createRecipeFromMaterials, getProductionProductData, generateUniqueId } from "@/lib/storage";
 import { getProductionFlow, updateProductionStep, moveToNextStep } from "@/lib/machines";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loading } from "@/components/ui/loading";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import ProductionProgressBar from "@/components/production/ProductionProgressBar";
 
 interface MaterialConsumption {
   materialId: string;
@@ -87,7 +94,6 @@ export default function ProductionDetail() {
   const navigate = useNavigate();
   const [productionProduct, setProductionProduct] = useState<ProductionProduct | null>(null);
   const [isAddingMaterial, setIsAddingMaterial] = useState(false);
-  const [isAddingWaste, setIsAddingWaste] = useState(false);
   const [isEditingExpected, setIsEditingExpected] = useState(false);
   const [isMaterialSelectionOpen, setIsMaterialSelectionOpen] = useState(false);
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
@@ -95,7 +101,21 @@ export default function ProductionDetail() {
   const [selectedMaterials, setSelectedMaterials] = useState<Array<RawMaterial & { selectedQuantity: number }>>([]);
   const [notifications, setNotifications] = useState<Array<{id: string, type: 'success' | 'warning' | 'error', title: string, message: string, timestamp: Date}>>([]);
   const [materialsFromRecipe, setMaterialsFromRecipe] = useState(false);
-  const [showProductionFlow, setShowProductionFlow] = useState(false);
+  
+  // Machine selection popup states
+  const [showMachineSelectionPopup, setShowMachineSelectionPopup] = useState(false);
+  const [showAddMachinePopup, setShowAddMachinePopup] = useState(false);
+  const [selectedMachineId, setSelectedMachineId] = useState("");
+  const [inspectorName, setInspectorName] = useState("");
+  const [machines, setMachines] = useState<any[]>([]);
+  const [productionFlow, setProductionFlow] = useState<any>(null);
+  
+  // New machine form
+  const [newMachineForm, setNewMachineForm] = useState({
+    name: "",
+    location: "",
+    description: ""
+  });
   
   // Material consumption form
   const [newMaterial, setNewMaterial] = useState({
@@ -106,16 +126,6 @@ export default function ProductionDetail() {
     cost: ""
   });
 
-  // Waste form
-  const [newWaste, setNewWaste] = useState({
-    materialId: "",
-    materialName: "",
-    quantity: "",
-    unit: "",
-    wasteType: "scrap" as const,
-    canBeReused: false,
-    notes: ""
-  });
 
   // Expected product form
   const [expectedProduct, setExpectedProduct] = useState<ExpectedProduct>({
@@ -137,13 +147,11 @@ export default function ProductionDetail() {
       if (product) {
         setProductionProduct(product);
         
-        // Check if production flow exists to determine if we should show flow view
+        // Check if production flow exists and update status
         const existingFlow = getProductionFlow(product.id);
-        if (existingFlow && (product.status === "active" || existingFlow.status !== 'not_started')) {
-          setShowProductionFlow(true);
-          
+        if (existingFlow) {
           // Auto-complete material selection if materials are already selected and step is pending
-          if (product.status === "active" && product.materialsConsumed && product.materialsConsumed.length > 0) {
+          if (product.materialsConsumed && product.materialsConsumed.length > 0) {
             const materialStep = existingFlow.steps.find(s => s.stepType === 'material_selection');
             if (materialStep && materialStep.status === 'pending') {
               updateProductionStep(existingFlow.id, materialStep.id, {
@@ -217,7 +225,7 @@ export default function ProductionDetail() {
             let rawMaterial = rawMaterialsFromStorage.find(rm => rm.id === recipeMaterial.materialId);
             
             // If not found by ID, try to find by name (in case IDs changed)
-            if (!rawMaterial) {
+            if (!rawMaterial && recipeMaterial.materialName) {
               rawMaterial = rawMaterialsFromStorage.find(rm => 
                 rm.name.toLowerCase() === recipeMaterial.materialName.toLowerCase()
               );
@@ -227,7 +235,7 @@ export default function ProductionDetail() {
             if (!rawMaterial) {
               return {
                 id: recipeMaterial.materialId,
-                name: recipeMaterial.materialName,
+                name: recipeMaterial.materialName || "Unknown Material",
                 brand: "Recipe Item", // More descriptive than "Unknown"
                 category: "From Recipe",
                 currentStock: 0,
@@ -286,6 +294,16 @@ export default function ProductionDetail() {
     // Load raw materials from inventory (should be initialized by DataInitializer)
     const materials = getFromStorage('rajdhani_raw_materials') || [];
     setRawMaterials(materials);
+    
+    // Load machines
+    const machinesData = getFromStorage('rajdhani_machines') || [];
+    setMachines(machinesData);
+    
+    // Load production flow
+    if (productId) {
+      const flow = getProductionFlow(productId);
+      setProductionFlow(flow);
+    }
   }, [productId, navigate]);
 
   // Get available materials (in stock)
@@ -455,8 +473,8 @@ export default function ProductionDetail() {
 
     updateProductionProduct(updatedProduct);
     
-    // Update raw material inventory (deduct consumed quantities)
-    updateRawMaterialInventory(availableMaterials);
+    // Note: Material inventory will be deducted only after waste generation step
+    // This allows for proper waste tracking and management
     
     // Save or update recipe for future use
     const existingRecipe = getProductRecipe(productionProduct.productId);
@@ -514,7 +532,6 @@ export default function ProductionDetail() {
           qualityNotes: `Materials selected: ${availableMaterials.length} items`
         });
         moveToNextStep(flow.id);
-        setShowProductionFlow(true);
       }
     }
     
@@ -558,18 +575,167 @@ export default function ProductionDetail() {
     );
   };
 
-  // Handle waste material selection change
-  const handleWasteMaterialSelection = (materialId: string) => {
-    const selectedMaterial = rawMaterials.find(m => m.id === materialId);
-    if (selectedMaterial) {
-      setNewWaste({
-        ...newWaste,
-        materialId: selectedMaterial.id,
-        materialName: selectedMaterial.name,
-        unit: selectedMaterial.unit
-      });
+  // Machine management functions
+  const addNewMachine = () => {
+    if (!newMachineForm.name.trim()) {
+      showNotification("Error", "Machine name is required", "error");
+      return;
     }
+
+    const newMachine = {
+      id: generateUniqueId('MACHINE'),
+      name: newMachineForm.name,
+      location: newMachineForm.location || "Factory Floor",
+      description: newMachineForm.description || ""
+    };
+
+    const updatedMachines = [...machines, newMachine];
+    setMachines(updatedMachines);
+    replaceStorage('rajdhani_machines', updatedMachines);
+
+    // Reset form
+    setNewMachineForm({ name: "", location: "", description: "" });
+    setShowAddMachinePopup(false);
+    
+    showNotification("Success", `Machine "${newMachine.name}" added successfully`, "success");
   };
+
+  const handleMachineSelection = () => {
+    if (!selectedMachineId || !inspectorName.trim()) {
+      showNotification("Error", "Please select a machine and enter inspector name", "error");
+      return;
+    }
+
+    const selectedMachine = machines.find(m => m.id === selectedMachineId);
+    if (!selectedMachine) {
+      showNotification("Error", "Selected machine not found", "error");
+      return;
+    }
+
+    // Add machine step to production flow
+    addMachineStepToFlow(selectedMachine, inspectorName);
+    
+    // Update production status from "planning" to "active" when machine is added
+    if (productionProduct && productionProduct.status === "planning") {
+      const updatedProduct: ProductionProduct = {
+        ...productionProduct,
+        status: "active"
+      };
+      updateProductionProduct(updatedProduct);
+      
+      showNotification(
+        "✅ Production Started",
+        "Production status updated to Active. Machine operation has been added to the flow.",
+        "success"
+      );
+    }
+    
+    // Navigate to dynamic flow page after machine selection
+    navigate(`/production/${productId}/dynamic-flow`);
+    
+    // Reset form
+    setSelectedMachineId("");
+    setInspectorName("");
+    setShowMachineSelectionPopup(false);
+  };
+
+  const addMachineStepToFlow = (machine: any, inspector: string) => {
+    if (!productionProduct) return;
+
+    console.log('Adding machine step to flow:', machine, inspector);
+    console.log('Production product ID:', productionProduct.id);
+
+    // Get or create production flow
+    let flow = getProductionFlow(productionProduct.id);
+    console.log('Existing flow:', flow);
+    
+    if (!flow) {
+      // Create new flow if doesn't exist
+      flow = {
+        id: generateUniqueId('FLOW'),
+        productionProductId: productionProduct.id,
+        steps: [
+          {
+            id: generateUniqueId('STEP'),
+            stepNumber: 1,
+            name: 'Raw Material Selection',
+            description: 'Materials already selected in planning phase',
+            machineId: null,
+            machineName: 'Completed',
+            status: 'completed' as const,
+            inspectorName: 'Admin',
+            stepType: 'material_selection' as const,
+            startTime: new Date().toISOString(),
+            endTime: new Date().toISOString(),
+            qualityNotes: 'Materials selected during planning phase',
+            createdAt: new Date().toISOString()
+          }
+        ],
+        currentStepIndex: 0,
+        status: 'in_progress' as const,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      console.log('Created new flow:', flow);
+    }
+
+    // Create new machine step
+    const newStep = {
+      id: generateUniqueId('STEP'),
+      stepNumber: flow.steps.length + 1,
+      name: machine.name,
+      description: machine.description || `Machine operation using ${machine.name}`,
+      machineId: machine.id,
+      machineName: machine.name,
+      status: 'pending' as const,
+      inspectorName: inspector,
+      stepType: 'machine_operation' as const,
+      createdAt: new Date().toISOString()
+    };
+
+    console.log('Created new machine step:', newStep);
+
+    // Add step to flow
+    const updatedSteps = [...flow.steps, newStep];
+    const updatedFlow = {
+      ...flow,
+      steps: updatedSteps,
+      currentStepIndex: updatedSteps.length - 1,
+      updatedAt: new Date().toISOString()
+    };
+
+    console.log('Updated flow:', updatedFlow);
+
+    // Save flow using the same method as DynamicProductionFlow
+    const flows = getFromStorage('rajdhani_production_flows') || [];
+    const existingFlowIndex = flows.findIndex(f => f.id === flow.id);
+    
+    if (existingFlowIndex >= 0) {
+      flows[existingFlowIndex] = updatedFlow;
+    } else {
+      flows.push(updatedFlow);
+    }
+    
+    console.log('Saving flows to storage:', flows);
+    replaceStorage('rajdhani_production_flows', flows);
+    
+    // Verify the flow was saved
+    const savedFlows = getFromStorage('rajdhani_production_flows') || [];
+    console.log('Verification - flows after saving:', savedFlows);
+    const savedFlow = savedFlows.find(f => f.id === updatedFlow.id);
+    console.log('Verification - saved flow found:', savedFlow);
+
+    showNotification("Success", `Machine step "${machine.name}" added to production flow`, "success");
+  };
+
+  const skipToWasteGeneration = () => {
+    if (!productionProduct) return;
+
+    // Navigate to waste generation page
+    navigate(`/production/${productId}/waste-generation`);
+    setShowMachineSelectionPopup(false);
+  };
+
 
   const updateProductionProduct = (updatedProduct: ProductionProduct) => {
     const products = getFromStorage('rajdhani_production_products');
@@ -619,11 +785,8 @@ export default function ProductionDetail() {
 
     updateProductionProduct(updatedProduct);
     
-    // Update raw material inventory
-    const consumedMaterial = rawMaterials.find(m => m.id === newMaterial.materialId);
-    if (consumedMaterial) {
-      updateRawMaterialInventory([{ ...consumedMaterial, selectedQuantity: parseFloat(newMaterial.quantity) }]);
-    }
+    // Note: Material inventory will be deducted only after waste generation step
+    // This allows for proper waste tracking and management
     
     // Create or update recipe with all current materials
     const existingRecipe = getProductRecipe(productionProduct.productId);
@@ -661,55 +824,6 @@ export default function ProductionDetail() {
     setIsAddingMaterial(false);
   };
 
-  const addWasteItem = () => {
-    if (!productionProduct || !newWaste.materialId || !newWaste.quantity) return;
-
-    const waste: WasteItem = {
-      materialId: newWaste.materialId,
-      materialName: newWaste.materialName,
-      quantity: parseFloat(newWaste.quantity),
-      unit: newWaste.unit,
-      wasteType: newWaste.wasteType,
-      canBeReused: newWaste.canBeReused,
-      notes: newWaste.notes
-    };
-
-    const updatedProduct: ProductionProduct = {
-      ...productionProduct,
-      wasteGenerated: [...(productionProduct.wasteGenerated || []), waste]
-    };
-
-    updateProductionProduct(updatedProduct);
-    
-    // Update production flow if wastage step is active
-    const flow = getProductionFlow(productionProduct.id);
-    if (flow) {
-      const wastageStep = flow.steps.find(s => s.stepType === 'wastage_tracking' && s.status === 'in_progress');
-      if (wastageStep) {
-        // Auto-complete wastage step when waste is added
-        updateProductionStep(flow.id, wastageStep.id, {
-          status: 'completed',
-          endTime: new Date().toISOString(),
-          inspectorName: 'Admin',
-          qualityNotes: `Wastage recorded: ${updatedProduct.wasteGenerated.length} items`
-        });
-        moveToNextStep(flow.id);
-        setShowProductionFlow(true);
-      }
-    }
-    
-    // Reset form
-    setNewWaste({
-      materialId: "",
-      materialName: "",
-      quantity: "",
-      unit: "",
-      wasteType: "scrap",
-      canBeReused: false,
-      notes: ""
-    });
-    setIsAddingWaste(false);
-  };
 
   const saveExpectedProduct = () => {
     if (!productionProduct) return;
@@ -723,40 +837,6 @@ export default function ProductionDetail() {
     setIsEditingExpected(false);
   };
 
-  const startActiveProduction = () => {
-    if (!productionProduct) return;
-    
-    // Check if materials have been added
-    if (!productionProduct.materialsConsumed || productionProduct.materialsConsumed.length === 0) {
-      alert("Please add at least one material before starting active production.");
-      return;
-    }
-    
-    const updatedProduct: ProductionProduct = {
-      ...productionProduct,
-      status: "active"
-    };
-
-    updateProductionProduct(updatedProduct);
-    
-    // Auto-complete the material selection step since materials are already selected
-    const flow = getProductionFlow(productionProduct.id);
-    if (flow) {
-      const materialStep = flow.steps.find(s => s.stepType === 'material_selection');
-      if (materialStep && materialStep.status === 'pending') {
-        updateProductionStep(flow.id, materialStep.id, {
-          status: 'completed',
-          endTime: new Date().toISOString(),
-          inspectorName: 'Admin',
-          qualityNotes: `Materials already selected in planning phase: ${productionProduct.materialsConsumed.length} items`
-        });
-        // Move to next step (first machine step)
-        moveToNextStep(flow.id);
-      }
-    }
-    
-    setShowProductionFlow(true);
-  };
 
   const completeProduction = () => {
     if (!productionProduct) return;
@@ -767,13 +847,6 @@ export default function ProductionDetail() {
             return;
           }
     
-    // Check if waste has been added (optional but recommended)
-    if (!productionProduct.wasteGenerated || productionProduct.wasteGenerated.length === 0) {
-      const confirmProceed = confirm("No waste has been recorded. Do you want to proceed without waste tracking?");
-      if (!confirmProceed) {
-            return;
-          }
-    }
     
     // Navigate to individual product details page without changing status
     // Status will be changed to "completed" only when individual products are finalized
@@ -785,7 +858,6 @@ export default function ProductionDetail() {
   }
 
   const totalMaterialCost = (productionProduct.materialsConsumed || []).reduce((sum, m) => sum + m.cost, 0);
-  const totalWasteQuantity = (productionProduct.wasteGenerated || []).reduce((sum, w) => sum + w.quantity, 0);
 
     return (
     <div className="flex-1 space-y-6 p-6">
@@ -839,131 +911,115 @@ export default function ProductionDetail() {
         subtitle={`Track material consumption and waste generation`}
       />
 
+      {/* Production Progress Bar */}
+      <ProductionProgressBar
+        currentStep={
+          productionProduct.status === "planning" ? "material_selection" :
+          productionProduct.status === "active" ? "machine_operation" :
+          "testing_individual"
+        }
+        steps={[
+          {
+            id: "material_selection",
+            name: "Material Selection",
+            status: productionProduct.materialsConsumed?.length > 0 ? "completed" : "in_progress",
+            stepType: "material_selection"
+          },
+          {
+            id: "machine_operation",
+            name: "Machine Operations",
+            status: productionFlow?.steps?.some((s: any) => s.stepType === 'machine_operation') ? "in_progress" : "pending",
+            stepType: "machine_operation"
+          },
+          {
+            id: "wastage_tracking",
+            name: "Waste Generation",
+            status: "pending",
+            stepType: "wastage_tracking"
+          },
+          {
+            id: "testing_individual",
+            name: "Individual Details",
+            status: "pending",
+            stepType: "testing_individual"
+          }
+        ]}
+        machineSteps={productionFlow?.steps?.filter((s: any) => s.stepType === 'machine_operation') || []}
+        className="mb-6"
+        onStepClick={(stepType) => {
+          switch (stepType) {
+            case 'material_selection':
+              // Stay on current page (material selection is handled here)
+              break;
+            case 'machine_operation':
+              // Navigate to dynamic production flow page
+              navigate(`/production/${productId}/dynamic-flow`);
+              break;
+            case 'wastage_tracking':
+              // Navigate to waste generation page
+              navigate(`/production/${productId}/waste-generation`);
+              break;
+            case 'testing_individual':
+              // Navigate to complete/individual details page
+              navigate(`/production/complete/${productId}`);
+              break;
+          }
+        }}
+      />
+
       <div className="flex items-center gap-4 mb-6">
         <Button variant="outline" onClick={() => navigate('/production')}>
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Production
-            </Button>
+            </Button> 
         
         {productionProduct.status === "planning" && (
-        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4">
             <div className="text-sm text-gray-600">
-              Add materials and waste for planning phase
+              Add materials for planning phase
               {(!productionProduct.materialsConsumed || productionProduct.materialsConsumed.length === 0) && (
                 <span className="text-red-600 ml-2">⚠️ Materials required</span>
               )}
             </div>
-          <Button 
-              onClick={startActiveProduction} 
+            <Button 
+              onClick={() => {
+                // Check if materials are added
+                if (!productionProduct.materialsConsumed || productionProduct.materialsConsumed.length === 0) {
+                  alert("Please add at least one material before starting production flow.");
+                  return;
+                }
+                // Show machine selection popup instead of direct navigation
+                setSelectedMachineId("");
+                setInspectorName("");
+                setShowMachineSelectionPopup(true);
+              }}
               className="bg-blue-600 hover:bg-blue-700"
               disabled={!productionProduct.materialsConsumed || productionProduct.materialsConsumed.length === 0}
             >
               <Factory className="w-4 h-4 mr-2" />
               Start Production Flow
-          </Button>
-          </div>
-        )}
-        
-        {productionProduct.status === "active" && showProductionFlow && (
-          <div className="flex items-center gap-4">
-            <div className="text-sm text-gray-600">
-              Production flow is active - manage through steps below
-            </div>
-            <Button 
-              onClick={() => setShowProductionFlow(false)}
-              variant="outline"
-            >
-              Show Material Planning
             </Button>
           </div>
         )}
+
+        {productionProduct.status === "active" && (
+          <Button 
+            onClick={() => {
+              setSelectedMachineId("");
+              setInspectorName("");
+              setShowMachineSelectionPopup(true);
+            }}
+            className="bg-green-600 hover:bg-green-700"
+          >
+            <Factory className="w-4 h-4 mr-2" />
+            Add Machine Operation
+          </Button>
+        )}
         
-        {productionProduct.status === "active" && !showProductionFlow && (() => {
-          const flow = getProductionFlow(productionProduct.id);
-          const currentStep = flow?.steps[flow.currentStepIndex];
-          const stepTypeMessage = 
-            currentStep?.stepType === 'material_selection' ? 'Complete material selection to continue' :
-            currentStep?.stepType === 'wastage_tracking' ? 'Complete wastage tracking to continue' :
-            'Continue with production flow or add more materials';
-          
-          return (
-            <div className="flex items-center gap-4">
-              <div className="text-sm text-gray-600">
-                {stepTypeMessage}
-              </div>
-              <Button 
-                onClick={() => setShowProductionFlow(true)}
-                className="bg-blue-600 hover:bg-blue-700"
-              >
-                <Factory className="w-4 h-4 mr-2" />
-                Continue Production Flow
-              </Button>
-            </div>
-          );
-        })()}
         
       </div>
 
-      {/* Production Flow Component */}
-      {showProductionFlow && productionProduct.status === "active" && (
-        <ProductionFlowComponent 
-          productionProductId={productionProduct.id}
-          onStepComplete={(step) => {
-            // Handle different step types
-            if (step.stepType === 'material_selection') {
-              // Mark materials as completed if materials are already selected
-              if (productionProduct.materialsConsumed && productionProduct.materialsConsumed.length > 0) {
-                const flow = getProductionFlow(productionProduct.id);
-                if (flow) {
-                  updateProductionStep(flow.id, step.id, {
-                    status: 'completed',
-                    endTime: new Date().toISOString(),
-                    inspectorName: 'Admin',
-                    qualityNotes: `Materials selected: ${productionProduct.materialsConsumed.length} items`
-                  });
-                  moveToNextStep(flow.id);
-                }
-              } else {
-                // Show material selection section
-                setShowProductionFlow(false);
-              }
-              return;
-            }
-            
-            if (step.stepType === 'wastage_tracking') {
-              // Show wastage section
-              setShowProductionFlow(false);
-              // Scroll to wastage section
-              setTimeout(() => {
-                const wasteSection = document.querySelector('[data-section="waste"]');
-                if (wasteSection) {
-                  wasteSection.scrollIntoView({ behavior: 'smooth' });
-                }
-              }, 100);
-              return;
-            }
-            
-            showNotification(
-              `✅ Step Completed`,
-              `${step.name} has been completed successfully by ${step.inspectorName}`,
-              'success'
-            );
-          }}
-          onFlowComplete={(flow) => {
-            showNotification(
-              `🎉 Production Flow Completed`,
-              `All production steps have been completed. Ready for individual product details.`,
-              'success'
-            );
-            // Navigate to individual product completion
-            navigate(`/production/complete/${productionProduct.id}`);
-          }}
-        />
-      )}
-
-      {/* Material Planning Section - Show when not in flow view */}
-      {!showProductionFlow && (
-        <>
+      {/* Material Planning Section */}
       {/* Production Overview */}
       <Card>
         <CardHeader>
@@ -973,7 +1029,7 @@ export default function ProductionDetail() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             <div className="text-center">
                   <div className="text-2xl font-bold text-blue-600">
                 {productionProduct.targetQuantity}
@@ -992,12 +1048,6 @@ export default function ProductionDetail() {
                       </div>
               <div className="text-sm text-gray-500">Total Cost</div>
                         </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-red-600">
-                {totalWasteQuantity.toFixed(2)}
-                    </div>
-              <div className="text-sm text-gray-500">Waste Generated</div>
-              </div>
             </div>
         </CardContent>
       </Card>
@@ -1332,155 +1382,6 @@ export default function ProductionDetail() {
           </CardContent>
         </Card>
 
-      {/* Waste Management */}
-           <Card data-section="waste">
-             <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5" />
-              Waste Generation
-            </CardTitle>
-                       <Button
-                         variant="outline"
-                         size="sm"
-              onClick={() => setIsAddingWaste(!isAddingWaste)}
-            >
-              <Plus className="w-4 h-4 mr-2" />
-              Add Waste
-                           </Button>
-                         </div>
-             </CardHeader>
-             <CardContent>
-                    {isAddingWaste && (
-            <div className="space-y-4 mb-6 p-4 border rounded-lg">
-              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Info className="w-4 h-4 text-blue-600" />
-                  <span className="text-sm font-medium text-blue-900">Waste Tracking</span>
-                       </div>
-                <p className="text-sm text-blue-700">
-                  Track waste generated during production. Materials used in production are shown first for easy selection.
-                </p>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                  <Label>Select Material *</Label>
-                  <select
-                    value={newWaste.materialId}
-                    onChange={(e) => handleWasteMaterialSelection(e.target.value)}
-                    className="w-full border rounded px-3 py-2"
-                    required
-                  >
-                    <option value="">Choose a material...</option>
-                    <optgroup label="Materials Used in Production">
-                      {productionProduct.materialsConsumed?.map((material) => (
-                        <option key={material.materialId} value={material.materialId}>
-                          {material.materialName} - Used: {material.quantity} {material.unit}
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="All Raw Materials">
-                      {rawMaterials.map((material) => (
-                        <option key={material.id} value={material.id}>
-                          {material.name} - {material.currentStock} {material.unit} in stock
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
-              </div>
-              <div>
-                  <Label>Material Name</Label>
-                <Input
-                    value={newWaste.materialName}
-                    onChange={(e) => setNewWaste({...newWaste, materialName: e.target.value})}
-                    placeholder="Auto-filled from selection"
-                    readOnly
-                />
-              </div>
-            </div>
-              <div className="grid grid-cols-3 gap-4">
-            <div>
-                  <Label>Waste Quantity *</Label>
-                <Input
-                    type="number"
-                    value={newWaste.quantity}
-                    onChange={(e) => setNewWaste({...newWaste, quantity: e.target.value})}
-                    placeholder="0"
-                    required
-                />
-              </div>
-              <div>
-                  <Label>Unit</Label>
-                <Input
-                    value={newWaste.unit}
-                    onChange={(e) => setNewWaste({...newWaste, unit: e.target.value})}
-                    placeholder="Auto-filled from selection"
-                    readOnly
-                />
-              </div>
-              <div>
-                  <Label>Waste Type</Label>
-                  <select
-                    value={newWaste.wasteType}
-                    onChange={(e) => setNewWaste({...newWaste, wasteType: e.target.value as any})}
-                    className="w-full border rounded px-3 py-2"
-                  >
-                    <option value="scrap">Scrap</option>
-                    <option value="defective">Defective</option>
-                    <option value="excess">Excess</option>
-                  </select>
-              </div>
-                 </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="canBeReused"
-                  checked={newWaste.canBeReused}
-                  onChange={(e) => setNewWaste({...newWaste, canBeReused: e.target.checked})}
-                />
-                <Label htmlFor="canBeReused">Can be reused/recycled</Label>
-                   </div>
-            <div>
-                <Label>Notes</Label>
-              <Textarea
-                  value={newWaste.notes}
-                  onChange={(e) => setNewWaste({...newWaste, notes: e.target.value})}
-                  placeholder="Waste description and handling notes"
-              />
-            </div>
-              <Button onClick={addWasteItem} className="bg-orange-600 hover:bg-orange-700">
-                <Save className="w-4 h-4 mr-2" />
-                Add Waste Item
-            </Button>
-             </div>
-         )}
-
-          <div className="space-y-2">
-            {productionProduct.wasteGenerated?.map((waste, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-orange-50 rounded-lg">
-                 <div>
-                  <div className="font-medium">{waste.materialName}</div>
-                  <div className="text-sm text-gray-500">
-                    {waste.quantity} {waste.unit} • {waste.wasteType} • {waste.canBeReused ? "Reusable" : "Non-reusable"}
-                 </div>
-                  {waste.notes && <div className="text-sm text-gray-600 mt-1">{waste.notes}</div>}
-                 </div>
-                <Badge variant={waste.canBeReused ? "default" : "destructive"}>
-                  {waste.wasteType}
-                </Badge>
-               </div>
-            ))}
-            {(!productionProduct.wasteGenerated || productionProduct.wasteGenerated.length === 0) && (
-              <div className="text-center py-8 text-gray-500">
-                <AlertTriangle className="w-12 h-12 mx-auto mb-2 text-gray-300" />
-                <p>No waste generated yet</p>
-                <p className="text-sm">Click "Add Waste" to track waste items</p>
-                 </div>
-                       )}
-               </div>
-             </CardContent>
-           </Card>
 
       {/* Raw Material Selection Popup */}
       <Dialog open={isMaterialSelectionOpen} onOpenChange={setIsMaterialSelectionOpen}>
@@ -1577,8 +1478,165 @@ export default function ProductionDetail() {
            </DialogFooter>
          </DialogContent>
        </Dialog>
-        </>
-      )}
+
+      {/* Machine Selection Popup - Enhanced UI */}
+      <Dialog open={showMachineSelectionPopup} onOpenChange={setShowMachineSelectionPopup}>
+        <DialogContent className="max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+          <DialogHeader className="space-y-2">
+            <DialogTitle className="flex items-center gap-2">
+              <Factory className="w-5 h-5 text-blue-600" />
+              Add Machine
+            </DialogTitle>
+            <DialogDescription className="text-sm text-gray-600">
+              Select machine and inspector or skip to waste generation.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-6 py-4">
+            {/* Inspector Name */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <User className="w-4 h-4" />
+                Inspector Name *
+              </Label>
+              <Input
+                value={inspectorName}
+                onChange={(e) => setInspectorName(e.target.value)}
+                placeholder="Enter inspector name"
+                className="w-full"
+              />
+            </div>
+            
+            {/* Machine Selection */}
+            <div className="space-y-3">
+              <Label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <Settings className="w-4 h-4" />
+                Select Machine *
+              </Label>
+              <Select value={selectedMachineId} onValueChange={setSelectedMachineId}>
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Choose a machine..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {machines.map((machine) => (
+                    <SelectItem key={machine.id} value={machine.id}>
+                      {machine.name} - {machine.location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            
+            {/* Add New Machine */}
+            <div className="pt-2 border-t border-gray-100">
+              <Button 
+                variant="outline"
+                onClick={() => setShowAddMachinePopup(true)}
+                className="w-full border-dashed border-gray-300 hover:border-blue-300 hover:bg-blue-50"
+                size="sm"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Add New Machine
+              </Button>
+            </div>
+          </div>
+          
+          <DialogFooter className="space-y-2 pt-4 border-t border-gray-100">
+            <Button 
+              onClick={handleMachineSelection}
+              disabled={!selectedMachineId || !inspectorName.trim()}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+            >
+              <Factory className="w-4 h-4 mr-2" />
+              Add Machine
+            </Button>
+            
+            <div className="grid grid-cols-2 gap-3 w-full">
+              <Button 
+                variant="outline"
+                onClick={skipToWasteGeneration}
+                className="border-orange-200 text-orange-700 hover:bg-orange-50"
+                size="sm"
+              >
+                <Trash2 className="w-3 h-3 mr-1" />
+                Skip
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowMachineSelectionPopup(false)}
+                size="sm"
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Machine Popup */}
+      <Dialog open={showAddMachinePopup} onOpenChange={setShowAddMachinePopup}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5" />
+              Add New Machine
+            </DialogTitle>
+            <DialogDescription>
+              Add a new machine to the system for production use.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="machine-name">Machine Name:</Label>
+              <Input
+                id="machine-name"
+                value={newMachineForm.name}
+                onChange={(e) => setNewMachineForm({...newMachineForm, name: e.target.value})}
+                placeholder="Enter machine name"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="machine-location">Location:</Label>
+              <Input
+                id="machine-location"
+                value={newMachineForm.location}
+                onChange={(e) => setNewMachineForm({...newMachineForm, location: e.target.value})}
+                placeholder="Enter machine location"
+              />
+            </div>
+            
+            <div>
+              <Label htmlFor="machine-description">Description:</Label>
+              <Textarea
+                id="machine-description"
+                value={newMachineForm.description}
+                onChange={(e) => setNewMachineForm({...newMachineForm, description: e.target.value})}
+                placeholder="Enter machine description"
+                rows={3}
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowAddMachinePopup(false)}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={addNewMachine}
+              className="bg-blue-600 hover:bg-blue-700"
+              disabled={!newMachineForm.name.trim()}
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Add Machine
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
      </div>
    );
  }

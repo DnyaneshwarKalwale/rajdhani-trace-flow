@@ -5,13 +5,29 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { 
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Plus, Search, Package, Factory, Play, Clock, 
   CheckCircle, Filter, SortAsc, SortDesc, FileSpreadsheet,
   Truck, AlertTriangle
 } from "lucide-react";
-import { getFromStorage, saveToStorage, updateStorage, generateUniqueId } from "@/lib/storage";
+import { getFromStorage, saveToStorage, updateStorage, replaceStorage, generateUniqueId } from "@/lib/storage";
 import { getProductionFlow, getProgressPercentage } from "@/lib/machines";
 import { Loading } from "@/components/ui/loading";
 
@@ -105,6 +121,121 @@ export default function Production() {
   // Continue production for active products
   const handleContinueProduction = (product: ProductionProduct) => {
     navigate(`/production-detail/${product.id}`);
+  };
+
+  // Show machine selection popup instead of direct navigation
+  const [showMachineSelectionDialog, setShowMachineSelectionDialog] = useState(false);
+  const [selectedProduct, setSelectedProduct] = useState<ProductionProduct | null>(null);
+  const [machines, setMachines] = useState<any[]>([]);
+  const [selectedMachineId, setSelectedMachineId] = useState("");
+  const [inspectorName, setInspectorName] = useState("");
+
+  // Load machines
+  useEffect(() => {
+    loadMachines();
+  }, []);
+
+  const loadMachines = () => {
+    const storedMachines = getFromStorage('rajdhani_machines') || [];
+    const defaultMachines = [
+      { id: generateUniqueId('MACHINE'), name: 'BR3C-Cutter', location: 'Factory Floor A', description: 'High precision cutting machine' },
+      { id: generateUniqueId('MACHINE'), name: 'CUTTING MACHINE', location: 'Factory Floor B', description: 'Multi-purpose cutting machine' },
+      { id: generateUniqueId('MACHINE'), name: 'NEEDLE PUNCHING', location: 'Factory Floor C', description: 'Specialized needle punching machine' }
+    ];
+    
+    if (storedMachines.length === 0) {
+      replaceStorage('rajdhani_machines', defaultMachines);
+      setMachines(defaultMachines);
+    } else {
+      // Ensure we have a flat array and migrate old machine data structure
+      const flatMachines = Array.isArray(storedMachines) ? storedMachines.flat() : [];
+      const updatedMachines = flatMachines.map(machine => ({
+        id: machine.id || generateUniqueId('MACHINE'),
+        name: machine.name || 'Unknown Machine',
+        location: machine.location || 'Factory Floor',
+        description: machine.description || ''
+      }));
+      setMachines(updatedMachines);
+      // Save updated structure back to storage
+      replaceStorage('rajdhani_machines', updatedMachines);
+    }
+  };
+
+  const handleMachineOperations = (product: ProductionProduct) => {
+    // Navigate directly to machine operations page instead of opening popup
+    navigate(`/production/${product.id}/dynamic-flow`);
+  };
+
+  // Handle machine selection from popup
+  const handleMachineSelection = () => {
+    if (!selectedMachineId || !inspectorName.trim() || !selectedProduct) {
+      alert('Please select a machine and enter inspector name');
+      return;
+    }
+
+    const selectedMachine = machines.find(m => m.id === selectedMachineId);
+    if (!selectedMachine) return;
+
+    const flow = getProductionFlow(selectedProduct.id);
+    if (flow) {
+      const newStep = {
+        id: generateUniqueId('STEP'),
+        stepNumber: flow.steps.length + 1,
+        name: selectedMachine.name,
+        description: getMachineDescription(selectedMachine.name),
+        machineId: selectedMachineId,
+        machineName: selectedMachine.name,
+        status: 'pending' as const,
+        inspector: inspectorName,
+        stepType: 'machine_operation' as const,
+        createdAt: new Date().toISOString()
+      };
+
+      const wasteStepIndex = flow.steps.findIndex(s => s.stepType === 'wastage_tracking');
+      const insertIndex = wasteStepIndex > -1 ? wasteStepIndex : flow.steps.length;
+      
+      const updatedSteps = [...flow.steps];
+      updatedSteps.splice(insertIndex, 0, newStep);
+      
+      updatedSteps.forEach((step, index) => {
+        step.stepNumber = index + 1;
+      });
+
+      const updatedFlow = { ...flow, steps: updatedSteps, currentStepIndex: insertIndex, updatedAt: new Date().toISOString() };
+
+      const flows = getFromStorage('rajdhani_production_flows') || [];
+      const updatedFlows = flows.map(f => f.id === flow.id ? updatedFlow : f);
+      saveToStorage('rajdhani_production_flows', updatedFlows);
+    }
+
+    navigate(`/production/${selectedProduct.id}/dynamic-flow`);
+    
+    setSelectedMachineId('');
+    setInspectorName('');
+    setShowMachineSelectionDialog(false);
+    setSelectedProduct(null);
+  };
+
+  const getMachineDescription = (machineName: string): string => {
+    switch (machineName) {
+      case 'BR3C-Cutter': return 'High precision cutting machine for carpet trimming and shaping';
+      case 'CUTTING MACHINE': return 'Multi-purpose cutting machine for various carpet operations';
+      case 'NEEDLE PUNCHING': return 'Needle punching machine for carpet finishing and texture work';
+      default: return 'Machine operation for production process';
+    }
+  };
+
+  const skipToWasteGeneration = () => {
+    if (!selectedProduct) return;
+    setShowMachineSelectionDialog(false);
+    setSelectedProduct(null);
+    handleWasteGeneration(selectedProduct);
+  };
+
+  // Navigate to waste generation
+  const handleWasteGeneration = (product: ProductionProduct) => {
+    // Navigate directly to waste generation page instead of creating steps
+    navigate(`/production/${product.id}/waste-generation`);
   };
 
   // Complete production and add to inventory
@@ -255,6 +386,8 @@ export default function Production() {
                 product={product}
                 onStartProduction={handleStartProduction}
                 onContinueProduction={handleContinueProduction}
+                onMachineOperations={handleMachineOperations}
+                onWasteGeneration={handleWasteGeneration}
                 onCompleteProduction={handleCompleteProduction}
                 getStatusColor={getStatusColor}
                 getPriorityColor={getPriorityColor}
@@ -273,6 +406,8 @@ export default function Production() {
                   product={product}
                   onStartProduction={handleStartProduction}
                   onContinueProduction={handleContinueProduction}
+                  onMachineOperations={handleMachineOperations}
+                  onWasteGeneration={handleWasteGeneration}
                   onCompleteProduction={handleCompleteProduction}
                   getStatusColor={getStatusColor}
                   getPriorityColor={getPriorityColor}
@@ -291,6 +426,8 @@ export default function Production() {
                   product={product}
                   onStartProduction={handleStartProduction}
                   onContinueProduction={handleContinueProduction}
+                  onMachineOperations={handleMachineOperations}
+                  onWasteGeneration={handleWasteGeneration}
                   onCompleteProduction={handleCompleteProduction}
                   getStatusColor={getStatusColor}
                   getPriorityColor={getPriorityColor}
@@ -309,6 +446,8 @@ export default function Production() {
                   product={product}
                   onStartProduction={handleStartProduction}
                   onContinueProduction={handleContinueProduction}
+                  onMachineOperations={handleMachineOperations}
+                  onWasteGeneration={handleWasteGeneration}
                   onCompleteProduction={handleCompleteProduction}
                   getStatusColor={getStatusColor}
                   getPriorityColor={getPriorityColor}
@@ -331,6 +470,75 @@ export default function Production() {
           </Button>
         </Card>
       )}
+
+      {/* Machine Selection Dialog */}
+      <Dialog open={showMachineSelectionDialog} onOpenChange={setShowMachineSelectionDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Machine Operation</DialogTitle>
+            <DialogDescription>
+              Select a machine for production or skip to waste generation
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label>Inspector Name *</Label>
+              <Input
+                value={inspectorName}
+                onChange={(e) => setInspectorName(e.target.value)}
+                placeholder="Enter inspector name"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Select Machine *</Label>
+              <Select value={selectedMachineId} onValueChange={setSelectedMachineId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Choose machine..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {machines.map((machine) => (
+                    <SelectItem key={machine.id} value={machine.id}>
+                      {machine.name} - {machine.location}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          
+          <DialogFooter className="space-y-3 pt-6 border-t border-gray-100">
+            <Button 
+              onClick={handleMachineSelection}
+              disabled={!selectedMachineId || !inspectorName}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
+              size="default"
+            >
+              <Factory className="w-4 h-4 mr-2" />
+              Add Machine Step
+            </Button>
+            <div className="grid grid-cols-2 gap-3 w-full">
+              <Button 
+                variant="outline" 
+                onClick={skipToWasteGeneration}
+                className="border-orange-200 text-orange-700 hover:bg-orange-50"
+                size="sm"
+              >
+                <AlertTriangle className="w-3 h-3 mr-1" />
+                Skip
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setShowMachineSelectionDialog(false)}
+                size="sm"
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -340,6 +548,8 @@ interface ProductionCardProps {
   product: ProductionProduct;
   onStartProduction: (product: ProductionProduct) => void;
   onContinueProduction: (product: ProductionProduct) => void;
+  onMachineOperations: (product: ProductionProduct) => void;
+  onWasteGeneration: (product: ProductionProduct) => void;
   onCompleteProduction: (product: ProductionProduct) => void;
   getStatusColor: (status: string) => string;
   getPriorityColor: (priority: string) => string;
@@ -349,6 +559,8 @@ function ProductionCard({
   product,
   onStartProduction,
   onContinueProduction,
+  onMachineOperations,
+  onWasteGeneration,
   onCompleteProduction,
   getStatusColor,
   getPriorityColor
@@ -430,11 +642,11 @@ function ProductionCard({
           )}
         </div>
 
-        <div className="flex gap-2">
+        <div className="space-y-2">
           {product.status === "planning" && (
             <Button 
               onClick={() => onStartProduction(product)}
-              className="flex-1 bg-production hover:bg-production/90"
+              className="w-full bg-blue-600 hover:bg-blue-700"
             >
               <Play className="w-4 h-4 mr-2" />
               Plan Materials
@@ -443,32 +655,91 @@ function ProductionCard({
 
           {product.status === "active" && (() => {
             const flow = getProductionFlow(product.id);
+            const hasMaterials = product.materialsConsumed && product.materialsConsumed.length > 0;
+            const hasMachineSteps = flow?.steps?.some(s => s.stepType === 'machine_operation');
+            const hasWasteStep = flow?.steps?.some(s => s.stepType === 'wastage_tracking');
+            const isWasteCompleted = flow?.steps?.some(s => s.stepType === 'wastage_tracking' && s.status === 'completed');
             const isFlowCompleted = flow?.status === 'completed';
-            return (
-              <Button 
-                onClick={() => isFlowCompleted ? onCompleteProduction(product) : onContinueProduction(product)}
-                className={`flex-1 ${isFlowCompleted ? 'bg-green-600 hover:bg-green-700' : 'bg-blue-600 hover:bg-blue-700'}`}
-              >
-                {isFlowCompleted ? (
-                  <>
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Individual Product Details
-                  </>
-                ) : (
-                  <>
-                    <Factory className="w-4 h-4 mr-2" />
-                    Continue Production Flow
-                  </>
-                )}
-              </Button>
-            );
+            
+            // Check if machine operations are completed
+            const machineSteps = flow?.steps?.filter(s => s.stepType === 'machine_operation') || [];
+            const areMachineStepsCompleted = machineSteps.length > 0 && machineSteps.every(s => s.status === 'completed');
+            
+            // Determine the next step
+            if (!hasMaterials) {
+              // Step 1: Plan Materials
+              return (
+                <Button 
+                  onClick={() => onContinueProduction(product)}
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                >
+                  <Truck className="w-4 h-4 mr-2" />
+                  Plan Materials
+                </Button>
+              );
+            } else if (!hasMachineSteps && !hasWasteStep) {
+              // Step 2: View Machine Operations stage
+              return (
+                <Button 
+                  onClick={() => onMachineOperations(product)}
+                  className="w-full bg-green-600 hover:bg-green-700"
+                >
+                  <Factory className="w-4 h-4 mr-2" />
+                  View Machine Operations
+                </Button>
+              );
+            } else if (hasMachineSteps && !areMachineStepsCompleted) {
+              // Step 2: View Machine Operations stage (if not completed)
+              return (
+                <Button 
+                  onClick={() => onMachineOperations(product)}
+                  className="w-full bg-green-600 hover:bg-green-700"
+                >
+                  <Factory className="w-4 h-4 mr-2" />
+                  View Machine Operations
+                </Button>
+              );
+            } else if (areMachineStepsCompleted && hasWasteStep && !isWasteCompleted) {
+              // Step 3: View Waste Generation stage
+              return (
+                <Button 
+                  onClick={() => onWasteGeneration(product)}
+                  className="w-full bg-orange-600 hover:bg-orange-700"
+                >
+                  <AlertTriangle className="w-4 h-4 mr-2" />
+                  View Waste Generation
+                </Button>
+              );
+            } else if (isFlowCompleted || (hasWasteStep && isWasteCompleted)) {
+              // Step 4: Individual Product Details
+              return (
+                <Button 
+                  onClick={() => onCompleteProduction(product)}
+                  className="w-full bg-purple-600 hover:bg-purple-700"
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Individual Product Details
+                </Button>
+              );
+            } else {
+              // Fallback: Continue Production Flow
+              return (
+                <Button 
+                  onClick={() => onContinueProduction(product)}
+                  className="w-full bg-blue-600 hover:bg-blue-700"
+                >
+                  <Factory className="w-4 h-4 mr-2" />
+                  Continue Production Flow
+                </Button>
+              );
+            }
           })()}
 
           {product.status === "completed" && (
             <Button 
               onClick={() => onCompleteProduction(product)}
               variant="outline"
-              className="flex-1"
+              className="w-full"
             >
               <Package className="w-4 h-4 mr-2" />
               View Details

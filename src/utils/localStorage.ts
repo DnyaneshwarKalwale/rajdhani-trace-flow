@@ -1,5 +1,12 @@
 import rawMaterialsData from '../data/rawMaterials.json';
 
+// Generate unique ID function
+const generateUniqueId = (prefix: string): string => {
+  const timestamp = Date.now().toString(36);
+  const randomStr = Math.random().toString(36).substr(2, 5);
+  return `${prefix}_${timestamp}_${randomStr}`;
+};
+
 // Storage keys
 export const STORAGE_KEYS = {
   RAW_MATERIALS: 'rajdhani_raw_materials',
@@ -43,7 +50,7 @@ export const rawMaterialsStorage = {
       const materials = rawMaterialsStorage.getAll();
       const newMaterial = {
         ...material,
-        id: Date.now().toString(),
+        id: generateUniqueId('MAT'),
         createdAt: new Date().toISOString(),
         materialsUsed: [],
         totalValue: material.currentStock * material.costPerUnit

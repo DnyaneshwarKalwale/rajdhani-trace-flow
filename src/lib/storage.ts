@@ -15,7 +15,8 @@ export const STORAGE_KEYS = {
   SYSTEM_SETTINGS: 'rajdhani_settings',
   AUDIT_LOG: 'rajdhani_audit_log',
   PURCHASE_ORDERS: 'rajdhani_purchase_orders',
-  PERFORMANCE_METRICS: 'rajdhani_performance'
+  PERFORMANCE_METRICS: 'rajdhani_performance',
+  NOTIFICATIONS: 'rajdhani_notifications'
 };
 
 // Core Interfaces
@@ -42,6 +43,22 @@ export interface AuditLog {
   newState?: any;
 }
 
+export interface Notification {
+  id: string;
+  type: 'production_request' | 'low_stock' | 'order_alert' | 'system_alert';
+  title: string;
+  message: string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'unread' | 'read' | 'dismissed' | 'resolved';
+  module: 'orders' | 'products' | 'materials' | 'production';
+  relatedId?: string; // Order ID, Product ID, etc.
+  relatedData?: any; // Additional data like order details, product info
+  createdAt: string;
+  readAt?: string;
+  resolvedAt?: string;
+  createdBy: string;
+}
+
 export interface ProductRecipe {
   id: string;
   productId: string;
@@ -59,61 +76,7 @@ export interface ProductRecipe {
   createdBy: string;
 }
 
-// Real-time Synchronization Class
-export class RealTimeSync {
-  private static instance: RealTimeSync;
-  private listeners: Map<string, Function[]> = new Map();
-  
-  static getInstance(): RealTimeSync {
-    if (!RealTimeSync.instance) {
-      RealTimeSync.instance = new RealTimeSync();
-    }
-    return RealTimeSync.instance;
-  }
-  
-  // Subscribe to data changes
-  subscribe(key: string, callback: Function) {
-    if (!this.listeners.has(key)) {
-      this.listeners.set(key, []);
-    }
-    this.listeners.get(key)!.push(callback);
-  }
-  
-  // Unsubscribe from data changes
-  unsubscribe(key: string, callback: Function) {
-    const callbacks = this.listeners.get(key);
-    if (callbacks) {
-      const index = callbacks.indexOf(callback);
-      if (index > -1) {
-        callbacks.splice(index, 1);
-      }
-    }
-  }
-  
-  // Notify all listeners of data changes
-  notify(key: string, data: any) {
-    const callbacks = this.listeners.get(key);
-    if (callbacks) {
-      callbacks.forEach(callback => {
-        try {
-          callback(data);
-        } catch (error) {
-          console.error('Error in storage listener:', error);
-        }
-      });
-    }
-  }
-  
-  // Update data and notify listeners
-  updateData(key: string, data: any) {
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-      this.notify(key, data);
-    } catch (error) {
-      console.error('Error updating localStorage:', error);
-    }
-  }
-}
+// Removed Real-time Synchronization Class
 
 // Storage Utility Functions
 export const getFromStorage = (key: string): any[] => {
@@ -131,7 +94,6 @@ export const saveToStorage = (key: string, item: any) => {
     const existingData = getFromStorage(key);
     existingData.push(item);
     localStorage.setItem(key, JSON.stringify(existingData));
-    RealTimeSync.getInstance().notify(key, existingData);
   } catch (error) {
     console.error(`Error saving to localStorage (${key}):`, error);
   }
@@ -145,10 +107,18 @@ export const updateStorage = (key: string, updatedItem: any) => {
     if (index !== -1) {
       existingData[index] = { ...existingData[index], ...updatedItem };
       localStorage.setItem(key, JSON.stringify(existingData));
-      RealTimeSync.getInstance().notify(key, existingData);
     }
   } catch (error) {
     console.error(`Error updating localStorage (${key}):`, error);
+  }
+};
+
+// Replace entire array in storage
+export const replaceStorage = (key: string, data: any[]) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+  } catch (error) {
+    console.error(`Error replacing localStorage (${key}):`, error);
   }
 };
 
@@ -157,7 +127,6 @@ export const deleteFromStorage = (key: string, itemId: string) => {
     const existingData = getFromStorage(key);
     const filteredData = existingData.filter((item: any) => item.id !== itemId);
     localStorage.setItem(key, JSON.stringify(filteredData));
-    RealTimeSync.getInstance().notify(key, filteredData);
   } catch (error) {
     console.error(`Error deleting from localStorage (${key}):`, error);
   }
@@ -196,7 +165,6 @@ export const saveProductRecipe = (recipe: ProductRecipe): void => {
     
     console.log('Saving recipes to localStorage:', existingRecipes);
     localStorage.setItem(STORAGE_KEYS.PRODUCT_RECIPES, JSON.stringify(existingRecipes));
-    RealTimeSync.getInstance().notify(STORAGE_KEYS.PRODUCT_RECIPES, existingRecipes);
   } catch (error) {
     console.error('Error saving product recipe:', error);
   }
@@ -279,90 +247,7 @@ export const generateQRCode = (batchId: string, index: number): string => {
   return `QR_${batchId}_${index}_${timestamp}`;
 };
 
-// Data Backup System
-export class DataBackup {
-  private static backupInterval = 5 * 60 * 1000; // 5 minutes
-  private static backupTimer: NodeJS.Timeout | null = null;
-  
-  static startBackup() {
-    if (this.backupTimer) {
-      clearInterval(this.backupTimer);
-    }
-    
-    this.backupTimer = setInterval(() => {
-      this.createBackup();
-    }, this.backupInterval);
-  }
-  
-  static stopBackup() {
-    if (this.backupTimer) {
-      clearInterval(this.backupTimer);
-      this.backupTimer = null;
-    }
-  }
-  
-  static createBackup() {
-    try {
-      const backup = {
-        timestamp: new Date().toISOString(),
-        data: {
-          orders: getFromStorage(STORAGE_KEYS.ORDERS),
-          products: getFromStorage(STORAGE_KEYS.PRODUCTS),
-          individualProducts: getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS),
-
-          rawMaterials: getFromStorage(STORAGE_KEYS.RAW_MATERIALS),
-          customers: getFromStorage(STORAGE_KEYS.CUSTOMERS),
-          materialConsumption: getFromStorage(STORAGE_KEYS.MATERIAL_CONSUMPTION),
-          auditLog: getFromStorage(STORAGE_KEYS.AUDIT_LOG)
-        },
-        version: '1.0.0'
-      };
-      
-      const backupKey = `rajdhani_backup_${Date.now()}`;
-      localStorage.setItem(backupKey, JSON.stringify(backup));
-      
-      // Keep only last 10 backups
-      this.cleanupOldBackups();
-      
-      console.log('Backup created successfully:', backupKey);
-    } catch (error) {
-      console.error('Error creating backup:', error);
-    }
-  }
-  
-  static cleanupOldBackups() {
-    try {
-      const keys = Object.keys(localStorage).filter(key => key.startsWith('rajdhani_backup_'));
-      if (keys.length > 10) {
-        keys.sort().slice(0, keys.length - 10).forEach(key => {
-          localStorage.removeItem(key);
-        });
-      }
-    } catch (error) {
-      console.error('Error cleaning up old backups:', error);
-    }
-  }
-  
-  static restoreFromBackup(backupKey: string): boolean {
-    try {
-      const backupData = localStorage.getItem(backupKey);
-      if (!backupData) return false;
-      
-      const backup = JSON.parse(backupData);
-      
-      // Restore all data
-      Object.entries(backup.data).forEach(([key, data]) => {
-        localStorage.setItem(key, JSON.stringify(data));
-      });
-      
-      console.log('Backup restored successfully from:', backupKey);
-      return true;
-    } catch (error) {
-      console.error('Error restoring backup:', error);
-      return false;
-    }
-  }
-}
+// Removed Data Backup System
 
 // Performance Monitoring
 export class PerformanceMonitor {
@@ -415,17 +300,8 @@ export class RajdhaniERP {
       // Initialize localStorage with default data
       this.initializeStorage();
       
-      // Start real-time synchronization
-      RealTimeSync.getInstance();
-      
-      // Start automatic backup
-      DataBackup.startBackup();
-      
       // Initialize audit logging
       this.initializeAuditLog();
-      
-      // Set up event listeners for real-time updates
-      this.setupEventListeners();
       
       console.log('Rajdhani ERP System initialized successfully');
     } catch (error) {
@@ -434,13 +310,24 @@ export class RajdhaniERP {
   }
   
   static initializeStorage() {
-    // Initialize with sample data if empty
+    // Initialize with empty arrays if storage keys don't exist
     const keys = Object.values(STORAGE_KEYS);
     keys.forEach(key => {
       if (!localStorage.getItem(key)) {
         localStorage.setItem(key, JSON.stringify([]));
       }
     });
+  }
+
+  // Clear all customer data from localStorage
+  static clearCustomerData() {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.CUSTOMERS);
+      localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify([]));
+      console.log('✅ Customer data cleared from localStorage');
+    } catch (error) {
+      console.error('Error clearing customer data:', error);
+    }
   }
   
   static initializeAuditLog() {
@@ -451,19 +338,7 @@ export class RajdhaniERP {
     });
   }
   
-  static setupEventListeners() {
-    // Listen for storage changes across tabs
-    window.addEventListener('storage', (e) => {
-      if (e.key && e.key.startsWith('rajdhani_')) {
-        try {
-          const newData = e.newValue ? JSON.parse(e.newValue) : [];
-          RealTimeSync.getInstance().notify(e.key, newData);
-        } catch (error) {
-          console.error('Error handling storage event:', error);
-        }
-      }
-    });
-  }
+  // Removed setupEventListeners - no longer needed
   
   static getSystemStatus() {
     try {
@@ -486,6 +361,74 @@ export class RajdhaniERP {
     }
   }
 }
+
+// Notification Management Functions
+export const createNotification = (notification: Omit<Notification, 'id' | 'createdAt'>): Notification => {
+  const newNotification: Notification = {
+    ...notification,
+    id: generateUniqueId('NOTIF'),
+    createdAt: new Date().toISOString()
+  };
+  
+  const existingNotifications = getFromStorage(STORAGE_KEYS.NOTIFICATIONS) || [];
+  // Flatten any nested arrays before adding new notification
+  const flattenedNotifications = existingNotifications.flat(Infinity);
+  const updatedNotifications = [newNotification, ...flattenedNotifications];
+  saveToStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
+  
+  return newNotification;
+};
+
+export const getNotifications = (module?: string, status?: string): Notification[] => {
+  const notifications = getFromStorage(STORAGE_KEYS.NOTIFICATIONS) || [];
+  // Flatten any nested arrays
+  const flattenedNotifications = notifications.flat(Infinity);
+  
+  let filtered = flattenedNotifications;
+  if (module) {
+    filtered = filtered.filter(n => n && n.module === module);
+  }
+  if (status) {
+    filtered = filtered.filter(n => n && n.status === status);
+  }
+  
+  return filtered;
+};
+
+export const markNotificationAsRead = (notificationId: string): void => {
+  const notifications = getFromStorage(STORAGE_KEYS.NOTIFICATIONS) || [];
+  const flattenedNotifications = notifications.flat(Infinity);
+  const updatedNotifications = flattenedNotifications.map(n => 
+    n && n.id === notificationId 
+      ? { ...n, status: 'read' as const, readAt: new Date().toISOString() }
+      : n
+  );
+  saveToStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
+};
+
+export const resolveNotification = (notificationId: string): void => {
+  const notifications = getFromStorage(STORAGE_KEYS.NOTIFICATIONS) || [];
+  const flattenedNotifications = notifications.flat(Infinity);
+  const updatedNotifications = flattenedNotifications.map(n => 
+    n && n.id === notificationId 
+      ? { ...n, status: 'resolved' as const, resolvedAt: new Date().toISOString() }
+      : n
+  );
+  saveToStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
+};
+
+// Utility function to fix nested arrays in localStorage
+export const fixNestedArray = (data: any[]): any[] => {
+  if (!Array.isArray(data) || data.length === 0) return data;
+  
+  // Check if first element is an array (indicating nested structure)
+  if (Array.isArray(data[0])) {
+    console.log('🔧 Fixing nested array structure');
+    return data.flat();
+  }
+  
+  return data;
+};
 
 // Export default initialization
 export default RajdhaniERP;

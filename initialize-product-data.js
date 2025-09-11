@@ -1,5 +1,5 @@
 // Initialize Complete Product Data to localStorage
-// This script adds all the product data from COMPLETE_PRODUCT_DATA.json to localStorage
+// This script adds all the product data with updated structure (no pileHeight, with width/height in meters)
 
 const completeProductData = {
   "products": [
@@ -20,8 +20,28 @@ const completeProductData = {
       "dimensions": "8' x 10' (2.44m x 3.05m)",
       "weight": "45 kg",
       "thickness": "12 mm",
-      "pileHeight": "8 mm",
-      "materialComposition": "80% Cotton, 20% Wool",
+      "width": "2.44m",
+      "height": "3.05m",
+      "materialsUsed": [
+        {
+          "materialName": "Cotton Yarn (Premium)",
+          "quantity": 15,
+          "unit": "rolls",
+          "cost": 450
+        },
+        {
+          "materialName": "Red Dye (Industrial)",
+          "quantity": 8,
+          "unit": "liters",
+          "cost": 180
+        },
+        {
+          "materialName": "Latex Solution",
+          "quantity": 12,
+          "unit": "liters",
+          "cost": 320
+        }
+      ],
       "notes": "High-quality traditional design, perfect for living rooms",
       "imageUrl": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
       "createdAt": "2024-01-15T10:00:00.000Z",
@@ -44,8 +64,28 @@ const completeProductData = {
       "dimensions": "6' x 9' (1.83m x 2.74m)",
       "weight": "32 kg",
       "thickness": "10 mm",
-      "pileHeight": "6 mm",
-      "materialComposition": "100% Synthetic",
+      "width": "1.83m",
+      "height": "2.74m",
+      "materialsUsed": [
+        {
+          "materialName": "Synthetic Yarn",
+          "quantity": 20,
+          "unit": "rolls",
+          "cost": 380
+        },
+        {
+          "materialName": "Blue Dye (Industrial)",
+          "quantity": 10,
+          "unit": "liters",
+          "cost": 190
+        },
+        {
+          "materialName": "Backing Cloth",
+          "quantity": 54,
+          "unit": "sqm",
+          "cost": 25
+        }
+      ],
       "notes": "Contemporary design, suitable for modern interiors",
       "imageUrl": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
       "createdAt": "2024-01-20T10:00:00.000Z",
@@ -57,11 +97,12 @@ const completeProductData = {
       "id": "IND001",
       "qrCode": "QR-CARPET-001-001",
       "productId": "PROD001",
-      "manufacturingDate": "2024-01-15",
+      "materialsUsed": [],
       "finalDimensions": "8'2\" x 10'1\" (2.49m x 3.07m)",
       "finalWeight": "46.2 kg",
       "finalThickness": "12.5 mm",
-      "finalPileHeight": "8.2 mm",
+      "finalWidth": "2.49m",
+      "finalHeight": "3.07m",
       "qualityGrade": "A+",
       "inspector": "Ahmed Khan",
       "notes": "Perfect finish, no defects",
@@ -71,11 +112,12 @@ const completeProductData = {
       "id": "IND002",
       "qrCode": "QR-CARPET-001-002",
       "productId": "PROD001",
-      "manufacturingDate": "2024-01-15",
+      "materialsUsed": [],
       "finalDimensions": "8'0\" x 10'0\" (2.44m x 3.05m)",
       "finalWeight": "45.0 kg",
       "finalThickness": "12.0 mm",
-      "finalPileHeight": "8.0 mm",
+      "finalWidth": "2.44m",
+      "finalHeight": "3.05m",
       "qualityGrade": "A",
       "inspector": "Ahmed Khan",
       "notes": "Minor color variation",
@@ -85,11 +127,12 @@ const completeProductData = {
       "id": "IND003",
       "qrCode": "QR-CARPET-001-003",
       "productId": "PROD001",
-      "manufacturingDate": "2024-01-16",
+      "materialsUsed": [],
       "finalDimensions": "8'1\" x 10'0\" (2.46m x 3.05m)",
       "finalWeight": "45.5 kg",
       "finalThickness": "12.2 mm",
-      "finalPileHeight": "8.1 mm",
+      "finalWidth": "2.46m",
+      "finalHeight": "3.05m",
       "qualityGrade": "A+",
       "inspector": "Ahmed Khan",
       "notes": "Excellent quality, premium finish",
@@ -99,11 +142,12 @@ const completeProductData = {
       "id": "IND004",
       "qrCode": "QR-CARPET-001-004",
       "productId": "PROD001",
-      "manufacturingDate": "2024-01-16",
+      "materialsUsed": [],
       "finalDimensions": "8'0\" x 10'1\" (2.44m x 3.07m)",
       "finalWeight": "45.8 kg",
       "finalThickness": "12.3 mm",
-      "finalPileHeight": "8.0 mm",
+      "finalWidth": "2.44m",
+      "finalHeight": "3.07m",
       "qualityGrade": "A",
       "inspector": "Ahmed Khan",
       "notes": "Good quality, minor texture variation",
@@ -113,11 +157,12 @@ const completeProductData = {
       "id": "IND005",
       "qrCode": "QR-CARPET-001-005",
       "productId": "PROD001",
-      "manufacturingDate": "2024-01-17",
+      "materialsUsed": [],
       "finalDimensions": "8'2\" x 10'0\" (2.49m x 3.05m)",
       "finalWeight": "46.0 kg",
       "finalThickness": "12.4 mm",
-      "finalPileHeight": "8.2 mm",
+      "finalWidth": "2.49m",
+      "finalHeight": "3.05m",
       "qualityGrade": "A+",
       "inspector": "Ahmed Khan",
       "notes": "Perfect quality, no defects",
@@ -202,8 +247,28 @@ const completeProductData = {
       "dimensions": "8' x 10' (2.44m x 3.05m)",
       "weight": "45 kg",
       "thickness": "12 mm",
-      "pileHeight": "8 mm",
-      "materialComposition": "80% Cotton, 20% Wool",
+      "width": "2.44m",
+      "height": "3.05m",
+      "materialsUsed": [
+        {
+          "materialName": "Cotton Yarn (Premium)",
+          "quantity": 15,
+          "unit": "rolls",
+          "cost": 450
+        },
+        {
+          "materialName": "Red Dye (Industrial)",
+          "quantity": 8,
+          "unit": "liters",
+          "cost": 180
+        },
+        {
+          "materialName": "Latex Solution",
+          "quantity": 12,
+          "unit": "liters",
+          "cost": 320
+        }
+      ],
       "notes": "High-quality traditional design, perfect for living rooms",
       "imageUrl": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
       "createdAt": "2024-01-15T10:00:00.000Z",
@@ -213,11 +278,12 @@ const completeProductData = {
           "id": "IND001",
           "qrCode": "QR-CARPET-001-001",
           "productId": "PROD001",
-          "manufacturingDate": "2024-01-15",
+          "materialsUsed": [],
           "finalDimensions": "8'2\" x 10'1\" (2.49m x 3.07m)",
           "finalWeight": "46.2 kg",
           "finalThickness": "12.5 mm",
-          "finalPileHeight": "8.2 mm",
+          "finalWidth": "2.49m",
+          "finalHeight": "3.07m",
           "qualityGrade": "A+",
           "inspector": "Ahmed Khan",
           "notes": "Perfect finish, no defects",
@@ -227,11 +293,12 @@ const completeProductData = {
           "id": "IND002",
           "qrCode": "QR-CARPET-001-002",
           "productId": "PROD001",
-          "manufacturingDate": "2024-01-15",
+          "materialsUsed": [],
           "finalDimensions": "8'0\" x 10'0\" (2.44m x 3.05m)",
           "finalWeight": "45.0 kg",
           "finalThickness": "12.0 mm",
-          "finalPileHeight": "8.0 mm",
+          "finalWidth": "2.44m",
+          "finalHeight": "3.05m",
           "qualityGrade": "A",
           "inspector": "Ahmed Khan",
           "notes": "Minor color variation",
@@ -241,11 +308,12 @@ const completeProductData = {
           "id": "IND003",
           "qrCode": "QR-CARPET-001-003",
           "productId": "PROD001",
-          "manufacturingDate": "2024-01-16",
+          "materialsUsed": [],
           "finalDimensions": "8'1\" x 10'0\" (2.46m x 3.05m)",
           "finalWeight": "45.5 kg",
           "finalThickness": "12.2 mm",
-          "finalPileHeight": "8.1 mm",
+          "finalWidth": "2.46m",
+          "finalHeight": "3.05m",
           "qualityGrade": "A+",
           "inspector": "Ahmed Khan",
           "notes": "Excellent quality, premium finish",
@@ -255,11 +323,12 @@ const completeProductData = {
           "id": "IND004",
           "qrCode": "QR-CARPET-001-004",
           "productId": "PROD001",
-          "manufacturingDate": "2024-01-16",
+          "materialsUsed": [],
           "finalDimensions": "8'0\" x 10'1\" (2.44m x 3.07m)",
           "finalWeight": "45.8 kg",
           "finalThickness": "12.3 mm",
-          "finalPileHeight": "8.0 mm",
+          "finalWidth": "2.44m",
+          "finalHeight": "3.07m",
           "qualityGrade": "A",
           "inspector": "Ahmed Khan",
           "notes": "Good quality, minor texture variation",
@@ -269,11 +338,12 @@ const completeProductData = {
           "id": "IND005",
           "qrCode": "QR-CARPET-001-005",
           "productId": "PROD001",
-          "manufacturingDate": "2024-01-17",
+          "materialsUsed": [],
           "finalDimensions": "8'2\" x 10'0\" (2.49m x 3.05m)",
           "finalWeight": "46.0 kg",
           "finalThickness": "12.4 mm",
-          "finalPileHeight": "8.2 mm",
+          "finalWidth": "2.49m",
+          "finalHeight": "3.05m",
           "qualityGrade": "A+",
           "inspector": "Ahmed Khan",
           "notes": "Perfect quality, no defects",
@@ -298,8 +368,28 @@ const completeProductData = {
       "dimensions": "6' x 9' (1.83m x 2.74m)",
       "weight": "32 kg",
       "thickness": "10 mm",
-      "pileHeight": "6 mm",
-      "materialComposition": "100% Synthetic",
+      "width": "1.83m",
+      "height": "2.74m",
+      "materialsUsed": [
+        {
+          "materialName": "Synthetic Yarn",
+          "quantity": 20,
+          "unit": "rolls",
+          "cost": 380
+        },
+        {
+          "materialName": "Blue Dye (Industrial)",
+          "quantity": 10,
+          "unit": "liters",
+          "cost": 190
+        },
+        {
+          "materialName": "Backing Cloth",
+          "quantity": 54,
+          "unit": "sqm",
+          "cost": 25
+        }
+      ],
       "notes": "Contemporary design, suitable for modern interiors",
       "imageUrl": "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
       "createdAt": "2024-01-20T10:00:00.000Z",
@@ -338,10 +428,10 @@ function initializeProductData() {
     
     console.log('🎉 All product data successfully initialized to localStorage!');
     console.log('📊 Data Summary:');
-    console.log('   - Products: 2');
-    console.log('   - Individual Products: 5');
+    console.log('   - Products: 2 (with width/height in meters, no pileHeight)');
+    console.log('   - Individual Products: 5 (with finalWidth/finalHeight in meters)');
     console.log('   - Product Recipes: 2');
-    console.log('   - Production Data: 2');
+    console.log('   - Production Data: 2 (updated structure)');
     
     // Verify data
     const products = JSON.parse(localStorage.getItem('rajdhani_products') || '[]');
@@ -410,9 +500,9 @@ if (typeof window !== 'undefined') {
   window.clearProductData = clearProductData;
   window.showDataStatus = showDataStatus;
   
-  console.log('🔧 Product Data Initialization Script Loaded');
+  console.log('🔧 Product Data Initialization Script Loaded (Updated Structure)');
   console.log('📝 Available functions:');
-  console.log('   - initializeProductData() - Add all product data to localStorage');
+  console.log('   - initializeProductData() - Add all product data to localStorage (no pileHeight, with width/height in meters)');
   console.log('   - clearProductData() - Clear all product data from localStorage');
   console.log('   - showDataStatus() - Show current data status');
   
