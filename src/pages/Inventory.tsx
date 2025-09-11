@@ -1,252 +1,155 @@
-import { Header } from "@/components/layout/Header";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Filter, Eye, QrCode, Package } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-
-interface InventoryItem {
-  id: string;
-  productName: string;
-  category: "finished-goods" | "raw-materials";
-  totalQuantity: number;
-  availableQuantity: number;
-  unit: string;
-  minThreshold: number;
-  status: "in-stock" | "low-stock" | "out-of-stock";
-  lastUpdated: string;
-  uniqueIds?: string[];
-}
-
-const inventoryItems: InventoryItem[] = [
-  {
-    id: "1",
-    productName: "Red Premium Carpet 4x6ft",
-    category: "finished-goods",
-    totalQuantity: 125,
-    availableQuantity: 87,
-    unit: "pieces",
-    minThreshold: 20,
-    status: "in-stock",
-    lastUpdated: "2024-01-16",
-    uniqueIds: ["RC-2024-001", "RC-2024-002", "RC-2024-003"]
-  },
-  {
-    id: "2",
-    productName: "Cotton Yarn (Premium)",
-    category: "raw-materials",
-    totalQuantity: 45,
-    availableQuantity: 45,
-    unit: "rolls",
-    minThreshold: 100,
-    status: "low-stock",
-    lastUpdated: "2024-01-15"
-  },
-  {
-    id: "3",
-    productName: "Blue Standard Carpet 6x8ft",
-    category: "finished-goods",
-    totalQuantity: 67,
-    availableQuantity: 45,
-    unit: "pieces",
-    minThreshold: 25,
-    status: "in-stock",
-    lastUpdated: "2024-01-16",
-    uniqueIds: ["BC-2024-015", "BC-2024-016", "BC-2024-017"]
-  },
-  {
-    id: "4",
-    productName: "Latex Solution",
-    category: "raw-materials",
-    totalQuantity: 0,
-    availableQuantity: 0,
-    unit: "liters",
-    minThreshold: 50,
-    status: "out-of-stock",
-    lastUpdated: "2024-01-14"
-  }
-];
-
-const statusStyles = {
-  "in-stock": "bg-success text-success-foreground",
-  "low-stock": "bg-warning text-warning-foreground",
-  "out-of-stock": "bg-destructive text-destructive-foreground"
-};
+import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Package, Clock, Construction, BarChart3, AlertTriangle, QrCode } from 'lucide-react';
 
 export default function Inventory() {
   return (
     <div className="flex-1 space-y-6 p-6">
-      <Header 
-        title="Inventory System" 
-        subtitle="Track products with unique IDs and manage stock levels"
-      />
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight">Inventory System</h1>
+          <p className="text-muted-foreground">
+            Track products with unique IDs and manage stock levels
+          </p>
+        </div>
+        <Badge variant="outline" className="flex items-center gap-2">
+          <Clock className="w-4 h-4" />
+          Coming Soon
+        </Badge>
+      </div>
 
-      <Tabs defaultValue="all" className="space-y-6">
-        <div className="flex flex-col sm:flex-row gap-4 justify-between">
-          <TabsList>
-            <TabsTrigger value="all">All Items</TabsTrigger>
-            <TabsTrigger value="finished-goods">Finished Goods</TabsTrigger>
-            <TabsTrigger value="raw-materials">Raw Materials</TabsTrigger>
-            <TabsTrigger value="low-stock">Low Stock</TabsTrigger>
-          </TabsList>
+      {/* Coming Soon Card */}
+      <Card className="border-dashed border-2 border-muted-foreground/25">
+        <CardHeader className="text-center pb-4">
+          <div className="mx-auto w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
+            <Construction className="w-8 h-8 text-muted-foreground" />
+          </div>
+          <CardTitle className="text-2xl">Inventory System Coming Soon</CardTitle>
+        </CardHeader>
+        <CardContent className="text-center space-y-4">
+          <p className="text-muted-foreground max-w-md mx-auto">
+            We're developing a comprehensive inventory management system with unique product tracking, 
+            stock level monitoring, and real-time inventory updates.
+          </p>
           
-          <div className="flex gap-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-              <Input placeholder="Search inventory..." className="pl-10 w-64" />
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-8">
+            <div className="p-4 border rounded-lg bg-muted/50">
+              <Package className="w-8 h-8 text-primary mx-auto mb-2" />
+              <h3 className="font-semibold mb-1">Product Tracking</h3>
+              <p className="text-sm text-muted-foreground">
+                Track individual products with unique QR codes and IDs
+              </p>
             </div>
-            <Button variant="outline">
-              <Filter className="w-4 h-4 mr-2" />
-              Filters
-            </Button>
-            <Button>
-              <Plus className="w-4 h-4 mr-2" />
-              Add Item
-            </Button>
+            
+            <div className="p-4 border rounded-lg bg-muted/50">
+              <AlertTriangle className="w-8 h-8 text-primary mx-auto mb-2" />
+              <h3 className="font-semibold mb-1">Stock Alerts</h3>
+              <p className="text-sm text-muted-foreground">
+                Automated low stock notifications and reorder alerts
+              </p>
+            </div>
+            
+            <div className="p-4 border rounded-lg bg-muted/50">
+              <BarChart3 className="w-8 h-8 text-primary mx-auto mb-2" />
+              <h3 className="font-semibold mb-1">Inventory Analytics</h3>
+              <p className="text-sm text-muted-foreground">
+                Real-time inventory reports and stock movement tracking
+              </p>
           </div>
         </div>
 
-        <TabsContent value="all" className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Items</CardTitle>
-                <Package className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">1,247</div>
-                <p className="text-xs text-muted-foreground">
-                  +12% from last month
-                </p>
+          <div className="pt-6">
+            <Button disabled className="opacity-50 cursor-not-allowed">
+              <Clock className="w-4 h-4 mr-2" />
+              Inventory System Coming Soon
+            </Button>
+          </div>
               </CardContent>
             </Card>
+
+      {/* Current System Info */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
-                <Package className="h-4 w-4 text-warning" />
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Current Inventory Status
+            </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-warning">8</div>
-                <p className="text-xs text-muted-foreground">
-                  Requires attention
-                </p>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">System Status:</span>
+              <Badge variant="default" className="bg-yellow-100 text-yellow-800">
+                In Development
+              </Badge>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Expected Release:</span>
+              <span className="font-medium">Q2 2024</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Features Planned:</span>
+              <span className="font-medium">15+ Features</span>
+            </div>
               </CardContent>
             </Card>
+
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Finished Goods</CardTitle>
-                <Package className="h-4 w-4 text-inventory" />
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <QrCode className="w-5 h-5" />
+              Planned Features
+            </CardTitle>
               </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">847</div>
-                <p className="text-xs text-muted-foreground">
-                  Ready for sale
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Raw Materials</CardTitle>
-                <Package className="h-4 w-4 text-materials" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">400</div>
-                <p className="text-xs text-muted-foreground">
-                  Production ready
-                </p>
+          <CardContent className="space-y-3">
+            <Button variant="outline" className="w-full justify-start" disabled>
+              <Package className="w-4 h-4 mr-2" />
+              Product Tracking
+            </Button>
+            <Button variant="outline" className="w-full justify-start" disabled>
+              <AlertTriangle className="w-4 h-4 mr-2" />
+              Stock Alerts
+            </Button>
+            <Button variant="outline" className="w-full justify-start" disabled>
+              <BarChart3 className="w-4 h-4 mr-2" />
+              Inventory Reports
+            </Button>
               </CardContent>
             </Card>
           </div>
 
+      {/* Feature Preview */}
           <Card>
             <CardHeader>
-              <CardTitle>Inventory Overview</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <Package className="w-5 h-5" />
+            Inventory System Features Preview
+          </CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left p-4 font-medium text-muted-foreground">Product</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Category</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Stock</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Available</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Unique IDs</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {inventoryItems.map((item) => (
-                      <tr key={item.id} className="border-b hover:bg-muted/50">
-                        <td className="p-4">
-                          <div>
-                            <div className="font-medium text-foreground">{item.productName}</div>
-                            <div className="text-sm text-muted-foreground">Updated: {item.lastUpdated}</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="text-center p-4 border rounded-lg bg-muted/30">
+              <div className="text-2xl font-bold text-muted-foreground">-</div>
+              <p className="text-sm text-muted-foreground mt-1">Total Items</p>
                           </div>
-                        </td>
-                        <td className="p-4">
-                          <Badge variant="outline" className="capitalize">
-                            {item.category.replace("-", " ")}
-                          </Badge>
-                        </td>
-                        <td className="p-4">
-                          <div className="font-medium text-foreground">
-                            {item.totalQuantity} {item.unit}
+            <div className="text-center p-4 border rounded-lg bg-muted/30">
+              <div className="text-2xl font-bold text-muted-foreground">-</div>
+              <p className="text-sm text-muted-foreground mt-1">Low Stock Alerts</p>
                           </div>
-                          <div className="text-sm text-muted-foreground">
-                            Min: {item.minThreshold} {item.unit}
+            <div className="text-center p-4 border rounded-lg bg-muted/30">
+              <div className="text-2xl font-bold text-muted-foreground">-</div>
+              <p className="text-sm text-muted-foreground mt-1">Finished Goods</p>
                           </div>
-                        </td>
-                        <td className="p-4">
-                          <div className="font-medium text-foreground">
-                            {item.availableQuantity} {item.unit}
+            <div className="text-center p-4 border rounded-lg bg-muted/30">
+              <div className="text-2xl font-bold text-muted-foreground">-</div>
+              <p className="text-sm text-muted-foreground mt-1">Raw Materials</p>
                           </div>
-                        </td>
-                        <td className="p-4">
-                          <Badge className={statusStyles[item.status]}>
-                            {item.status.replace("-", " ")}
-                          </Badge>
-                        </td>
-                        <td className="p-4">
-                          {item.uniqueIds ? (
-                            <div className="space-y-1">
-                              <div className="text-sm font-medium">
-                                {item.uniqueIds.length} IDs tracked
-                              </div>
-                              <Button variant="outline" size="sm">
-                                <QrCode className="w-3 h-3 mr-1" />
-                                View IDs
-                              </Button>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">
-                              Bulk tracking
-                            </span>
-                          )}
-                        </td>
-                        <td className="p-4">
-                          <div className="flex gap-2">
-                            <Button variant="outline" size="sm">
-                              <Eye className="w-3 h-3 mr-1" />
-                              View
-                            </Button>
-                            <Button variant="outline" size="sm">
-                              Update
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
               </div>
             </CardContent>
           </Card>
-        </TabsContent>
-      </Tabs>
     </div>
   );
 }

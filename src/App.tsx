@@ -27,6 +27,7 @@ import NotFound from "./pages/NotFound";
 import Products from "./pages/Products";
 import ProductDetail from "./pages/ProductDetail";
 import ProductStock from "./pages/ProductStock";
+import Settings from "./pages/Settings";
 import DataInitializer from "./components/DataInitializer";
 
 import RajdhaniERP from "@/lib/storage";
@@ -73,6 +74,7 @@ const App = () => {
                 <Route path="/products" element={<Products />} />
                 <Route path="/product/:productId" element={<ProductDetail />} />
                 <Route path="/product-stock/:productId" element={<ProductStock />} />
+                <Route path="/settings" element={<Settings />} />
                 <Route path="/data-initializer" element={<DataInitializer />} />
 
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

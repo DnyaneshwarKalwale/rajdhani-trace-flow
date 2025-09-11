@@ -56,6 +56,7 @@ const completeProductData = {
       ],
       notes: "High-quality traditional design, perfect for living rooms",
       imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
+      individualStockTracking: true,
       createdAt: "2024-01-15T10:00:00.000Z",
       updatedAt: "2024-01-15T10:00:00.000Z"
     },
@@ -103,8 +104,35 @@ const completeProductData = {
       ],
       notes: "Contemporary design, suitable for modern interiors",
       imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
+      individualStockTracking: true,
       createdAt: "2024-01-20T10:00:00.000Z",
       updatedAt: "2024-01-20T10:00:00.000Z"
+    },
+    {
+      id: "PROD003",
+      qrCode: "QR-MARBLE-001",
+      name: "Marble Powder (Fine Grade)",
+      category: "Raw Material",
+      color: "White",
+      size: "NA",
+      pattern: "NA",
+      quantity: 500,
+      unit: "kg",
+      status: "in-stock",
+      location: "Warehouse C - Bulk Storage",
+      totalCost: 2500,
+      sellingPrice: 15,
+      dimensions: "Bulk Material",
+      weight: "500 kg",
+      thickness: "NA",
+      width: "NA",
+      height: "NA",
+      materialsUsed: [],
+      notes: "High-quality marble powder for construction and manufacturing",
+      imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center",
+      individualStockTracking: false,
+      createdAt: "2024-01-25T10:00:00.000Z",
+      updatedAt: "2024-01-25T10:00:00.000Z"
     }
   ],
   individualProducts: [
@@ -1571,7 +1599,7 @@ export default function DataInitializer() {
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
           <div className="text-center">
-            <Badge variant="outline" className="text-lg font-bold">2</Badge>
+            <Badge variant="outline" className="text-lg font-bold">3</Badge>
             <p className="text-sm text-gray-600 mt-1">Products</p>
           </div>
           <div className="text-center">

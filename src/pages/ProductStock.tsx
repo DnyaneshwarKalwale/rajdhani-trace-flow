@@ -204,6 +204,16 @@ export default function ProductStock() {
   });
 
   const getStatusCount = (status: string) => {
+    // If product doesn't have individual stock tracking, return appropriate values
+    if (product && product.individualStockTracking === false) {
+      if (status === "available") {
+        return product.quantity || 0;
+      } else {
+        return 0; // For bulk products, sold/damaged are tracked differently
+      }
+    }
+    
+    // For products with individual stock tracking, count individual products
     return getIndividualProducts(productId || "").filter(item => item.status === status).length;
   };
 
@@ -278,11 +288,11 @@ export default function ProductStock() {
                              <div className="flex items-center gap-4 mt-2">
                  <div className="flex items-center gap-2">
                    <Hash className="w-4 h-4 text-muted-foreground" />
-                   <span className="text-sm font-medium">Total Stock: {product.quantity} pieces</span>
+                   <span className="text-sm font-medium">Total Stock: {product.quantity} {product.unit || 'pieces'}</span>
                  </div>
                  <div className="flex items-center gap-2">
                    <CheckCircle className="w-4 h-4 text-success" />
-                   <span className="text-sm text-success">Available: {getStatusCount("available")} pieces</span>
+                   <span className="text-sm text-success">Available: {getStatusCount("available")} {product.unit || 'pieces'}</span>
                  </div>
                  <div className="flex items-center gap-2">
                    <MapPin className="w-4 h-4 text-muted-foreground" />

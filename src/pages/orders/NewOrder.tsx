@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Search, Trash2, AlertTriangle, Factory, Package, X, CheckCircle, Eye, Save, Bell } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { saveToStorage, getFromStorage, STORAGE_KEYS, generateUniqueId, createNotification, fixNestedArray } from "@/lib/storage";
+import { saveToStorage, getFromStorage, STORAGE_KEYS, generateUniqueId, createNotification, fixNestedArray, replaceStorage } from "@/lib/storage";
 import { 
   Dialog,
   DialogContent,
@@ -24,6 +24,7 @@ interface OrderItem {
   id: string;
   productId: string;
   productName: string;
+  productType: 'product' | 'raw_material'; // Whether this is a finished product or raw material
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -77,6 +78,7 @@ export default function NewOrder() {
   const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
   const [realProducts, setRealProducts] = useState<any[]>([]);
   const [individualProducts, setIndividualProducts] = useState<any[]>([]);
+  const [rawMaterials, setRawMaterials] = useState<any[]>([]);
   const [newCustomer, setNewCustomer] = useState({
     name: "",
     email: "",
@@ -108,6 +110,7 @@ export default function NewOrder() {
     
     const storedProducts = getFromStorage(STORAGE_KEYS.PRODUCTS);
     const storedIndividualProducts = getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS);
+    const storedRawMaterials = getFromStorage('rajdhani_raw_materials');
     
     // Transform stored products to match the expected format and calculate stock
     const transformedProducts = storedProducts.map((product: any) => {
@@ -147,11 +150,27 @@ export default function NewOrder() {
       };
     });
     
+    // Transform raw materials to match the expected format
+    const transformedRawMaterials = storedRawMaterials.map((material: any) => ({
+      id: material.id,
+      name: material.name,
+      price: material.costPerUnit || 0,
+      stock: material.currentStock || 0,
+      category: material.category,
+      brand: material.brand,
+      unit: material.unit,
+      supplier: material.supplier,
+      status: material.status,
+      location: material.location || 'Warehouse'
+    }));
+    
     setRealProducts(transformedProducts);
     setIndividualProducts(storedIndividualProducts);
+    setRawMaterials(transformedRawMaterials);
     
     console.log('📦 Loaded products from storage:', transformedProducts.length);
     console.log('🔍 Loaded individual products from storage:', storedIndividualProducts.length);
+    console.log('🧱 Loaded raw materials from storage:', transformedRawMaterials.length);
   }, []);
 
   const addOrderItem = () => {
@@ -159,6 +178,7 @@ export default function NewOrder() {
       id: generateUniqueId('ORDITEM'),
       productId: "",
       productName: "",
+      productType: 'product', // Default to product
       quantity: 1,
       unitPrice: 0,
       totalPrice: 0,
@@ -174,7 +194,11 @@ export default function NewOrder() {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
         if (field === 'productId') {
-          const product = realProducts.find(p => p.id === value);
+          // Find product based on productType
+          const product = updated.productType === 'raw_material' 
+            ? rawMaterials.find(p => p.id === value)
+            : realProducts.find(p => p.id === value);
+            
           if (product) {
             updated.productName = product.name;
             updated.unitPrice = product.price;
@@ -187,7 +211,9 @@ export default function NewOrder() {
           }
         }
         if (field === 'quantity') {
-          const product = realProducts.find(p => p.id === updated.productId);
+          const product = updated.productType === 'raw_material' 
+            ? rawMaterials.find(p => p.id === updated.productId)
+            : realProducts.find(p => p.id === updated.productId);
           if (product) {
             updated.totalPrice = updated.quantity * updated.unitPrice;
             updated.needsProduction = updated.quantity > product.stock;
@@ -274,6 +300,28 @@ export default function NewOrder() {
       }
       return item;
     }));
+  };
+
+  // Check if product has individual stock tracking
+  const hasIndividualStock = (productId: string, productType: 'product' | 'raw_material' = 'product') => {
+    // Raw materials never have individual stock tracking
+    if (productType === 'raw_material') {
+      return false;
+    }
+    
+    const product = realProducts.find(p => p.id === productId);
+    return product && product.individualStockTracking !== false;
+  };
+
+  // Get the correct unit for display based on product type
+  const getDisplayUnit = (productId: string, productType: 'product' | 'raw_material') => {
+    if (productType === 'raw_material') {
+      const material = rawMaterials.find(m => m.id === productId);
+      return material?.unit || 'units';
+    } else {
+      const product = realProducts.find(p => p.id === productId);
+      return product?.unit || 'pieces';
+    }
   };
 
   // Get available individual products for a product (only available ones for ordering)
@@ -402,11 +450,12 @@ export default function NewOrder() {
         items: orderItems.map(item => ({
           productId: item.productId,
           productName: item.productName,
+          productType: item.productType,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           totalPrice: item.totalPrice,
-          selectedProducts: item.selectedIndividualProducts,
-          qualityGrade: item.selectedIndividualProducts.length > 0 ? item.selectedIndividualProducts[0].qualityGrade : 'A'
+          selectedProducts: hasIndividualStock(item.productId, item.productType) ? item.selectedIndividualProducts : [],
+          qualityGrade: hasIndividualStock(item.productId, item.productType) && item.selectedIndividualProducts.length > 0 ? item.selectedIndividualProducts[0].qualityGrade : 'A'
         })),
         subtotal,
         gstRate,
@@ -434,7 +483,7 @@ export default function NewOrder() {
       }
       
       const updatedOrders = [...flatExistingOrders, newOrder];
-      saveToStorage(STORAGE_KEYS.ORDERS, updatedOrders);
+      replaceStorage(STORAGE_KEYS.ORDERS, updatedOrders);
 
       // Note: Stock will be deducted only when order is dispatched, not when accepted
       // This allows orders to be accepted even with low stock, and production can be planned
@@ -452,26 +501,57 @@ export default function NewOrder() {
           }
           return customer;
         });
-        saveToStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
+        replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
     }
 
     // Check if any items need production
     const itemsNeedingProduction = orderItems.filter(item => item.needsProduction);
     
+    // Always send notifications to products section for items needing production
     if (itemsNeedingProduction.length > 0) {
-      // Show production planning dialog
-      setProductionAlertItem(itemsNeedingProduction[0]);
-      setShowProductionAlert(true);
+      // Send notifications to products section for each item needing production
+      itemsNeedingProduction.forEach(item => {
+        // Check if notification already exists to prevent duplicates
+        const existingNotifications = getFromStorage('rajdhani_notifications') || [];
+        const flattenedNotifications = existingNotifications.flat(Infinity);
+        const hasExistingNotification = flattenedNotifications.some(n => 
+          n && n.type === 'production_request' && 
+          n.relatedId === item.productId && 
+          n.status === 'unread'
+        );
+        
+        if (!hasExistingNotification) {
+          createNotification({
+            type: 'production_request',
+            title: `Product Stock Alert - ${item.productName}`,
+            message: `Order ${newOrder.orderNumber} requires ${item.quantity} ${getDisplayUnit(item.productId, item.productType)} of ${item.productName}. Current stock: ${item.availableStock} ${getDisplayUnit(item.productId, item.productType)}. Need to produce: ${item.quantity - item.availableStock} more ${getDisplayUnit(item.productId, item.productType)}.`,
+            priority: 'high',
+            status: 'unread',
+            module: 'products',
+            relatedId: item.productId,
+            relatedData: {
+              productId: item.productId,
+              productName: item.productName,
+              requiredQuantity: item.quantity,
+              availableStock: item.availableStock,
+              shortfall: item.quantity - item.availableStock,
+              orderId: newOrder.id,
+              orderNumber: newOrder.orderNumber
+            },
+            createdBy: 'system'
+          });
+        }
+      });
       
       toast({
-          title: "✅ Order Created - Production Required",
-          description: `Order ${newOrder.orderNumber} created! ${itemsNeedingProduction.length} items need production.`,
+          title: "✅ Order Created - Stock Alert Sent",
+          description: `Order ${newOrder.orderNumber} created! ${itemsNeedingProduction.length} items need production. Products section has been notified.`,
       });
     } else {
       // All items have sufficient stock
     toast({
           title: "✅ Order Created Successfully",
-          description: `Order ${newOrder.orderNumber} created and inventory updated!`,
+          description: `Order ${newOrder.orderNumber} created! All items have sufficient stock.`,
         });
       }
 
@@ -732,7 +812,7 @@ export default function NewOrder() {
                     // Add to customers array and save to localStorage
                     const updatedCustomers = [...customers, newCustomerData];
                     setCustomers(updatedCustomers);
-                    saveToStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
+                    replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
                     
                     // Select the newly created customer
                     setSelectedCustomer(newCustomerData);
@@ -808,6 +888,41 @@ export default function NewOrder() {
 
                                      {/* Product Selection */}
                    <div className="space-y-4">
+                     {/* Product Type Selection */}
+                     <div className="mb-4">
+                       <Label className="text-sm font-medium text-gray-700 mb-2 block">Item Type</Label>
+                       <div className="flex gap-4">
+                         <label className="flex items-center space-x-2">
+                           <input
+                             type="radio"
+                             name={`productType-${item.id}`}
+                             value="product"
+                             checked={item.productType === 'product'}
+                             onChange={() => {
+                               updateOrderItem(item.id, 'productType', 'product');
+                               updateOrderItem(item.id, 'productId', ''); // Clear selection when type changes
+                             }}
+                             className="text-blue-600"
+                           />
+                           <span className="text-sm">Finished Product</span>
+                         </label>
+                         <label className="flex items-center space-x-2">
+                           <input
+                             type="radio"
+                             name={`productType-${item.id}`}
+                             value="raw_material"
+                             checked={item.productType === 'raw_material'}
+                             onChange={() => {
+                               updateOrderItem(item.id, 'productType', 'raw_material');
+                               updateOrderItem(item.id, 'productId', ''); // Clear selection when type changes
+                             }}
+                             className="text-blue-600"
+                           />
+                           <span className="text-sm">Raw Material</span>
+                         </label>
+                       </div>
+                     </div>
+
                      {/* Product Row */}
                      <div className="flex items-center gap-6">
                        {/* Product Selection */}
@@ -822,9 +937,15 @@ export default function NewOrder() {
                                      <Package className="w-4 h-4 text-blue-600" />
                 </div>
                 <div>
-                                     <div className="font-medium">{realProducts.find(p => p.id === item.productId)?.name}</div>
+                                     <div className="font-medium">
+                                       {item.productType === 'raw_material' 
+                                         ? rawMaterials.find(p => p.id === item.productId)?.name
+                                         : realProducts.find(p => p.id === item.productId)?.name}
+                                     </div>
                                      <div className="text-sm text-muted-foreground">
-                                       {realProducts.find(p => p.id === item.productId)?.category} • {realProducts.find(p => p.id === item.productId)?.color} • {realProducts.find(p => p.id === item.productId)?.size}
+                                       {item.productType === 'raw_material' 
+                                         ? `${rawMaterials.find(p => p.id === item.productId)?.category} • ${rawMaterials.find(p => p.id === item.productId)?.brand} • ${rawMaterials.find(p => p.id === item.productId)?.unit}`
+                                         : `${realProducts.find(p => p.id === item.productId)?.category} • ${realProducts.find(p => p.id === item.productId)?.color} • ${realProducts.find(p => p.id === item.productId)?.size}`}
                                      </div>
                                    </div>
                                  </div>
@@ -847,7 +968,7 @@ export default function NewOrder() {
                                  }}
                                >
                                  <Search className="w-4 h-4 mr-2" />
-                                 Search and select product...
+                                 Search and select {item.productType === 'raw_material' ? 'raw material' : 'product'}...
                                </Button>
                              )}
                            </div>
@@ -923,7 +1044,7 @@ export default function NewOrder() {
                            <div className="flex items-center gap-2">
                              <div className={`w-3 h-3 rounded-full ${stockStatus.status === "sufficient" ? "bg-green-500" : stockStatus.status === "low" ? "bg-yellow-500" : "bg-red-500"}`}></div>
                              <span className="text-sm font-medium text-gray-700">
-                               Available: {item.availableStock} pieces
+                               Available: {item.availableStock} {getDisplayUnit(item.productId, item.productType)}
                              </span>
                            </div>
 
@@ -944,6 +1065,7 @@ export default function NewOrder() {
 
                          {/* Action Buttons */}
                          <div className="flex items-center gap-3">
+                           {hasIndividualStock(item.productId, item.productType) && (
                            <Button 
                              type="button"
                              variant="outline" 
@@ -960,6 +1082,7 @@ export default function NewOrder() {
                                : "Select Specific Pieces"
                              }
                   </Button>
+                           )}
                 </div>
               </div>
                      )}
@@ -1189,8 +1312,8 @@ export default function NewOrder() {
 
       {/* Individual Product Selection Dialog */}
       <Dialog open={showIndividualProductSelection} onOpenChange={setShowIndividualProductSelection}>
-        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden">
-          <DialogHeader>
+        <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
+          <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Package className="w-5 h-5" />
               Select Specific Pieces - {currentOrderItem?.productName}
@@ -1201,9 +1324,9 @@ export default function NewOrder() {
           </DialogHeader>
           
           {currentOrderItem && (
-            <div className="space-y-4">
+            <div className="flex-1 flex flex-col space-y-4 overflow-hidden">
               {/* Summary */}
-              <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
+              <div className="flex-shrink-0 flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                 <div className="text-sm">
                   <span className="font-medium">Selected: {currentOrderItem.selectedIndividualProducts.length}</span>
                   <span className="text-muted-foreground ml-2">out of {currentOrderItem.quantity} required</span>
@@ -1215,7 +1338,7 @@ export default function NewOrder() {
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="text-sm text-muted-foreground">
-                    Available: {getAvailableIndividualProducts(currentOrderItem.productId).length} pieces
+                    Available: {getAvailableIndividualProducts(currentOrderItem.productId).length} {getDisplayUnit(currentOrderItem.productId, currentOrderItem.productType)}
                   </div>
                   <Button
                     size="sm"
@@ -1257,7 +1380,8 @@ export default function NewOrder() {
               </div>
 
               {/* Individual Products Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-96 overflow-y-auto border border-gray-200 rounded p-2">
+              <div className="flex-1 overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 border border-gray-200 rounded p-2">
                 {getAvailableIndividualProducts(currentOrderItem.productId).length === 0 ? (
                   <div className="col-span-full text-center py-12 text-muted-foreground">
                     <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
@@ -1378,11 +1502,12 @@ export default function NewOrder() {
                   );
                 })
                 )}
+                </div>
               </div>
 
               {/* Selection Summary */}
               {currentOrderItem.selectedIndividualProducts.length > 0 && (
-                <Card className="border-blue-200 bg-blue-50">
+                <Card className="flex-shrink-0 border-blue-200 bg-blue-50">
                   <CardHeader>
                     <CardTitle className="text-lg">Selected Pieces Summary</CardTitle>
                   </CardHeader>
@@ -1444,10 +1569,10 @@ export default function NewOrder() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Search className="w-5 h-5" />
-              Search and Select Product
+              Search and Select {currentOrderItem?.productType === 'raw_material' ? 'Raw Material' : 'Product'}
             </DialogTitle>
             <DialogDescription>
-              Find the perfect product for your order. Use search, filters, and browse by category.
+              Find the perfect {currentOrderItem?.productType === 'raw_material' ? 'raw material' : 'product'} for your order. Use search, filters, and browse by category.
             </DialogDescription>
           </DialogHeader>
 
@@ -1456,7 +1581,7 @@ export default function NewOrder() {
             <div className="flex gap-4">
               <div className="flex-1">
                 <Input
-                  placeholder="Search products by name, category, color, or size..."
+                  placeholder={`Search ${currentOrderItem?.productType === 'raw_material' ? 'raw materials by name, category, brand, or unit' : 'products by name, category, color, or size'}...`}
                   className="h-10"
                   onChange={(e) => {
                     // Filter products based on search
@@ -1503,7 +1628,7 @@ export default function NewOrder() {
 
             {/* Product Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
-              {realProducts.map((product) => (
+              {(currentOrderItem?.productType === 'raw_material' ? rawMaterials : realProducts).map((product) => (
                 <div
                   key={product.id}
                   className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${
@@ -1534,12 +1659,22 @@ export default function NewOrder() {
                   <div className="space-y-2">
                     <h3 className="font-semibold text-sm line-clamp-2">{product.name}</h3>
                     <div className="text-xs text-muted-foreground">
-                      {product.category} • {product.color} • {product.size}
+                      {currentOrderItem?.productType === 'raw_material' 
+                        ? `${product.category} • ${product.brand} • ${product.unit}`
+                        : `${product.category} • ${product.color} • ${product.size}`}
                     </div>
-                    {product.pattern && (
+                    {currentOrderItem?.productType === 'raw_material' ? (
+                      product.supplier && (
+                        <div className="text-xs text-muted-foreground">
+                          Supplier: {product.supplier}
+                        </div>
+                      )
+                    ) : (
+                      product.pattern && (
                       <div className="text-xs text-muted-foreground">
                         Pattern: {product.pattern}
                       </div>
+                      )
                     )}
                     {product.location && (
                       <div className="text-xs text-muted-foreground">

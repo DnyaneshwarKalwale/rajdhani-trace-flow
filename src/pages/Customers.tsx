@@ -237,7 +237,7 @@ export default function Customers() {
   const handleAddCustomer = () => {
     // Basic validation
     if (!newCustomerForm.name.trim() || !newCustomerForm.email.trim() || !newCustomerForm.phone.trim()) {
-      alert('Please fill in required fields: Name, Email, and Phone');
+      console.error('Please fill in required fields: Name, Email, and Phone');
       return;
     }
 
@@ -270,7 +270,7 @@ export default function Customers() {
     resetForm();
     setShowAddCustomerDialog(false);
     
-    alert(`Customer "${newCustomer.name}" added successfully!`);
+    console.log(`Customer "${newCustomer.name}" added successfully!`);
   };
 
   const resetForm = () => {
@@ -968,7 +968,7 @@ export default function Customers() {
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                               <div>
                                 <span className="text-muted-foreground">Items:</span>
-                                <p className="font-medium">{order.items.length} products</p>
+                                <p className="font-medium">{order.items.length} {order.items.some(item => item.productType === 'raw_material') ? 'items' : 'products'}</p>
                               </div>
                               <div>
                                 <span className="text-muted-foreground">Paid:</span>
@@ -977,6 +977,33 @@ export default function Customers() {
                               <div>
                                 <span className="text-muted-foreground">Outstanding:</span>
                                 <p className="font-medium text-red-600">₹{(order.outstandingAmount || 0).toLocaleString()}</p>
+                              </div>
+                            </div>
+
+                            {/* Order Items Details */}
+                            <div className="mt-3 pt-3 border-t">
+                              <h5 className="text-sm font-medium mb-2">Order Items:</h5>
+                              <div className="space-y-2">
+                                {order.items.map((item, index) => (
+                                  <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                                    <div className="flex-1">
+                                      <div className="font-medium">{item.productName}</div>
+                                      <div className="text-xs text-gray-600">
+                                        {item.productType === 'raw_material' ? 'Raw Material' : 'Finished Product'} • 
+                                        Qty: {item.quantity} • 
+                                        ₹{item.unitPrice}/unit
+                                      </div>
+                                      {item.selectedProducts && item.selectedProducts.length > 0 && (
+                                        <div className="text-xs text-blue-600 mt-1">
+                                          Individual IDs: {item.selectedProducts.map(p => p.qrCode || p.id).join(', ')}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="text-sm font-medium">
+                                      ₹{item.totalPrice.toLocaleString()}
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
                             </div>
 

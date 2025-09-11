@@ -91,7 +91,6 @@ interface IndividualProductData {
   finalDimensions: string;
   finalWeight: string;
   finalThickness: string;
-  finalPileHeight: string;
   qualityGrade: "A+" | "A" | "B" | "C" | "D";
   status: "available" | "damaged";
   notes: string;
@@ -112,6 +111,8 @@ export default function DynamicProductionFlow() {
   const [showAddMachineDialog, setShowAddMachineDialog] = useState(false);
   const [showWastageDialog, setShowWastageDialog] = useState(false);
   const [showIndividualProductsDialog, setShowIndividualProductsDialog] = useState(false);
+  const [showValidationPopup, setShowValidationPopup] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Array<{index: number, productId: string, missingFields: string[]}>>([]);
   
   // Form states
   const [stepForm, setStepForm] = useState({
@@ -172,34 +173,15 @@ export default function DynamicProductionFlow() {
       const flows = getFromStorage('rajdhani_production_flows') || [];
       const flow = flows.find((f: ProductionFlow) => f.productionProductId === productId);
       if (flow) {
-        console.log('Reloading production flow on mount:', flow);
         setProductionFlow(flow);
       }
     }
   }, [productId]);
 
-  // Emergency function to clear corrupted machine data
-  const clearMachineData = () => {
-    if (confirm('This will clear all machine data and reset to defaults. Continue?')) {
-      replaceStorage('rajdhani_machines', []);
-      loadMachines();
-      alert('Machine data cleared and reset to defaults');
-    }
-  };
-
-  // Emergency function to clear corrupted flows data
-  const clearFlowsData = () => {
-    if (confirm('This will clear all corrupted flows data. Continue?')) {
-      replaceStorage('rajdhani_production_flows', []);
-      loadProductionFlow();
-      alert('Flows data cleared and reset');
-    }
-  };
 
   // Clean up corrupted machine data
   const cleanupMachinesData = () => {
     const storedMachines = getFromStorage('rajdhani_machines');
-    console.log('Raw stored machines:', storedMachines);
     
     if (storedMachines && Array.isArray(storedMachines)) {
       // Function to deeply flatten any nested arrays
@@ -215,17 +197,14 @@ export default function DynamicProductionFlow() {
       };
       
       const flatMachines = deepFlatten(storedMachines);
-      console.log('Flattened machines:', flatMachines);
       
       // Remove duplicates based on ID
       const uniqueMachines = flatMachines.filter((machine, index, self) => 
         index === self.findIndex(m => m.id === machine.id)
       );
       
-      console.log('Unique machines after cleanup:', uniqueMachines);
       
       if (uniqueMachines.length !== storedMachines.length || storedMachines.some(item => Array.isArray(item))) {
-        console.log('Saving cleaned machines to storage');
         replaceStorage('rajdhani_machines', uniqueMachines);
         return uniqueMachines;
       }
@@ -273,10 +252,8 @@ export default function DynamicProductionFlow() {
       }
     ];
     
-    console.log('Loading machines after cleanup:', storedMachines);
     
     if (!Array.isArray(storedMachines) || storedMachines.length === 0) {
-      console.log('No valid stored machines found, using defaults');
       replaceStorage('rajdhani_machines', defaultMachines);
       setMachines(defaultMachines);
     } else {
@@ -290,21 +267,18 @@ export default function DynamicProductionFlow() {
         description: machine.description || ''
       }));
       
-      console.log('Valid machines loaded:', validMachines);
       setMachines(validMachines);
     }
   };
   
   const loadProductionFlow = () => {
     let flows = getFromStorage('rajdhani_production_flows') || [];
-    console.log('Raw flows in storage:', flows);
     
     // Clean up corrupted flows data
     if (Array.isArray(flows) && flows.length > 0) {
       // Check if we have nested arrays (corrupted data)
       const hasNestedArrays = flows.some(item => Array.isArray(item));
       if (hasNestedArrays) {
-        console.log('Detected corrupted flows data with nested arrays, cleaning up...');
         // Extract valid flow objects from the corrupted structure
         const validFlows = [];
         const extractFlows = (arr) => {
@@ -317,12 +291,10 @@ export default function DynamicProductionFlow() {
           });
         };
         extractFlows(flows);
-        console.log('Extracted valid flows:', validFlows);
         flows = validFlows;
         // Save cleaned flows
         try {
           replaceStorage('rajdhani_production_flows', flows);
-          console.log('Cleaned flows saved successfully');
         } catch (error) {
           console.error('Error saving cleaned flows:', error);
           // If still quota exceeded, clear all flows
@@ -332,16 +304,10 @@ export default function DynamicProductionFlow() {
       }
     }
     
-    console.log('Cleaned flows:', flows);
-    console.log('Looking for product ID:', productId);
     
     let flow = flows.find((f: ProductionFlow) => f.productionProductId === productId);
     
-    console.log('Loading production flow for product:', productId);
-    console.log('Found flow:', flow);
     
-    // Debug: Check all flow product IDs
-    console.log('All flow product IDs:', flows.map(f => f.productionProductId));
     
     if (!flow) {
       // Create initial flow with proper 4-step structure
@@ -395,11 +361,10 @@ export default function DynamicProductionFlow() {
       flows.push(flow);
       try {
         replaceStorage('rajdhani_production_flows', flows);
-        console.log('Created new flow:', flow);
       } catch (error) {
         console.error('Error saving new flow:', error);
         if (error.name === 'QuotaExceededError') {
-          alert('Storage quota exceeded. Please clear some data and try again.');
+          console.error('Storage quota exceeded. Clearing flows and saving new one.');
           // Clear all flows and save just this one
           replaceStorage('rajdhani_production_flows', [flow]);
         }
@@ -444,7 +409,6 @@ export default function DynamicProductionFlow() {
         }
       }
       
-      console.log('Loaded existing flow:', flow);
     }
     
     setProductionFlow(flow);
@@ -473,7 +437,8 @@ export default function DynamicProductionFlow() {
     
     if (step.stepType === 'material_selection') {
       // Material selection is already completed, show message
-      alert('Material selection is already completed. You can view selected materials in the production details page.');
+      console.log('Material selection is already completed. Redirecting to production details page.');
+      navigate(`/production/${productionProduct.id}`);
     } else if (step.stepType === 'machine_operation') {
       // For machine operations, show the machine selection popup
       setShowMachineSelectionPopup(true);
@@ -497,8 +462,6 @@ export default function DynamicProductionFlow() {
     const selectedMachine = machines.find(m => m.id === machineId);
     if (!selectedMachine) return;
     
-    console.log('Selecting machine:', selectedMachine);
-    console.log('Current flow before adding machine:', productionFlow);
     
     // Create a new machine step
     const newMachineStep: ProductionStep = {
@@ -532,7 +495,6 @@ export default function DynamicProductionFlow() {
       updatedAt: new Date().toISOString()
     };
     
-    console.log('Updated flow after adding machine:', updatedFlow);
     
     // Save to storage
     const flows = getFromStorage('rajdhani_production_flows') || [];
@@ -652,7 +614,7 @@ export default function DynamicProductionFlow() {
   // Machine management functions
   const addNewMachine = () => {
     if (!newMachineForm.name.trim()) {
-      alert('Machine name is required');
+      console.error('Machine name is required');
       return;
     }
 
@@ -663,8 +625,6 @@ export default function DynamicProductionFlow() {
       description: newMachineForm.description.trim() || ""
     };
 
-    console.log('Adding new machine:', newMachine);
-    console.log('Current machines before adding:', machines);
     
     // Get fresh cleaned machines from storage to prevent nesting
     const currentStoredMachines = cleanupMachinesData() || [];
@@ -673,13 +633,12 @@ export default function DynamicProductionFlow() {
     // Check for duplicates
     const isDuplicate = validCurrentMachines.some(m => m.name === newMachine.name);
     if (isDuplicate) {
-      alert(`Machine "${newMachine.name}" already exists!`);
+      console.error(`Machine "${newMachine.name}" already exists!`);
       return;
     }
     
     const updatedMachines = [...validCurrentMachines, newMachine];
     
-    console.log('Updated machines after adding:', updatedMachines);
     
     // Update both state and storage
     setMachines(updatedMachines);
@@ -689,12 +648,12 @@ export default function DynamicProductionFlow() {
     setNewMachineForm({ name: "", location: "", description: "" });
     setShowAddMachinePopup(false);
     
-    alert(`Machine "${newMachine.name}" added successfully!`);
+    console.log(`Machine "${newMachine.name}" added successfully!`);
   };
 
   const handleMachineSelection = () => {
     if (!selectedMachineId || !inspectorName.trim()) {
-      alert('Please select a machine and enter inspector name');
+      console.error('Please select a machine and enter inspector name');
       return;
     }
 
@@ -861,7 +820,6 @@ export default function DynamicProductionFlow() {
         finalDimensions: productionProduct.size || '',
         finalWeight: '',
         finalThickness: '',
-        finalPileHeight: '',
         qualityGrade: 'A' as const,
         status: 'available' as const,
         notes: ''
@@ -872,14 +830,34 @@ export default function DynamicProductionFlow() {
   };
   
   const handleCompleteProduction = () => {
-    // Validate individual products
+    // Validate individual products (excluding optional fields like pile height and notes)
     const requiredFields = ['finalWeight', 'finalThickness', 'finalWidth', 'finalHeight'];
-    const incompleteProducts = individualProducts.filter(product => 
-      requiredFields.some(field => !product[field as keyof IndividualProductData])
-    );
+    const fieldLabels = {
+      'finalWeight': 'Final Weight',
+      'finalThickness': 'Final Thickness', 
+      'finalWidth': 'Final Width',
+      'finalHeight': 'Final Height'
+    };
     
-    if (incompleteProducts.length > 0) {
-      alert(`Please fill all required fields for all products. ${incompleteProducts.length} products have incomplete data.`);
+    const errors: Array<{index: number, productId: string, missingFields: string[]}> = [];
+    
+    individualProducts.forEach((product, index) => {
+      const missingFields = requiredFields.filter(field => 
+        !product[field as keyof IndividualProductData]
+      );
+      
+      if (missingFields.length > 0) {
+        errors.push({
+          index: index + 1,
+          productId: product.id,
+          missingFields: missingFields.map(field => fieldLabels[field as keyof typeof fieldLabels])
+        });
+      }
+    });
+    
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      setShowValidationPopup(true);
       return;
     }
     
@@ -940,7 +918,7 @@ export default function DynamicProductionFlow() {
       replaceStorage('rajdhani_production_flows', updatedFlows);
     }
     
-    alert(`Production Completed! ${individualProducts.filter(p => p.status === "available").length} products added to inventory.`);
+    // Show completion success message (no alert needed - already handled in Complete.tsx)
     navigate('/production');
   };
   
@@ -997,44 +975,6 @@ export default function DynamicProductionFlow() {
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Production
         </Button>
-        {/* Debug Buttons - Remove after fixing */}
-        <Button 
-          variant="destructive" 
-          size="sm"
-          onClick={clearMachineData}
-          className="bg-red-600 hover:bg-red-700"
-        >
-          <Trash2 className="w-4 h-4 mr-2" />
-          Reset Machine Data
-        </Button>
-        <Button 
-          variant="outline" 
-          size="sm"
-          onClick={() => {
-            const flows = getFromStorage('rajdhani_production_flows') || [];
-            console.log('=== DEBUG: All flows in storage ===');
-            console.log('Total flows:', flows.length);
-            console.log('All flows:', flows);
-            console.log('Current product ID:', productId);
-            console.log('Flow for this product:', flows.find(f => f.productionProductId === productId));
-            console.log('=== END DEBUG ===');
-          }}
-          className="bg-blue-600 hover:bg-blue-700 text-white"
-        >
-          Debug Flows
-        </Button>
-        <Button 
-          variant="destructive" 
-          size="sm"
-          onClick={clearFlowsData}
-          className="bg-orange-600 hover:bg-orange-700"
-        >
-          <Trash2 className="w-4 h-4 mr-2" />
-          Clear Flows
-        </Button>
-        <div className="text-sm text-gray-600">
-          Machines: {machines.length} | Product: {productId}
-        </div>
       </div>
 
       {/* Unified Production Progress Bar */}
@@ -1489,7 +1429,6 @@ export default function DynamicProductionFlow() {
                     <th className="border border-gray-200 p-2 text-left text-sm font-medium">Dimensions</th>
                     <th className="border border-gray-200 p-2 text-left text-sm font-medium">Weight</th>
                     <th className="border border-gray-200 p-2 text-left text-sm font-medium">Thickness</th>
-                    <th className="border border-gray-200 p-2 text-left text-sm font-medium">Pile Height</th>
                     <th className="border border-gray-200 p-2 text-left text-sm font-medium">Quality</th>
                     <th className="border border-gray-200 p-2 text-left text-sm font-medium">Status</th>
                   </tr>
@@ -1526,17 +1465,6 @@ export default function DynamicProductionFlow() {
                           onChange={(e) => {
                             const updated = [...individualProducts];
                             updated[index].finalThickness = e.target.value;
-                            setIndividualProducts(updated);
-                          }}
-                          placeholder="mm"
-                        />
-                      </td>
-                      <td className="border border-gray-200 p-2">
-                        <Input
-                          value={product.finalPileHeight}
-                          onChange={(e) => {
-                            const updated = [...individualProducts];
-                            updated[index].finalPileHeight = e.target.value;
                             setIndividualProducts(updated);
                           }}
                           placeholder="mm"
@@ -1774,6 +1702,52 @@ export default function DynamicProductionFlow() {
               size="sm"
             >
               Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Validation Error Popup */}
+      <Dialog open={showValidationPopup} onOpenChange={setShowValidationPopup}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Incomplete Product Data
+            </DialogTitle>
+            <DialogDescription>
+              Please fill all required fields for the following products before completing production.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {validationErrors.map((error, index) => (
+              <div key={error.productId} className="border border-red-200 rounded-lg p-4 bg-red-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant="destructive" className="text-xs">
+                    Product #{error.index}
+                  </Badge>
+                  <span className="font-mono text-sm text-gray-600">{error.productId}</span>
+                </div>
+                <div className="text-sm text-gray-700">
+                  <span className="font-medium">Missing fields:</span>
+                  <ul className="list-disc list-inside mt-1 space-y-1">
+                    {error.missingFields.map((field, fieldIndex) => (
+                      <li key={fieldIndex} className="text-red-700">{field}</li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowValidationPopup(false)}
+              className="w-full"
+            >
+              Close and Fix Issues
             </Button>
           </DialogFooter>
         </DialogContent>

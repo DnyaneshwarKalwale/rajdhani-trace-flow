@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { getFromStorage, saveToStorage } from "@/lib/storage";
+import { getFromStorage, saveToStorage, replaceStorage } from "@/lib/storage";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,6 +71,7 @@ export default function OrderDetails() {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [products, setProducts] = useState<any[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingOrder, setEditingOrder] = useState<Order | null>(null);
   const [isEditingPayment, setIsEditingPayment] = useState(false);
@@ -94,6 +95,7 @@ export default function OrderDetails() {
       navigate('/orders');
     }
     
+    setOrders(orders);
     setProducts(allProducts);
     setLoading(false);
   }, [orderId, navigate, toast]);
@@ -121,7 +123,7 @@ export default function OrderDetails() {
     const updatedOrders = orders.map((o: any) => 
       o.id === orderId ? updatedOrder : o
     );
-    saveToStorage('rajdhani_orders', updatedOrders);
+    replaceStorage('rajdhani_orders', updatedOrders);
 
     setOrder(updatedOrder);
     setIsEditing(false);
@@ -220,7 +222,7 @@ export default function OrderDetails() {
     const updatedOrders = orders.map((o: any) => 
       o.id === orderId ? editingOrder : o
     );
-    saveToStorage('rajdhani_orders', updatedOrders);
+    replaceStorage('rajdhani_orders', updatedOrders);
 
     setOrder(editingOrder);
     setIsEditingPayment(false);
@@ -228,6 +230,43 @@ export default function OrderDetails() {
     toast({
       title: "Payment Updated",
       description: "Payment information has been updated successfully.",
+    });
+  };
+
+  // Handle order delivery - mark as delivered
+  const handleDeliverOrder = () => {
+    if (!order) return;
+
+    // Check if full payment is collected
+    if (order.outstandingAmount > 0) {
+      toast({
+        title: "❌ Payment Required",
+        description: `Full payment must be collected before delivery. Outstanding: ₹${order.outstandingAmount.toLocaleString()}`,
+        variant: "destructive"
+      });
+      return;
+    }
+
+    const updatedOrders = orders.map(o => 
+      o.id === orderId 
+        ? { 
+            ...o, 
+            status: 'delivered' as const, 
+            workflowStep: 'delivered' as const,
+            deliveredAt: new Date().toISOString()
+          }
+        : o
+    );
+
+    // Save to localStorage
+    replaceStorage('rajdhani_orders', updatedOrders);
+
+    // Update local state
+    setOrder(updatedOrders.find(o => o.id === orderId)!);
+
+    toast({
+      title: "🎉 Order Delivered",
+      description: "Order has been successfully delivered to the customer.",
     });
   };
 
@@ -726,7 +765,10 @@ export default function OrderDetails() {
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setIsEditingPayment(true)}
+                      onClick={() => {
+                        setEditingOrder(order);
+                        setIsEditingPayment(true);
+                      }}
                     >
                       <Edit className="w-3 h-3 mr-1" />
                       Edit
@@ -738,16 +780,25 @@ export default function OrderDetails() {
                   <div className="space-y-2">
                     <Input
                       type="number"
-                      value={currentOrder?.paidAmount || 0}
-                      onChange={(e) => handleUpdatePayment(parseFloat(e.target.value) || 0)}
+                      value={editingOrder?.paidAmount || 0}
+                      onChange={(e) => {
+                        const value = parseFloat(e.target.value) || 0;
+                        handleUpdatePayment(value);
+                      }}
                       className="text-green-600 font-semibold"
+                      placeholder="Enter paid amount"
+                      min="0"
+                      step="0.01"
                     />
                     <div className="flex gap-2">
                       <Button size="sm" onClick={handleSavePayment} className="bg-green-600 hover:bg-green-700">
                         <CheckCircle className="w-3 h-3 mr-1" />
                         Save
                       </Button>
-                      <Button size="sm" variant="outline" onClick={() => setIsEditingPayment(false)}>
+                      <Button size="sm" variant="outline" onClick={() => {
+                        setEditingOrder(order);
+                        setIsEditingPayment(false);
+                      }}>
                         Cancel
                       </Button>
                     </div>
@@ -792,6 +843,33 @@ export default function OrderDetails() {
                   </span>
                 </div>
               </div>
+
+              {/* Mark as Delivered Button for Dispatched Orders */}
+              {order.status === 'dispatched' && (
+                <div className="border-t pt-3 mt-3">
+                  {order.outstandingAmount > 0 ? (
+                    <div className="bg-orange-50 border border-orange-200 rounded-lg p-3">
+                      <div className="flex items-center gap-2 text-orange-800 mb-2">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="font-medium text-sm">Payment Required Before Delivery</span>
+                      </div>
+                      <p className="text-orange-700 text-xs">
+                        Please update the payment amount above to complete delivery.
+                      </p>
+                    </div>
+                  ) : (
+                    <Button 
+                      className="w-full bg-green-600 hover:bg-green-700"
+                      onClick={() => {
+                        handleDeliverOrder();
+                      }}
+                    >
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Mark as Delivered
+                    </Button>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 

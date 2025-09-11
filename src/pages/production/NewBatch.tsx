@@ -61,6 +61,7 @@ interface Product {
   createdAt: string;
   updatedAt: string;
   individualStocks?: IndividualProduct[];
+  individualStockTracking?: boolean;
 }
 
 interface ProductionProduct {
@@ -105,10 +106,19 @@ export default function NewBatch() {
     }
   }, [location.state]);
 
-  const filteredProducts = products.filter(product =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    product.category.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter(product => {
+    // Filter by search term
+    const matchesSearch = product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         product.category.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Only show products that are meant for production:
+    // 1. Not raw materials (category should not be "Raw Material")
+    // 2. Should have individual stock tracking (products that need to be produced)
+    const isProductionProduct = product.category !== "Raw Material" && 
+                               product.individualStockTracking !== false;
+    
+    return matchesSearch && isProductionProduct;
+  });
 
   const handleProductSelect = (product: Product) => {
     setSelectedProduct(product);

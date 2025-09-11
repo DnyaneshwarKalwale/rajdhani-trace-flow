@@ -15,12 +15,13 @@ import {
 } from "@/components/ui/select";
 import { 
   ArrowLeft, Package, CheckCircle, Plus, Trash2, Download, Upload,
-  Save, QrCode
+  Save, QrCode, AlertTriangle
 } from "lucide-react";
 import { getFromStorage, saveToStorage, generateUniqueId } from "@/lib/storage";
 import { getProductionFlow, updateProductionStep } from "@/lib/machines";
 import { Loading } from "@/components/ui/loading";
 import ProductionProgressBar from "@/components/production/ProductionProgressBar";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface IndividualProduct {
   id: string;
@@ -56,6 +57,15 @@ export default function Complete() {
   const [editValue, setEditValue] = useState("");
   const [inspector, setInspector] = useState("Admin");
   const [productionFlow, setProductionFlow] = useState<any>(null);
+  const [showValidationPopup, setShowValidationPopup] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<Array<{index: number, productId: string, missingFields: string[]}>>([]);
+  const [showCompletionPopup, setShowCompletionPopup] = useState(false);
+  const [completionSummary, setCompletionSummary] = useState<{
+    totalProducts: number;
+    available: number;
+    damaged: number;
+    averageQuality: string;
+  } | null>(null);
 
   // Function to generate globally unique custom ID
   const generateGloballyUniqueCustomId = (productName: string): string => {
@@ -161,6 +171,14 @@ export default function Complete() {
       const { row, col } = editingCell;
       newData[row] = { ...newData[row], [col]: editValue };
       setIndividualProducts(newData);
+      
+      // Auto-save to localStorage
+      const existing = getFromStorage('rajdhani_individual_products') || [];
+      const updated = existing.map((item: any) => 
+        item.id === newData[row].id ? newData[row] : item
+      );
+      localStorage.setItem('rajdhani_individual_products', JSON.stringify(updated));
+      
       setEditingCell(null);
       setEditValue("");
     }
@@ -215,22 +233,55 @@ export default function Complete() {
       productionSteps: productionSteps,
       notes: ""
     };
-    setIndividualProducts([...individualProducts, newProduct]);
+    const updatedProducts = [...individualProducts, newProduct];
+    setIndividualProducts(updatedProducts);
+    
+    // Auto-save to localStorage
+    const existing = getFromStorage('rajdhani_individual_products') || [];
+    existing.push(newProduct);
+    localStorage.setItem('rajdhani_individual_products', JSON.stringify(existing));
   };
 
   const removeRow = (index: number) => {
-    setIndividualProducts(individualProducts.filter((_, i) => i !== index));
+    const productToRemove = individualProducts[index];
+    const updatedProducts = individualProducts.filter((_, i) => i !== index);
+    setIndividualProducts(updatedProducts);
+    
+    // Auto-save to localStorage
+    const existing = getFromStorage('rajdhani_individual_products') || [];
+    const updated = existing.filter((item: any) => item.id !== productToRemove.id);
+    localStorage.setItem('rajdhani_individual_products', JSON.stringify(updated));
   };
 
   const handleCompleteProduction = () => {
-    // Validate all required fields are filled
-    const requiredFields = ['finalDimensions', 'finalWeight', 'finalThickness', 'finalPileHeight', 'qualityGrade'];
-    const incompleteProducts = individualProducts.filter(product => 
-      requiredFields.some(field => !product[field as keyof IndividualProduct] || product[field as keyof IndividualProduct] === "")
-    );
+    // Validate all required fields are filled (excluding optional fields like pile height and notes)
+    const requiredFields = ['finalDimensions', 'finalWeight', 'finalThickness', 'qualityGrade'];
+    const fieldLabels = {
+      'finalDimensions': 'Final Dimensions',
+      'finalWeight': 'Final Weight', 
+      'finalThickness': 'Final Thickness',
+      'qualityGrade': 'Quality Grade'
+    };
+    
+    const errors: Array<{index: number, productId: string, missingFields: string[]}> = [];
+    
+    individualProducts.forEach((product, index) => {
+      const missingFields = requiredFields.filter(field => 
+        !product[field as keyof IndividualProduct] || product[field as keyof IndividualProduct] === ""
+      );
+      
+      if (missingFields.length > 0) {
+        errors.push({
+          index: index + 1,
+          productId: product.id,
+          missingFields: missingFields.map(field => fieldLabels[field as keyof typeof fieldLabels])
+        });
+      }
+    });
 
-    if (incompleteProducts.length > 0) {
-      alert(`Please fill all required fields for all products. ${incompleteProducts.length} products have incomplete data.`);
+    if (errors.length > 0) {
+      setValidationErrors(errors);
+      setShowValidationPopup(true);
       return;
     }
 
@@ -296,10 +347,14 @@ export default function Complete() {
       }
     }
 
-    // Show completion summary
-    alert(`Production Completed Successfully!\n\nTotal Products: ${individualProducts.length}\nAvailable: ${individualProducts.filter(p => p.status === "available").length}\nDamaged: ${individualProducts.filter(p => p.status === "damaged").length}\nAverage Quality: ${calculateAverageQualityGrade(individualProducts)}`);
-
-    navigate('/production');
+    // Show completion summary popup
+    setCompletionSummary({
+      totalProducts: individualProducts.length,
+      available: individualProducts.filter(p => p.status === "available").length,
+      damaged: individualProducts.filter(p => p.status === "damaged").length,
+      averageQuality: calculateAverageQualityGrade(individualProducts)
+    });
+    setShowCompletionPopup(true);
   };
 
   const calculateAverageQualityGrade = (products: IndividualProduct[]): string => {
@@ -406,7 +461,15 @@ export default function Complete() {
               <Label className="text-sm text-gray-500">Inspector</Label>
               <Input
                 value={inspector}
-                onChange={(e) => setInspector(e.target.value)}
+                onChange={(e) => {
+                  setInspector(e.target.value);
+                  // Auto-save inspector name to localStorage
+                  const existing = getFromStorage('rajdhani_individual_products') || [];
+                  const updated = existing.map((item: any) => 
+                    individualProducts.some(p => p.id === item.id) ? { ...item, inspector: e.target.value } : item
+                  );
+                  localStorage.setItem('rajdhani_individual_products', JSON.stringify(updated));
+                }}
                 className="w-full"
               />
             </div>
@@ -589,6 +652,13 @@ export default function Complete() {
                           const newData = [...individualProducts];
                           newData[index].qualityGrade = value;
                           setIndividualProducts(newData);
+                          
+                          // Auto-save to localStorage
+                          const existing = getFromStorage('rajdhani_individual_products') || [];
+                          const updated = existing.map((item: any) => 
+                            item.id === newData[index].id ? newData[index] : item
+                          );
+                          localStorage.setItem('rajdhani_individual_products', JSON.stringify(updated));
                         }}
                       >
                         <SelectTrigger className="w-20">
@@ -610,6 +680,13 @@ export default function Complete() {
                           const newData = [...individualProducts];
                           newData[index].status = value;
                           setIndividualProducts(newData);
+                          
+                          // Auto-save to localStorage
+                          const existing = getFromStorage('rajdhani_individual_products') || [];
+                          const updated = existing.map((item: any) => 
+                            item.id === newData[index].id ? newData[index] : item
+                          );
+                          localStorage.setItem('rajdhani_individual_products', JSON.stringify(updated));
                         }}
                       >
                         <SelectTrigger className="w-24">
@@ -667,14 +744,15 @@ export default function Complete() {
                 {individualProducts.filter(p => p.status === "available").length} products will be added to inventory
               </p>
               {(() => {
-                const requiredFields = ['finalDimensions', 'finalWeight', 'finalThickness', 'finalPileHeight', 'qualityGrade'];
+                const requiredFields = ['finalDimensions', 'finalWeight', 'finalThickness', 'qualityGrade'];
                 const incompleteProducts = individualProducts.filter(product => 
                   requiredFields.some(field => !product[field as keyof IndividualProduct] || product[field as keyof IndividualProduct] === "")
                 );
                 return incompleteProducts.length > 0 ? (
-                  <p className="text-sm text-red-600 mt-1">
-                    ⚠️ {incompleteProducts.length} products have incomplete data. Please fill all required fields.
-                  </p>
+                  <div className="text-sm text-red-600 mt-1">
+                    <p>⚠️ {incompleteProducts.length} products have incomplete data.</p>
+                    <p className="text-xs mt-1">Missing: Final Dimensions, Final Weight, Final Thickness, or Quality Grade</p>
+                  </div>
                 ) : (
                   <p className="text-sm text-green-600 mt-1">
                     ✅ All products have complete data. Ready to complete production.
@@ -693,6 +771,108 @@ export default function Complete() {
       </div>
         </CardContent>
       </Card>
+
+      {/* Validation Error Popup */}
+      <Dialog open={showValidationPopup} onOpenChange={setShowValidationPopup}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="w-5 h-5" />
+              Incomplete Product Data
+            </DialogTitle>
+            <DialogDescription>
+              Please fill all required fields for the following products before completing production.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {validationErrors.map((error, index) => (
+              <div key={error.productId} className="border border-red-200 rounded-lg p-4 bg-red-50">
+                <div className="flex items-center gap-2 mb-2">
+                  <Badge variant="destructive" className="text-xs">
+                    Product #{error.index}
+                  </Badge>
+                  <span className="font-mono text-sm text-gray-600">{error.productId}</span>
+                </div>
+                <div className="text-sm text-red-700">
+                  <div className="font-medium mb-1">Missing fields:</div>
+                  <ul className="list-disc list-inside space-y-1">
+                    {error.missingFields.map((field, fieldIndex) => (
+                      <li key={fieldIndex} className="text-red-600">
+                        {field}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            ))}
+          </div>
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setShowValidationPopup(false)}
+              className="w-full"
+            >
+              Close and Fix Issues
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Production Completion Success Popup */}
+      <Dialog open={showCompletionPopup} onOpenChange={setShowCompletionPopup}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <CheckCircle className="w-6 h-6" />
+              Production Completed Successfully!
+            </DialogTitle>
+            <DialogDescription>
+              Your production batch has been completed and products have been added to inventory.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {completionSummary && (
+            <div className="space-y-4 py-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center p-3 bg-blue-50 rounded-lg">
+                  <div className="text-2xl font-bold text-blue-600">{completionSummary.totalProducts}</div>
+                  <div className="text-sm text-gray-600">Total Products</div>
+                </div>
+                <div className="text-center p-3 bg-green-50 rounded-lg">
+                  <div className="text-2xl font-bold text-green-600">{completionSummary.available}</div>
+                  <div className="text-sm text-gray-600">Available</div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="text-center p-3 bg-red-50 rounded-lg">
+                  <div className="text-2xl font-bold text-red-600">{completionSummary.damaged}</div>
+                  <div className="text-sm text-gray-600">Damaged</div>
+                </div>
+                <div className="text-center p-3 bg-purple-50 rounded-lg">
+                  <div className="text-2xl font-bold text-purple-600">{completionSummary.averageQuality}</div>
+                  <div className="text-sm text-gray-600">Avg Quality</div>
+                </div>
+              </div>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              onClick={() => {
+                setShowCompletionPopup(false);
+                navigate('/production');
+              }}
+              className="w-full bg-green-600 hover:bg-green-700"
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Continue to Production
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

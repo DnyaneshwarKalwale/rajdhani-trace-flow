@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   ArrowLeft, Package, AlertTriangle, QrCode, Calendar, 
-  Edit, Eye, Hash, Image, ShoppingCart, Star, Truck,
+  Edit, Eye, Hash, Image, Star, Truck,
   CheckCircle, Clock, MapPin, Scale, Ruler, Layers
 } from "lucide-react";
 
@@ -44,6 +44,7 @@ interface Product {
   thickness: string;
   width: string;
   height: string;
+  individualStockTracking?: boolean;
 }
 
 interface IndividualProduct {
@@ -332,6 +333,12 @@ export default function ProductDetail() {
 
   // Calculate available pieces for each product (excluding sold and damaged)
   const getAvailablePieces = (productId: string) => {
+    // If product doesn't have individual stock tracking, return the main quantity
+    if (product && product.individualStockTracking === false) {
+      return product.quantity || 0;
+    }
+    
+    // For products with individual stock tracking, count available individual products
     return (individualProducts || []).filter(ind => 
       ind?.productId === productId && ind?.status === "available"
     ).length;
@@ -370,10 +377,12 @@ export default function ProductDetail() {
           </div>
         </div>
         <div className="flex gap-2">
+          {product.individualStockTracking !== false && (
           <Button variant="outline" onClick={() => navigate(`/product-stock/${product.id}`)}>
             <Hash className="w-4 h-4 mr-2" />
             View Stock ({getAvailablePieces(product.id)} available)
           </Button>
+          )}
           <Button>
             <Edit className="w-4 h-4 mr-2" />
             Edit Product
@@ -468,6 +477,7 @@ export default function ProductDetail() {
 
           {/* Quick Actions */}
           <div className="flex gap-3">
+            {product.individualStockTracking !== false && (
             <Button 
               className="flex-1" 
               size="lg"
@@ -476,18 +486,17 @@ export default function ProductDetail() {
               <Hash className="w-5 h-5 mr-2" />
               View Individual Stock
             </Button>
-            <Button variant="outline" size="lg">
-              <ShoppingCart className="w-5 h-5 mr-2" />
-              Add to Order
-            </Button>
+            )}
           </div>
 
           {/* Product Details Tabs */}
           <Tabs defaultValue="overview" className="w-full">
-            <TabsList className="grid w-full grid-cols-4">
+            <TabsList className={`grid w-full ${product.materialsUsed && product.materialsUsed.length > 0 ? 'grid-cols-4' : 'grid-cols-3'}`}>
               <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="specifications">Specifications</TabsTrigger>
+              {product.materialsUsed && product.materialsUsed.length > 0 && (
               <TabsTrigger value="materials">Materials</TabsTrigger>
+              )}
               <TabsTrigger value="tracking">Tracking</TabsTrigger>
             </TabsList>
 
@@ -524,6 +533,7 @@ export default function ProductDetail() {
                         </p>
                       </div>
                     </div>
+                    {product.weight && product.weight !== "NA" && (
                     <div className="flex items-center gap-3">
                       <Scale className="w-5 h-5 text-muted-foreground" />
                       <div>
@@ -531,6 +541,8 @@ export default function ProductDetail() {
                         <p className="text-sm text-muted-foreground">{product.weight}</p>
                       </div>
                     </div>
+                    )}
+                    {product.dimensions && product.dimensions !== "NA" && product.size !== "NA" && (
                     <div className="flex items-center gap-3">
                       <Ruler className="w-5 h-5 text-muted-foreground" />
                       <div>
@@ -538,6 +550,7 @@ export default function ProductDetail() {
                         <p className="text-sm text-muted-foreground">{product.dimensions}</p>
                       </div>
                     </div>
+                    )}
                   </div>
                   {product.notes && (
                     <div>
@@ -557,44 +570,59 @@ export default function ProductDetail() {
                 <CardContent>
                   <div className="grid grid-cols-3 gap-6">
                     <div className="space-y-4">
+                      {product.dimensions && product.dimensions !== "NA" && product.size !== "NA" && (
                       <div>
                         <Label className="text-sm font-medium">Dimensions</Label>
                         <p className="text-sm text-muted-foreground">{product.dimensions}</p>
                       </div>
+                      )}
+                      {product.weight && product.weight !== "NA" && product.size !== "NA" && (
                       <div>
                         <Label className="text-sm font-medium">Weight</Label>
                         <p className="text-sm text-muted-foreground">{product.weight}</p>
                       </div>
+                      )}
+                      {product.thickness && product.thickness !== "NA" && product.size !== "NA" && (
                       <div>
                         <Label className="text-sm font-medium">Thickness</Label>
                         <p className="text-sm text-muted-foreground">{product.thickness}</p>
                       </div>
+                      )}
                     </div>
                     <div className="space-y-4">
+                      {product.width && product.width !== "NA" && product.size !== "NA" && (
                       <div>
                         <Label className="text-sm font-medium">Width</Label>
                         <p className="text-sm text-muted-foreground">{product.width}</p>
                       </div>
+                      )}
+                      {product.height && product.height !== "NA" && product.size !== "NA" && (
                       <div>
                         <Label className="text-sm font-medium">Height</Label>
                         <p className="text-sm text-muted-foreground">{product.height}</p>
                       </div>
+                      )}
                     </div>
                     <div className="space-y-4">
+                      {product.color && product.color !== "NA" && (
                       <div>
                         <Label className="text-sm font-medium">Color</Label>
                         <p className="text-sm text-muted-foreground">{product.color}</p>
                       </div>
+                      )}
+                      {product.pattern && product.pattern !== "NA" && (
                       <div>
                         <Label className="text-sm font-medium">Pattern</Label>
                         <p className="text-sm text-muted-foreground">{product.pattern}</p>
                       </div>
+                      )}
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
+            {product.materialsUsed && product.materialsUsed.length > 0 && (
             <TabsContent value="materials" className="space-y-4">
               <Card>
                 <CardHeader>
@@ -648,6 +676,7 @@ export default function ProductDetail() {
                 </CardContent>
               </Card>
             </TabsContent>
+            )}
 
             <TabsContent value="tracking" className="space-y-4">
               <Card>

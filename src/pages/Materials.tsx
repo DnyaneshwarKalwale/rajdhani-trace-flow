@@ -2953,10 +2953,10 @@ function WasteManagement() {
       console.log(`📈 Material stock increased from ${rawMaterials[materialIndex].currentStock - waste.quantity} to ${rawMaterials[materialIndex].currentStock} ${waste.unit}`);
       
       // Show success message with stock details
-      alert(`✅ Successfully added ${waste.quantity} ${waste.unit} of ${waste.materialName} back to inventory!\n\nStock increased to: ${rawMaterials[materialIndex].currentStock} ${waste.unit}\nStatus: ${rawMaterials[materialIndex].status}`);
+      console.log(`✅ Successfully added ${waste.quantity} ${waste.unit} of ${waste.materialName} back to inventory! Stock increased to: ${rawMaterials[materialIndex].currentStock} ${waste.unit}, Status: ${rawMaterials[materialIndex].status}`);
     } else {
       console.error('Material not found in raw materials inventory:', waste.materialId);
-      alert('Error: Material not found in inventory. Please check the material ID.');
+      console.error('Error: Material not found in inventory. Please check the material ID.');
     }
   };
 

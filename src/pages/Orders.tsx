@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { getFromStorage, fixNestedArray, saveToStorage } from "@/lib/storage";
+import { getFromStorage, fixNestedArray, saveToStorage, replaceStorage } from "@/lib/storage";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -69,11 +69,13 @@ interface Product {
   sellingPrice: number;
   status: "in-stock" | "low-stock" | "out-of-stock";
   individualProducts: IndividualProduct[];
+  individualStockTracking?: boolean;
 }
 
 interface OrderItem {
   productId: string;
   productName: string;
+  productType: 'product' | 'raw_material';
   quantity: number;
   unitPrice: number;
   totalPrice: number;
@@ -160,29 +162,95 @@ export default function Orders() {
     const flatOrders = fixNestedArray(storedOrders);
     if (flatOrders !== storedOrders) {
       console.log('🔧 Fixed nested orders array, flattened from', storedOrders.length, 'to', flatOrders.length);
-      // Save the flattened array back to localStorage
-      localStorage.setItem('rajdhani_orders', JSON.stringify(flatOrders));
     }
     
-    setOrders(flatOrders);
+    // Clean up malformed orders (orders with missing essential data)
+    const validOrders = flatOrders.filter(order => {
+      if (!order || !order.orderNumber || !order.customerName || !order.items || order.items.length === 0) {
+        console.log('🧹 Removing malformed order:', order);
+        return false;
+      }
+      return true;
+    });
+    
+    // Save cleaned orders back to localStorage if any were removed
+    if (validOrders.length !== flatOrders.length) {
+      console.log('🧹 Cleaned up orders, removed', flatOrders.length - validOrders.length, 'malformed orders');
+      replaceStorage('rajdhani_orders', validOrders);
+    }
+    
+    setOrders(validOrders);
     setCustomers(storedCustomers);
     setProducts(storedProducts);
     
     console.log('📦 Loaded data from storage:');
-    console.log('  - Orders:', flatOrders.length);
+    console.log('  - Orders:', validOrders.length);
     console.log('  - Customers:', storedCustomers.length);
     console.log('  - Products:', storedProducts.length);
-    console.log('📋 Orders data:', flatOrders);
+    console.log('📋 Orders data:', validOrders);
   }, []);
+
+  // Check if order can be dispatched (has enough selected individual products)
+  const canDispatchOrder = (order: Order) => {
+    return order.items.every(item => {
+      // Raw materials never need individual selection
+      if (item.productType === 'raw_material') {
+        return true;
+      }
+      
+      // Check if this product has individual stock tracking
+      const product = products.find(p => p.id === item.productId);
+      const hasIndividualStock = product && product.individualStockTracking !== false;
+      
+      if (!hasIndividualStock) {
+        // For bulk products, no individual selection needed
+        return true;
+      }
+      
+      // For individual stock products, check if enough products are selected
+      const requiredQuantity = item.quantity;
+      const selectedQuantity = item.selectedProducts ? item.selectedProducts.length : 0;
+      return selectedQuantity >= requiredQuantity;
+    });
+  };
+
+  // Get order status message
+  const getOrderStatusMessage = (order: Order) => {
+    const hasRawMaterials = order.items.some(item => item.productType === 'raw_material');
+    const hasBulkProducts = order.items.some(item => {
+      const product = products.find(p => p.id === item.productId);
+      return product && product.individualStockTracking === false;
+    });
+    
+    if (hasRawMaterials && canDispatchOrder(order)) {
+      return 'Ready to Dispatch (Raw Materials)';
+    } else if (hasBulkProducts && canDispatchOrder(order)) {
+      return 'Ready to Dispatch (Bulk Products)';
+    } else if (canDispatchOrder(order)) {
+      return 'Ready to Dispatch';
+    } else {
+      return 'Awaiting Product Selection';
+    }
+  };
 
   // Handle order dispatch - deduct stock and mark as dispatched
   const handleDispatchOrder = (orderId: string) => {
     const order = orders.find(o => o.id === orderId);
     if (!order) return;
 
-    // Deduct stock from products
+    // Check if order can be dispatched
+    if (!canDispatchOrder(order)) {
+      toast({
+        title: "❌ Cannot Dispatch Order",
+        description: "Not enough individual products selected. Please select sufficient products for all items.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Deduct stock from products (only for finished products)
     const updatedProducts = products.map(product => {
-      const orderedItem = order.items.find(item => item.productId === product.id);
+      const orderedItem = order.items.find(item => item.productId === product.id && item.productType === 'product');
       if (orderedItem) {
         const newQuantity = product.quantity - orderedItem.quantity;
         return {
@@ -195,12 +263,42 @@ export default function Orders() {
       return product;
     });
 
-    // Update individual products status
+    // Deduct stock from raw materials
+    const storedRawMaterials = getFromStorage('rajdhani_raw_materials') || [];
+    const updatedRawMaterials = storedRawMaterials.map((material: any) => {
+      const orderedItem = order.items.find(item => item.productId === material.id && item.productType === 'raw_material');
+      if (orderedItem) {
+        const newQuantity = material.currentStock - orderedItem.quantity;
+        return {
+          ...material,
+          currentStock: Math.max(0, newQuantity),
+          status: newQuantity <= 0 ? 'out-of-stock' : 
+                 newQuantity <= 10 ? 'low-stock' : 'in-stock'
+        };
+      }
+      return material;
+    });
+
+    // Update individual products status (only for products with individual stock tracking)
     const updatedIndividualProducts = getFromStorage('rajdhani_individual_products') || [];
     const updatedIndProducts = updatedIndividualProducts.map(indProduct => {
-      const selectedInOrder = order.items.some(item => 
-        item.selectedProducts && item.selectedProducts.some(selected => selected.id === indProduct.id)
-      );
+      const selectedInOrder = order.items.some(item => {
+        // Skip raw materials
+        if (item.productType === 'raw_material') {
+          return false;
+        }
+        
+        // Only process items that have individual stock tracking
+        const product = products.find(p => p.id === item.productId);
+        const hasIndividualStock = product && product.individualStockTracking !== false;
+        
+        if (!hasIndividualStock) {
+          return false; // Skip bulk products
+        }
+        
+        return item.selectedProducts && item.selectedProducts.some(selected => selected.id === indProduct.id);
+      });
+      
       if (selectedInOrder) {
         return {
           ...indProduct,
@@ -226,9 +324,10 @@ export default function Orders() {
     );
 
     // Save to localStorage
-    saveToStorage('rajdhani_orders', updatedOrders);
-    saveToStorage('rajdhani_products', updatedProducts);
-    saveToStorage('rajdhani_individual_products', updatedIndProducts);
+    replaceStorage('rajdhani_orders', updatedOrders);
+    replaceStorage('rajdhani_products', updatedProducts);
+    replaceStorage('rajdhani_individual_products', updatedIndProducts);
+    replaceStorage('rajdhani_raw_materials', updatedRawMaterials);
 
     // Update local state
     setOrders(updatedOrders);
@@ -267,7 +366,7 @@ export default function Orders() {
     );
 
     // Save to localStorage
-    saveToStorage('rajdhani_orders', updatedOrders);
+    replaceStorage('rajdhani_orders', updatedOrders);
 
     // Update local state
     setOrders(updatedOrders);
@@ -281,6 +380,12 @@ export default function Orders() {
   // Filter orders
   const filteredOrders = orders.filter(order => {
     if (!order) return false;
+    
+    // Filter out orders with missing essential data
+    if (!order.orderNumber || !order.customerName || !order.items || order.items.length === 0) {
+      console.log('🚨 Filtering out order with missing data:', order);
+      return false;
+    }
     
     const matchesSearch = (order.orderNumber || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
                          (order.customerName || '').toLowerCase().includes(searchTerm.toLowerCase());
@@ -379,13 +484,42 @@ export default function Orders() {
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
                 <span className="text-muted-foreground">Items:</span>
-                <div className="font-medium">{order.items?.length || 0} products</div>
+                <div className="font-medium">{order.items?.length || 0} {order.items?.some(item => item.productType === 'raw_material') ? 'items' : 'products'}</div>
               </div>
               <div>
                 <span className="text-muted-foreground">Total Amount:</span>
                 <div className="font-medium">₹{(order.totalAmount || 0).toLocaleString()}</div>
               </div>
             </div>
+
+            {/* Order Items Details */}
+            {order.items && order.items.length > 0 && (
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                <h4 className="font-medium text-gray-900 mb-3">Order Items:</h4>
+                <div className="space-y-2">
+                  {order.items.map((item, index) => (
+                    <div key={index} className="flex items-center justify-between p-2 bg-white rounded border">
+                      <div className="flex-1">
+                        <div className="font-medium text-sm">{item.productName}</div>
+                        <div className="text-xs text-gray-600">
+                          {item.productType === 'raw_material' ? 'Raw Material' : 'Finished Product'} • 
+                          Qty: {item.quantity} • 
+                          ₹{item.unitPrice}/unit
+                        </div>
+                        {item.selectedProducts && item.selectedProducts.length > 0 && (
+                          <div className="text-xs text-blue-600 mt-1">
+                            Individual IDs: {item.selectedProducts.map(p => p.qrCode || p.id).join(', ')}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-sm font-medium">
+                        ₹{item.totalPrice.toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -415,19 +549,46 @@ export default function Orders() {
               <div className="bg-blue-50 p-3 rounded-lg mb-3">
                 <div className="flex items-center gap-2 text-blue-700 font-medium mb-2">
                   <CheckCircle className="w-4 h-4" />
-                  <span>Order Accepted - Ready to Dispatch</span>
+                  <span>Order Accepted - {getOrderStatusMessage(order)}</span>
                 </div>
-                <Button 
-                  className="w-full bg-orange-600 hover:bg-orange-700"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDispatchOrder(order.id);
-                  }}
-                >
-                  <Package className="w-4 h-4 mr-2" />
-                  Dispatch Order
-                </Button>
+                {canDispatchOrder(order) ? (
+                  <Button 
+                    className="w-full bg-orange-600 hover:bg-orange-700"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDispatchOrder(order.id);
+                    }}
+                  >
+                    <Package className="w-4 h-4 mr-2" />
+                    Dispatch Order
+                  </Button>
+                ) : (
+                  <div className="space-y-2">
+                    <Button 
+                      className="w-full bg-gray-400 cursor-not-allowed"
+                      size="sm"
+                      disabled
+                    >
+                      <Package className="w-4 h-4 mr-2" />
+                      Dispatch Order (Insufficient Products Selected)
+                    </Button>
+                    <Button 
+                      className="w-full bg-blue-600 hover:bg-blue-700"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/orders/${order.id}`);
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Select Individual Products
+                    </Button>
+                    <div className="text-xs text-gray-600 text-center">
+                      Please select individual products for all items before dispatching
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -437,17 +598,51 @@ export default function Orders() {
                   <Package className="w-4 h-4" />
                   <span>Order Dispatched - Ready to Deliver</span>
                 </div>
-                <Button 
-                  className="w-full bg-green-600 hover:bg-green-700"
-                  size="sm"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeliverOrder(order.id);
-                  }}
-                >
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  Mark as Delivered
-                </Button>
+                
+                {/* Payment Status */}
+                <div className="mb-3 p-2 bg-white rounded border">
+                  <div className="flex justify-between text-sm">
+                    <span>Paid Amount:</span>
+                    <span className="font-medium text-green-600">₹{(order.paidAmount || 0).toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Outstanding:</span>
+                    <span className={`font-medium ${(order.outstandingAmount || 0) > 0 ? 'text-red-600' : 'text-green-600'}`}>
+                      ₹{(order.outstandingAmount || 0).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {order.outstandingAmount > 0 ? (
+                  <div className="space-y-2">
+                    <div className="text-xs text-orange-700 bg-orange-100 p-2 rounded">
+                      <strong>Payment Required:</strong> Full payment must be collected before delivery.
+                    </div>
+                    <Button 
+                      className="w-full bg-blue-600 hover:bg-blue-700"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigate(`/orders/${order.id}`);
+                      }}
+                    >
+                      <Edit className="w-4 h-4 mr-2" />
+                      Update Payment & Deliver
+                    </Button>
+                  </div>
+                ) : (
+                  <Button 
+                    className="w-full bg-green-600 hover:bg-green-700"
+                    size="sm"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeliverOrder(order.id);
+                    }}
+                  >
+                    <CheckCircle className="w-4 h-4 mr-2" />
+                    Mark as Delivered
+                  </Button>
+                )}
               </div>
             )}
 

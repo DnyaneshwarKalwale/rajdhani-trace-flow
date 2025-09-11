@@ -169,7 +169,7 @@ export default function Production() {
   // Handle machine selection from popup
   const handleMachineSelection = () => {
     if (!selectedMachineId || !inspectorName.trim() || !selectedProduct) {
-      alert('Please select a machine and enter inspector name');
+      console.error('Please select a machine and enter inspector name');
       return;
     }
 

@@ -63,6 +63,7 @@ interface Product {
   thickness: string;
   width: string;
   height: string;
+  individualStockTracking?: boolean;
 }
 
 interface IndividualProduct {
@@ -105,8 +106,17 @@ export default function Products() {
 
   // Dynamic dropdown state
   const [categories, setCategories] = useState<string[]>(["Handmade", "Machine Made", "Custom", "Plain Carpet"]);
-  const [colors, setColors] = useState<string[]>(["Red", "Blue", "Green", "Brown", "White", "Black", "Multi-Color", "NA"]);
+  const [colors, setColors] = useState<string[]>(["Red", "Blue", "Green", "Brown", "White", "Black", "Red & Gold", "Blue & White", "Green & Gold", "Brown & Beige", "Black & White", "Multi-Color", "NA"]);
+  const [colorSearchTerm, setColorSearchTerm] = useState("");
   const [sizes, setSizes] = useState<string[]>(["3x5 feet", "5x7 feet", "6x9 feet", "8x10 feet", "9x12 feet", "10x14 feet", "Custom"]);
+  
+  // Filter colors based on search term
+  const getFilteredColors = () => {
+    if (!colorSearchTerm.trim()) return colors;
+    return colors.filter(color => 
+      color.toLowerCase().includes(colorSearchTerm.toLowerCase())
+    );
+  };
   const [patterns, setPatterns] = useState<string[]>(["Persian Medallion", "Geometric", "Floral", "Traditional", "Modern", "Abstract", "Tribal", "Plain", "Custom"]);
   const [units, setUnits] = useState<string[]>(["pieces", "sqm", "sets", "rolls", "kg", "gm", "m", "cm", "mm"]);
   const [locations, setLocations] = useState<string[]>(["Warehouse A - Shelf 1", "Warehouse A - Shelf 2", "Warehouse B - Shelf 1", "Warehouse B - Shelf 2", "Warehouse C - Shelf 1"]);
@@ -155,6 +165,8 @@ export default function Products() {
   const [showAddPattern, setShowAddPattern] = useState(false);
   const [showAddUnit, setShowAddUnit] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
+  const [materialsApplicable, setMaterialsApplicable] = useState(true);
+  const [individualStockTracking, setIndividualStockTracking] = useState(true);
 
   // Load products and dynamic options from localStorage
   useEffect(() => {
@@ -266,6 +278,17 @@ export default function Products() {
     return `QR-CARPET-${timestamp}-${random}`;
   };
 
+  // Check if product has individual stock items
+  const hasIndividualStock = (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    if (product && product.individualStockTracking !== undefined) {
+      return product.individualStockTracking;
+    }
+    // Fallback: check if individual products exist
+    const individualProducts = getFromStorage('rajdhani_individual_products') || [];
+    return individualProducts.some((item: IndividualProduct) => item.productId === productId);
+  };
+
   // Auto-calculate dimensions from size
   const calculateDimensionsFromSize = (size: string) => {
     const sizeMap: { [key: string]: { width: string, height: string, dimensions: string } } = {
@@ -285,7 +308,7 @@ export default function Products() {
   const handleAddProduct = () => {
     // Validation - required fields
     if (!newProduct.name || !newProduct.category || !newProduct.quantity || !newProduct.sellingPrice || !newProduct.unit) {
-      alert("Please fill in all required fields: Name, Category, Quantity, Selling Price, and Unit");
+      console.error("Please fill in all required fields: Name, Category, Quantity, Selling Price, and Unit");
       return;
     }
 
@@ -317,7 +340,8 @@ export default function Products() {
         weight: newProduct.weight || "NA",
         thickness: newProduct.thickness || "NA",
         width: newProduct.width || "NA",
-        height: newProduct.height || "NA"
+        height: newProduct.height || "NA",
+        individualStockTracking: individualStockTracking
       };
 
       // Save to products storage
@@ -325,7 +349,8 @@ export default function Products() {
       existingProducts.push(product);
       localStorage.setItem('rajdhani_products', JSON.stringify(existingProducts));
 
-      // Create individual stock items for each quantity
+      // Create individual stock items only if individual tracking is enabled
+      if (individualStockTracking) {
       const individualProducts: IndividualProduct[] = [];
       for (let i = 0; i < product.quantity; i++) {
         const individualProduct: IndividualProduct = {
@@ -350,6 +375,7 @@ export default function Products() {
       const existingIndividualProducts = getFromStorage('rajdhani_individual_products');
       const updatedIndividualProducts = [...existingIndividualProducts, ...individualProducts];
       localStorage.setItem('rajdhani_individual_products', JSON.stringify(updatedIndividualProducts));
+      }
 
       // Save recipe if materials were added
       if (productMaterials.length > 0) {
@@ -401,13 +427,19 @@ export default function Products() {
       });
       setImagePreview("");
       setSelectedImage(null);
+      setMaterialsApplicable(true); // Reset to default
+      setIndividualStockTracking(true); // Reset to default
       setIsAddProductOpen(false);
 
-      alert(`Product "${product.name}" added successfully!\n${product.quantity} individual stock items created with unique QR codes.`);
+      const successMessage = individualStockTracking 
+        ? `Product "${product.name}" added successfully!\n${product.quantity} individual stock items created with unique QR codes.`
+        : `Product "${product.name}" added successfully!\nBulk quantity: ${product.quantity} ${product.unit} (no individual QR codes).`;
+      
+      console.log(successMessage);
       
     } catch (error) {
       console.error('Error adding product:', error);
-      alert('Error adding product. Please try again.');
+      console.error('Error adding product. Please try again.');
     }
   };
 
@@ -430,6 +462,7 @@ export default function Products() {
       localStorage.setItem('rajdhani_product_colors', JSON.stringify(updatedColors));
       setNewProduct({...newProduct, color: newColorInput.trim()});
       setNewColorInput("");
+      setColorSearchTerm(""); // Clear search term when new color is added
       setShowAddColor(false);
     }
   };
@@ -519,7 +552,7 @@ export default function Products() {
 
   const addProductMaterial = () => {
     if (!newMaterial.materialId || !newMaterial.quantity || !newMaterial.cost) {
-      alert("Please fill in all material fields");
+      console.error("Please fill in all material fields");
       return;
     }
 
@@ -575,6 +608,14 @@ export default function Products() {
 
   // Calculate available pieces for each product (excluding sold and damaged)
   const getAvailablePieces = (productId: string) => {
+    const product = products.find(p => p.id === productId);
+    
+    // If product doesn't have individual stock tracking, return the main quantity
+    if (product && product.individualStockTracking === false) {
+      return product.quantity || 0;
+    }
+    
+    // For products with individual stock tracking, count available individual products
     const individualProducts = getFromStorage('rajdhani_individual_products') || [];
     return individualProducts.filter((ind: IndividualProduct) => 
       ind?.productId === productId && ind?.status === "available"
@@ -757,13 +798,30 @@ export default function Products() {
                               setShowAddColor(true);
                             } else {
                               setNewProduct({...newProduct, color: value});
+                              setColorSearchTerm(""); // Clear search when color is selected
                             }
                           }}>
                             <SelectTrigger>
                               <SelectValue placeholder="Select color" />
                             </SelectTrigger>
                             <SelectContent>
-                              {colors.map(color => (
+                              {/* Search Input */}
+                              <div className="p-2 border-b">
+                                <Input
+                                  placeholder="Search colors..."
+                                  value={colorSearchTerm}
+                                  onChange={(e) => setColorSearchTerm(e.target.value)}
+                                  className="h-8"
+                                />
+                              </div>
+                              
+                              {/* Add New Color Option - Always at top */}
+                              <SelectItem value="add_new" className="text-blue-600 font-medium">
+                                + Add New Color
+                              </SelectItem>
+                              
+                              {/* Color Options */}
+                              {getFilteredColors().map(color => (
                                 <SelectItem key={color} value={color}>
                                   {color === "NA" ? (
                                     <span className="text-gray-500 italic">NA (No Color)</span>
@@ -772,9 +830,13 @@ export default function Products() {
                                   )}
                                 </SelectItem>
                               ))}
-                              <SelectItem value="add_new" className="text-blue-600 font-medium">
-                                + Add New Color
-                              </SelectItem>
+                              
+                              {/* Show message if no colors found */}
+                              {getFilteredColors().length === 0 && (
+                                <div className="p-2 text-sm text-gray-500 text-center">
+                                  No colors found matching "{colorSearchTerm}"
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
                         )}
@@ -799,6 +861,17 @@ export default function Products() {
                           <Select value={newProduct.size} onValueChange={(value) => {
                             if (value === "add_new") {
                               setShowAddSize(true);
+                            } else if (value === "NA") {
+                              // Clear dimension fields when NA is selected
+                              setNewProduct({
+                                ...newProduct, 
+                                size: value,
+                                weight: "",
+                                thickness: "",
+                                width: "",
+                                height: "",
+                                dimensions: ""
+                              });
                             } else {
                               const calculatedDimensions = calculateDimensionsFromSize(value);
                               setNewProduct({
@@ -869,115 +942,6 @@ export default function Products() {
                       </div>
                     </div>
 
-
-                    {/* Materials Section */}
-                    <div className="border-t pt-4">
-                      <div className="flex items-center justify-between mb-4">
-                        <Label className="text-lg font-medium">Materials Used</Label>
-                        <div className="text-sm text-muted-foreground bg-blue-50 px-3 py-1 rounded-lg">
-                          💡 Materials added here will be saved as recipe for future production
-                        </div>
-                      </div>
-                      
-                      {/* Add Material Form */}
-                      <div className="bg-gray-50 p-4 rounded-lg mb-4">
-                        <div className="grid grid-cols-2 gap-4 mb-4">
-                          <div>
-                            <Label htmlFor="materialSelect">Select Material</Label>
-                            <Select value={newMaterial.materialId} onValueChange={handleMaterialSelection}>
-                              <SelectTrigger>
-                                <SelectValue placeholder="Choose from existing materials" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {rawMaterials.map((material) => (
-                                  <SelectItem key={material.id} value={material.id}>
-                                    {material.name} - {material.currentStock} {material.unit} available
-                                  </SelectItem>
-                                ))}
-                                <SelectItem value="add_new" className="text-blue-600 font-medium">
-                                  + Add New Material
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div>
-                            <Label htmlFor="materialName">Material Name</Label>
-                            <Input
-                              id="materialName"
-                              value={newMaterial.materialName}
-                              onChange={(e) => setNewMaterial({...newMaterial, materialName: e.target.value})}
-                              placeholder="Enter material name"
-                            />
-                          </div>
-                        </div>
-                        
-                        <div className="grid grid-cols-3 gap-4 mb-4">
-                          <div>
-                            <Label htmlFor="materialQuantity">Quantity</Label>
-                            <Input
-                              id="materialQuantity"
-                              type="number"
-                              value={newMaterial.quantity}
-                              onChange={(e) => setNewMaterial({...newMaterial, quantity: e.target.value})}
-                              placeholder="e.g., 5"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="materialUnit">Unit</Label>
-                            <Input
-                              id="materialUnit"
-                              value={newMaterial.unit}
-                              onChange={(e) => setNewMaterial({...newMaterial, unit: e.target.value})}
-                              placeholder="e.g., kg, rolls"
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="materialCost">Cost per Unit (₹)</Label>
-                            <Input
-                              id="materialCost"
-                              type="number"
-                              value={newMaterial.cost}
-                              onChange={(e) => setNewMaterial({...newMaterial, cost: e.target.value})}
-                              placeholder="e.g., 150"
-                            />
-                          </div>
-                        </div>
-                        
-                        <Button onClick={addProductMaterial} className="w-full">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Material to Product
-                        </Button>
-                      </div>
-
-                      {/* Added Materials List */}
-                      {productMaterials.length > 0 && (
-                        <div className="space-y-2">
-                          <Label className="text-sm font-medium">Added Materials:</Label>
-                          {productMaterials.map((material, index) => (
-                            <div key={index} className="flex items-center justify-between bg-blue-50 p-3 rounded-lg">
-                              <div className="flex-1">
-                                <div className="font-medium">{material.materialName}</div>
-                                <div className="text-sm text-gray-600">
-                                  {material.quantity} {material.unit} × ₹{material.cost} = ₹{(material.quantity * material.cost).toFixed(2)}
-                                </div>
-                              </div>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => removeProductMaterial(index)}
-                                className="text-red-600 hover:bg-red-50"
-                              >
-                                <X className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          ))}
-                          <div className="text-right font-medium text-lg">
-                            Total Material Cost: ₹{productMaterials.reduce((sum, m) => sum + (m.quantity * m.cost), 0).toFixed(2)}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="quantity">Quantity *</Label>
@@ -1028,6 +992,41 @@ export default function Products() {
                       </div>
                     </div>
 
+                    {/* Individual Stock Tracking Option */}
+                    <div className="mb-4">
+                      <Label className="text-sm font-medium mb-2 block">Individual Stock Tracking</Label>
+                      <div className="flex gap-4">
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="individualStockTracking"
+                            value="yes"
+                            checked={individualStockTracking === true}
+                            onChange={() => setIndividualStockTracking(true)}
+                            className="text-blue-600"
+                          />
+                          <span className="text-sm">Yes, track individual pieces (with QR codes)</span>
+                        </label>
+                        <label className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="individualStockTracking"
+                            value="no"
+                            checked={individualStockTracking === false}
+                            onChange={() => setIndividualStockTracking(false)}
+                            className="text-blue-600"
+                          />
+                          <span className="text-sm">No, bulk tracking only (no QR codes)</span>
+                        </label>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1">
+                        {individualStockTracking 
+                          ? "Each piece will have a unique QR code for individual tracking" 
+                          : "Product will be tracked as bulk quantity without individual QR codes"
+                        }
+                      </div>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="sellingPrice">Selling Price (₹) *</Label>
@@ -1040,6 +1039,8 @@ export default function Products() {
                           required
                         />
                       </div>
+                      {/* Only show weight if size is not NA */}
+                      {newProduct.size !== "NA" && (
                       <div>
                         <Label htmlFor="weight">Weight (kg)</Label>
                         <Input
@@ -1050,8 +1051,11 @@ export default function Products() {
                           placeholder="e.g., 45"
                         />
                       </div>
+                      )}
                     </div>
 
+                    {/* Only show thickness if size is not NA */}
+                    {newProduct.size !== "NA" && (
                     <div>
                       <Label htmlFor="thickness">Thickness (mm) *</Label>
                       <Input
@@ -1063,7 +1067,10 @@ export default function Products() {
                           required
                       />
                     </div>
+                    )}
 
+                    {/* Only show width and height if size is not NA */}
+                    {newProduct.size !== "NA" && (
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="width">Width (meters)</Label>
@@ -1084,6 +1091,7 @@ export default function Products() {
                         />
                       </div>
                     </div>
+                    )}
 
                     {/* Location Dropdown */}
                     <div>
@@ -1182,6 +1190,150 @@ export default function Products() {
                       </div>
 
                     </div>
+
+                    {/* Materials Section - Moved to Bottom */}
+                    <div className="border-t pt-4">
+                      <div className="flex items-center justify-between mb-4">
+                        <Label className="text-lg font-medium">Materials Used</Label>
+                        <div className="text-sm text-muted-foreground bg-blue-50 px-3 py-1 rounded-lg">
+                          💡 Materials added here will be saved as recipe for future production
+                        </div>
+                      </div>
+                      
+                      {/* Materials Applicable Selection */}
+                      <div className="mb-4">
+                        <Label className="text-sm font-medium mb-2 block">Does this product use materials?</Label>
+                        <div className="flex gap-4">
+                          <label className="flex items-center space-x-2">
+                            <input
+                              type="radio"
+                              name="materialsApplicable"
+                              value="yes"
+                              checked={materialsApplicable === true}
+                              onChange={() => setMaterialsApplicable(true)}
+                              className="text-blue-600"
+                            />
+                            <span className="text-sm">Yes, add materials</span>
+                          </label>
+                          <label className="flex items-center space-x-2">
+                            <input
+                              type="radio"
+                              name="materialsApplicable"
+                              value="no"
+                              checked={materialsApplicable === false}
+                              onChange={() => {
+                                setMaterialsApplicable(false);
+                                // Clear any existing materials when NA is selected
+                                setProductMaterials([]);
+                              }}
+                              className="text-blue-600"
+                            />
+                            <span className="text-sm">No, not applicable (NA)</span>
+                          </label>
+                        </div>
+                      </div>
+                      
+                      {/* Add Material Form - Only show if materials are applicable */}
+                      {materialsApplicable && (
+                        <div className="bg-gray-50 p-4 rounded-lg mb-4">
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                            <div>
+                              <Label htmlFor="materialSelect">Select Material</Label>
+                              <Select value={newMaterial.materialId} onValueChange={handleMaterialSelection}>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Choose from existing materials" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {rawMaterials.map((material) => (
+                                    <SelectItem key={material.id} value={material.id}>
+                                      {material.name} - {material.currentStock} {material.unit} available
+                                    </SelectItem>
+                                  ))}
+                                  <SelectItem value="add_new" className="text-blue-600 font-medium">
+                                    + Add New Material
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div>
+                              <Label htmlFor="materialName">Material Name</Label>
+                              <Input
+                                id="materialName"
+                                value={newMaterial.materialName}
+                                onChange={(e) => setNewMaterial({...newMaterial, materialName: e.target.value})}
+                                placeholder="Enter material name"
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-4 mb-4">
+                            <div>
+                              <Label htmlFor="materialQuantity">Quantity</Label>
+                              <Input
+                                id="materialQuantity"
+                                type="number"
+                                value={newMaterial.quantity}
+                                onChange={(e) => setNewMaterial({...newMaterial, quantity: e.target.value})}
+                                placeholder="e.g., 5"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="materialUnit">Unit</Label>
+                              <Input
+                                id="materialUnit"
+                                value={newMaterial.unit}
+                                onChange={(e) => setNewMaterial({...newMaterial, unit: e.target.value})}
+                                placeholder="e.g., kg, rolls"
+                              />
+                            </div>
+                            <div>
+                              <Label htmlFor="materialCost">Cost per Unit (₹)</Label>
+                              <Input
+                                id="materialCost"
+                                type="number"
+                                value={newMaterial.cost}
+                                onChange={(e) => setNewMaterial({...newMaterial, cost: e.target.value})}
+                                placeholder="e.g., 150"
+                              />
+                            </div>
+                          </div>
+                          
+                          <Button onClick={addProductMaterial} className="w-full">
+                            <Plus className="w-4 h-4 mr-2" />
+                            Add Material to Product
+                          </Button>
+                        </div>
+                      )}
+
+                      {/* Added Materials List - Only show if materials are applicable */}
+                      {materialsApplicable && productMaterials.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Added Materials:</Label>
+                          {productMaterials.map((material, index) => (
+                            <div key={index} className="flex items-center justify-between bg-blue-50 p-3 rounded-lg">
+                              <div className="flex-1">
+                                <div className="font-medium">{material.materialName}</div>
+                                <div className="text-sm text-gray-600">
+                                  {material.quantity} {material.unit} × ₹{material.cost} = ₹{(material.quantity * material.cost).toFixed(2)}
+                                </div>
+                              </div>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => removeProductMaterial(index)}
+                                className="text-red-600 hover:bg-red-50"
+                              >
+                                <X className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          ))}
+                          <div className="text-right font-medium text-lg">
+                            Total Material Cost: ₹{productMaterials.reduce((sum, m) => sum + (m.quantity * m.cost), 0).toFixed(2)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <DialogFooter>
                       <Button variant="outline" onClick={() => setIsAddProductOpen(false)}>
                         Cancel
@@ -1313,7 +1465,7 @@ export default function Products() {
                               </div>
                               {getAvailablePieces(product.id || '') !== (product.quantity || 0) && (
                                 <div className="text-xs text-muted-foreground">
-                                  Total: {product.quantity || 0} pieces
+                                  Total: {product.quantity || 0} {product.unit || 'pieces'}
                                 </div>
                               )}
                             </div>
@@ -1335,6 +1487,7 @@ export default function Products() {
                               >
                                 <Eye className="w-4 h-4" />
                               </Button>
+                              {hasIndividualStock(product.id) && (
                               <Button 
                                 variant="outline" 
                                 size="sm"
@@ -1342,6 +1495,7 @@ export default function Products() {
                               >
                                 <Hash className="w-4 h-4" />
                               </Button>
+                              )}
                               <Button 
                                 variant="outline" 
                                 size="sm"
@@ -1352,6 +1506,7 @@ export default function Products() {
                               >
                                 <Edit className="w-4 h-4" />
                               </Button>
+                              {hasIndividualStock(product.id) && (
                               <Button 
                                 variant="outline" 
                                 size="sm"
@@ -1360,6 +1515,7 @@ export default function Products() {
                               >
                                 <Play className="w-4 h-4" />
                               </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1543,6 +1699,7 @@ export default function Products() {
                                 <div className="font-medium">₹{valueAtRisk.toLocaleString()}</div>
                               </td>
                               <td className="p-4">
+                                {hasIndividualStock(product.id) ? (
                                 <Button 
                                   size="sm" 
                                   onClick={() => handleAddToProduction(product)}
@@ -1551,6 +1708,9 @@ export default function Products() {
                                   <Factory className="w-4 h-4 mr-1" />
                                   Produce
                                 </Button>
+                                ) : (
+                                  <span className="text-sm text-muted-foreground">Bulk Product</span>
+                                )}
                               </td>
                             </tr>
                           );
@@ -1632,6 +1792,7 @@ export default function Products() {
                         </div>
                         <div className="flex flex-col gap-2 ml-4">
                           {notification.type === 'production_request' || notification.type === 'low_stock' || notification.type === 'order_alert' ? (
+                            hasIndividualStock(notification.relatedData.productId) ? (
                             <Button
                               size="sm"
                               className="bg-orange-600 hover:bg-orange-700"
@@ -1640,6 +1801,9 @@ export default function Products() {
                               <ArrowRight className="w-3 h-3 mr-1" />
                               Add to Production
                             </Button>
+                            ) : (
+                              <span className="text-sm text-muted-foreground">Bulk Product</span>
+                            )
                           ) : null}
                           <Button
                             size="sm"
