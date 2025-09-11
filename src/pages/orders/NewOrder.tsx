@@ -137,7 +137,7 @@ export default function NewOrder() {
         id: product.id,
         name: product.name,
         price: product.sellingPrice || product.totalCost || 0,
-        stock: availableIndividualProducts.length, // Only available products
+        quantity: product.individualStockTracking === false ? product.quantity : availableIndividualProducts.length, // Use quantity for bulk products, individual count for tracked products
         category: product.category,
         color: product.color,
         size: product.size,
@@ -146,7 +146,9 @@ export default function NewOrder() {
         weight: product.weight,
         imageUrl: product.imageUrl,
         status: product.status,
-        location: product.location
+        location: product.location,
+        unit: product.unit, // Add unit field
+        individualStockTracking: product.individualStockTracking // Add individualStockTracking field
       };
     });
     
@@ -155,7 +157,7 @@ export default function NewOrder() {
       id: material.id,
       name: material.name,
       price: material.costPerUnit || 0,
-      stock: material.currentStock || 0,
+      quantity: material.currentStock || 0, // Use quantity field for consistency
       category: material.category,
       brand: material.brand,
       unit: material.unit,
@@ -203,8 +205,8 @@ export default function NewOrder() {
             updated.productName = product.name;
             updated.unitPrice = product.price;
             updated.totalPrice = updated.quantity * product.price;
-            updated.availableStock = product.stock;
-            updated.needsProduction = updated.quantity > product.stock;
+            updated.availableStock = product.quantity || 0;
+            updated.needsProduction = updated.quantity > (product.quantity || 0);
 
             // Reset selected individual products when product changes
             updated.selectedIndividualProducts = [];
@@ -216,7 +218,7 @@ export default function NewOrder() {
             : realProducts.find(p => p.id === updated.productId);
           if (product) {
             updated.totalPrice = updated.quantity * updated.unitPrice;
-            updated.needsProduction = updated.quantity > product.stock;
+            updated.needsProduction = updated.quantity > (product.quantity || 0);
           }
         }
         if (field === 'quantity' || field === 'unitPrice') {
