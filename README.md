@@ -1,73 +1,103 @@
-# Welcome to your Lovable project
+# Rajdhani Carpet ERP System
 
-## Project info
+A comprehensive Enterprise Resource Planning (ERP) system designed specifically for carpet manufacturing businesses. This system provides complete management of orders, inventory, production, and raw materials with unique ID traceability.
 
-**URL**: https://lovable.dev/projects/924a50eb-7bf4-44ee-887a-0e1d97a0d94f
+## Features
 
-## How can I edit this code?
+- **Order Management**: Complete order lifecycle from creation to delivery
+- **Inventory Tracking**: Real-time inventory management for finished products and raw materials
+- **Production Monitoring**: Multi-step production flow with machine tracking and quality control
+- **Raw Materials Management**: Track and manage raw material inventory and consumption
+- **Customer Management**: Comprehensive customer database with order history
+- **Unique ID Traceability**: QR code generation and tracking for individual products
+- **Notifications System**: Real-time alerts for low stock and production requests
 
-There are several ways of editing your application.
+## Technologies Used
 
-**Use Lovable**
+This project is built with modern web technologies:
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/924a50eb-7bf4-44ee-887a-0e1d97a0d94f) and start prompting.
+- **Vite** - Fast build tool and development server
+- **TypeScript** - Type-safe JavaScript development
+- **React** - Modern UI library with hooks
+- **shadcn-ui** - Beautiful and accessible UI components
+- **Tailwind CSS** - Utility-first CSS framework
+- **React Router** - Client-side routing
+- **Lucide React** - Beautiful icon library
 
-Changes made via Lovable will be committed automatically to this repo.
+## Getting Started
 
-**Use your preferred IDE**
+### Prerequisites
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+- Node.js (v18 or higher)
+- npm or yarn package manager
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+### Installation
 
-Follow these steps:
+1. **Clone the repository**
+   ```bash
+   git clone <YOUR_REPOSITORY_URL>
+   cd rajdhani-trace-flow
+   ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+3. **Start the development server**
+   ```bash
+   npm run dev
+   ```
 
-# Step 3: Install the necessary dependencies.
-npm i
+4. **Open your browser**
+   Navigate to `http://localhost:8080` to view the application
 
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run build:dev` - Build for development
+- `npm run preview` - Preview production build
+- `npm run lint` - Run ESLint
+
+## Project Structure
+
+```
+rajdhani-trace-flow/
+├── src/
+│   ├── components/          # Reusable UI components
+│   ├── pages/              # Main application pages
+│   ├── lib/                # Utility functions and storage
+│   └── main.tsx           # Application entry point
+├── public/                 # Static assets
+└── index.html             # HTML template
 ```
 
-**Edit a file directly in GitHub**
+## Key Modules
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+- **Orders**: Order creation, acceptance, dispatch, and delivery
+- **Products**: Product catalog and inventory management
+- **Production**: Production batch management and workflow
+- **Materials**: Raw material inventory and tracking
+- **Customers**: Customer database and order history
+- **Settings**: System configuration (coming soon)
 
-**Use GitHub Codespaces**
+## Data Storage
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+The application uses browser localStorage for data persistence, making it suitable for single-user or small team environments. All data is stored locally and persists between sessions.
 
-## What technologies are used for this project?
+## Contributing
 
-This project is built with:
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## License
 
-## How can I deploy this project?
+This project is proprietary software developed for Rajdhani Carpet manufacturing operations.
 
-Simply open [Lovable](https://lovable.dev/projects/924a50eb-7bf4-44ee-887a-0e1d97a0d94f) and click on Share -> Publish.
+## Support
 
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+For support and questions, please contact the development team or create an issue in the repository.
