@@ -1518,46 +1518,56 @@ export default function NewOrder() {
                 </div>
               </div>
 
-              {/* Selection Summary */}
+              {/* Selection Summary - Compact Version */}
               {currentOrderItem.selectedIndividualProducts.length > 0 && (
-                <Card className="flex-shrink-0 border-blue-200 bg-blue-50">
-                  <CardHeader>
-                    <CardTitle className="text-lg">Selected Pieces Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="max-h-48 overflow-y-auto space-y-2 pr-2 border border-gray-200 rounded">
+                <div className="flex-shrink-0 border border-blue-200 bg-blue-50 rounded-lg p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <h4 className="font-medium text-blue-900">Selected Pieces ({currentOrderItem.selectedIndividualProducts.length})</h4>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setOrderItems(items => items.map(item => {
+                          if (item.id === currentOrderItem.id) {
+                            return { ...item, selectedIndividualProducts: [] };
+                          }
+                          return item;
+                        }));
+                        setCurrentOrderItem(prev => prev ? { ...prev, selectedIndividualProducts: [] } : null);
+                      }}
+                      className="text-xs h-6 px-2"
+                    >
+                      Clear All
+                    </Button>
+                  </div>
+                  <div className="max-h-32 overflow-y-auto space-y-1">
+                    <div className="grid grid-cols-2 gap-1 text-xs">
                       {currentOrderItem.selectedIndividualProducts.map((product) => (
-                        <div key={product.id} className="flex items-center justify-between p-2 bg-white rounded hover:bg-gray-50">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-2 h-2 rounded-full ${
+                        <div key={product.id} className="flex items-center justify-between p-1 bg-white rounded border">
+                          <div className="flex items-center gap-1">
+                            <div className={`w-1.5 h-1.5 rounded-full ${
                               product.age > 60 ? "bg-red-500" :
                               product.age > 30 ? "bg-yellow-500" :
                               "bg-green-500"
                             }`} />
-                            <span className="font-medium">{product.id}</span>
-                            <span className="text-sm text-muted-foreground">({product.qrCode})</span>
+                            <span className="font-medium text-xs">{product.id}</span>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <div className="text-sm text-muted-foreground">
-                              {product.qualityGrade} • {product.age} days old
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleIndividualProductSelection(currentOrderItem.id, product, false);
-                              }}
-                              className="h-6 w-6 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              ×
-                            </Button>
-                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleIndividualProductSelection(currentOrderItem.id, product, false);
+                            }}
+                            className="h-4 w-4 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
+                          >
+                            ×
+                          </Button>
                         </div>
                       ))}
                     </div>
-                  </CardContent>
-                </Card>
+                  </div>
+                </div>
               )}
             </div>
           )}
