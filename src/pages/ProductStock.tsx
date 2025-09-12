@@ -265,6 +265,71 @@ export default function ProductStock() {
         </div>
       </div>
 
+      {/* Product Specifications Reference Card */}
+      <Card className="border-blue-200 bg-blue-50">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-blue-800">
+            <Package className="w-5 h-5" />
+            Product Specifications Reference
+          </CardTitle>
+          <p className="text-blue-600 text-sm">
+            Use these specifications as reference when filling individual product details
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Product Name</p>
+              <p className="text-sm text-blue-700">{product.name}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Category</p>
+              <p className="text-sm text-blue-700">{product.category}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Color</p>
+              <p className="text-sm text-blue-700">{product.color}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Size</p>
+              <p className="text-sm text-blue-700">{product.size}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Pattern</p>
+              <p className="text-sm text-blue-700">{product.pattern}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Weight</p>
+              <p className="text-sm text-blue-700">{product.weight}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Thickness</p>
+              <p className="text-sm text-blue-700">{product.thickness}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Pile Height</p>
+              <p className="text-sm text-blue-700">{product.pileHeight}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Dimensions</p>
+              <p className="text-sm text-blue-700">{product.dimensions}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Width</p>
+              <p className="text-sm text-blue-700">{product.width}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Height</p>
+              <p className="text-sm text-blue-700">{product.height}</p>
+            </div>
+            <div className="space-y-1">
+              <p className="text-sm font-medium text-blue-800">Location</p>
+              <p className="text-sm text-blue-700">{product.location}</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Product Summary Card */}
       <Card>
         <CardContent className="pt-6">

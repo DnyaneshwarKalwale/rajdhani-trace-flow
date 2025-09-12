@@ -129,19 +129,61 @@ export default function Products() {
   const [categories, setCategories] = useState<string[]>(["Handmade", "Machine Made", "Custom", "Plain Carpet"]);
   const [colors, setColors] = useState<string[]>(["Red", "Blue", "Green", "Brown", "White", "Black", "Red & Gold", "Blue & White", "Green & Gold", "Brown & Beige", "Black & White", "Multi-Color", "NA"]);
   const [colorSearchTerm, setColorSearchTerm] = useState("");
+  const [sizeSearchTerm, setSizeSearchTerm] = useState("");
+  const [unitSearchTerm, setUnitSearchTerm] = useState("");
+  const [weightSearchTerm, setWeightSearchTerm] = useState("");
+  const [thicknessSearchTerm, setThicknessSearchTerm] = useState("");
+  const [pileHeightSearchTerm, setPileHeightSearchTerm] = useState("");
   const [sizes, setSizes] = useState<string[]>(["3x5 feet", "5x7 feet", "6x9 feet", "8x10 feet", "9x12 feet", "10x14 feet", "Custom"]);
   
-  // Filter colors based on search term
+  // Filter functions for all dropdowns
   const getFilteredColors = () => {
     if (!colorSearchTerm.trim()) return colors;
     return colors.filter(color => 
       color.toLowerCase().includes(colorSearchTerm.toLowerCase())
     );
   };
+
+  const getFilteredSizes = () => {
+    if (!sizeSearchTerm.trim()) return sizes;
+    return sizes.filter(size => 
+      size.toLowerCase().includes(sizeSearchTerm.toLowerCase())
+    );
+  };
+
+  const getFilteredUnits = () => {
+    if (!unitSearchTerm.trim()) return units;
+    return units.filter(unit => 
+      unit.toLowerCase().includes(unitSearchTerm.toLowerCase())
+    );
+  };
+
+  const getFilteredWeights = () => {
+    if (!weightSearchTerm.trim()) return weights;
+    return weights.filter(weight => 
+      weight.toLowerCase().includes(weightSearchTerm.toLowerCase())
+    );
+  };
+
+  const getFilteredThicknesses = () => {
+    if (!thicknessSearchTerm.trim()) return thicknesses;
+    return thicknesses.filter(thickness => 
+      thickness.toLowerCase().includes(thicknessSearchTerm.toLowerCase())
+    );
+  };
+
+  const getFilteredPileHeights = () => {
+    if (!pileHeightSearchTerm.trim()) return pileHeights;
+    return pileHeights.filter(pileHeight => 
+      pileHeight.toLowerCase().includes(pileHeightSearchTerm.toLowerCase())
+    );
+  };
   const [patterns, setPatterns] = useState<string[]>(["Persian Medallion", "Geometric", "Floral", "Traditional", "Modern", "Abstract", "Tribal", "Plain", "Custom"]);
   const [units, setUnits] = useState<string[]>(["pieces", "sqm", "sets", "rolls", "kg", "gm", "m", "cm", "mm"]);
   const [locations, setLocations] = useState<string[]>(["Warehouse A - Shelf 1", "Warehouse A - Shelf 2", "Warehouse B - Shelf 1", "Warehouse B - Shelf 2", "Warehouse C - Shelf 1"]);
-  const [pileHeights, setPileHeights] = useState<string[]>(["3mm", "4mm", "5mm", "6mm", "7mm", "8mm", "9mm", "10mm", "11mm", "12mm", "13mm", "14mm", "15mm", "16mm", "18mm", "20mm", "22mm", "25mm"]);
+  const [pileHeights, setPileHeights] = useState<string[]>(["3mm", "4mm", "5mm", "6mm", "8mm", "10mm", "12mm", "15mm", "18mm", "20mm", "22mm", "25mm", "28mm", "30mm", "35mm"]);
+  const [thicknesses, setThicknesses] = useState<string[]>(["8mm", "10mm", "12mm", "15mm", "18mm", "20mm", "22mm", "25mm", "28mm", "30mm", "35mm", "40mm"]);
+  const [weights, setWeights] = useState<string[]>(["800gsm", "1000gsm", "1200gsm", "1500gsm", "1800gsm", "2000gsm", "2500gsm", "3000gsm", "3500gsm", "4000gsm", "4500gsm", "5000gsm"]);
   
   // Load products from storage on component mount
   useEffect(() => {
@@ -198,6 +240,8 @@ export default function Products() {
   const [newUnitInput, setNewUnitInput] = useState("");
   const [newLocationInput, setNewLocationInput] = useState("");
   const [newPileHeightInput, setNewPileHeightInput] = useState("");
+  const [newThicknessInput, setNewThicknessInput] = useState("");
+  const [newWeightInput, setNewWeightInput] = useState("");
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showAddColor, setShowAddColor] = useState(false);
   const [showAddSize, setShowAddSize] = useState(false);
@@ -205,6 +249,8 @@ export default function Products() {
   const [showAddUnit, setShowAddUnit] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
   const [showAddPileHeight, setShowAddPileHeight] = useState(false);
+  const [showAddThickness, setShowAddThickness] = useState(false);
+  const [showAddWeight, setShowAddWeight] = useState(false);
   const [materialsApplicable, setMaterialsApplicable] = useState(true);
   const [individualStockTracking, setIndividualStockTracking] = useState(true);
 
@@ -531,14 +577,14 @@ export default function Products() {
 
       // Create individual stock items only if individual tracking is enabled
       if (individualStockTracking) {
-        const individualProducts: IndividualProduct[] = [];
+      const individualProducts: IndividualProduct[] = [];
         const currentDate = new Date().toISOString().split('T')[0];
         
-        for (let i = 0; i < product.quantity; i++) {
-          const individualProduct: IndividualProduct = {
-            id: generateUniqueId('IND'),
-            qrCode: generateQRCode(),
-            productId: productId,
+      for (let i = 0; i < product.quantity; i++) {
+        const individualProduct: IndividualProduct = {
+          id: generateUniqueId('IND'),
+          qrCode: generateQRCode(),
+          productId: productId,
             productName: product.name,
             size: product.size,
             color: product.color,
@@ -556,17 +602,17 @@ export default function Products() {
             addedDate: currentDate,
             notes: `Item ${i + 1} of ${product.quantity} - Auto-created from product entry`,
             finalPileHeight: product.pileHeight,
-            finalWeight: product.weight,
-            finalThickness: product.thickness,
+          finalWeight: product.weight,
+          finalThickness: product.thickness,
             finalDimensions: product.dimensions,
-            finalWidth: product.width,
-            finalHeight: product.height,
+          finalWidth: product.width,
+          finalHeight: product.height,
             finalQualityGrade: 'A',
             productionDate: currentDate,
             completionDate: currentDate
-          };
-          individualProducts.push(individualProduct);
-        }
+        };
+        individualProducts.push(individualProduct);
+      }
 
       // Save individual products
       const existingIndividualProducts = getFromStorage('rajdhani_individual_products') || [];
@@ -718,6 +764,28 @@ export default function Products() {
       setNewProduct({...newProduct, pileHeight: newPileHeightInput.trim()});
       setNewPileHeightInput("");
       setShowAddPileHeight(false);
+    }
+  };
+
+  const addNewThickness = () => {
+    if (newThicknessInput.trim() && !thicknesses.includes(newThicknessInput.trim())) {
+      const updatedThicknesses = [...thicknesses, newThicknessInput.trim()];
+      setThicknesses(updatedThicknesses);
+      localStorage.setItem('rajdhani_product_thicknesses', JSON.stringify(updatedThicknesses));
+      setNewProduct({...newProduct, thickness: newThicknessInput.trim()});
+      setNewThicknessInput("");
+      setShowAddThickness(false);
+    }
+  };
+
+  const addNewWeight = () => {
+    if (newWeightInput.trim() && !weights.includes(newWeightInput.trim())) {
+      const updatedWeights = [...weights, newWeightInput.trim()];
+      setWeights(updatedWeights);
+      localStorage.setItem('rajdhani_product_weights', JSON.stringify(updatedWeights));
+      setNewProduct({...newProduct, weight: newWeightInput.trim()});
+      setNewWeightInput("");
+      setShowAddWeight(false);
     }
   };
 
@@ -1105,21 +1173,42 @@ export default function Products() {
                                 height: calculatedDimensions.height,
                                 dimensions: calculatedDimensions.dimensions
                               });
+                              setSizeSearchTerm(""); // Clear search when size is selected
                             }
                           }}>
                             <SelectTrigger>
                               <SelectValue placeholder="Select size" />
                             </SelectTrigger>
                             <SelectContent>
-                              {sizes.map(size => (
+                              {/* Search Input */}
+                              <div className="p-2 border-b">
+                                <Input
+                                  placeholder="Search sizes..."
+                                  value={sizeSearchTerm}
+                                  onChange={(e) => setSizeSearchTerm(e.target.value)}
+                                  className="h-8"
+                                />
+                              </div>
+                              
+                              {/* Add New Size Option - Always at top */}
+                              <SelectItem value="add_new" className="text-blue-600 font-medium">
+                                + Add New Size
+                              </SelectItem>
+                              
+                              {/* Size Options */}
+                              {getFilteredSizes().map(size => (
                                 <SelectItem key={size} value={size}>{size}</SelectItem>
                               ))}
                               <SelectItem value="NA">
                                 <span className="text-gray-500 italic">NA (Not Applicable)</span>
                               </SelectItem>
-                              <SelectItem value="add_new" className="text-blue-600 font-medium">
-                                + Add New Size
-                              </SelectItem>
+                              
+                              {/* Show message if no sizes found */}
+                              {getFilteredSizes().length === 0 && (
+                                <div className="p-2 text-sm text-gray-500 text-center">
+                                  No sizes found matching "{sizeSearchTerm}"
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
                         )}
@@ -1197,18 +1286,39 @@ export default function Products() {
                               setShowAddUnit(true);
                             } else {
                               setNewProduct({...newProduct, unit: value});
+                              setUnitSearchTerm(""); // Clear search when unit is selected
                             }
                           }}>
                             <SelectTrigger>
                               <SelectValue placeholder="Select unit" />
                             </SelectTrigger>
                             <SelectContent>
-                              {units.map(unit => (
-                                <SelectItem key={unit} value={unit}>{unit}</SelectItem>
-                              ))}
+                              {/* Search Input */}
+                              <div className="p-2 border-b">
+                                <Input
+                                  placeholder="Search units..."
+                                  value={unitSearchTerm}
+                                  onChange={(e) => setUnitSearchTerm(e.target.value)}
+                                  className="h-8"
+                                />
+                              </div>
+                              
+                              {/* Add New Unit Option - Always at top */}
                               <SelectItem value="add_new" className="text-blue-600 font-medium">
                                 + Add New Unit
                               </SelectItem>
+                              
+                              {/* Unit Options */}
+                              {getFilteredUnits().map(unit => (
+                                <SelectItem key={unit} value={unit}>{unit}</SelectItem>
+                              ))}
+                              
+                              {/* Show message if no units found */}
+                              {getFilteredUnits().length === 0 && (
+                                <div className="p-2 text-sm text-gray-500 text-center">
+                                  No units found matching "{unitSearchTerm}"
+                                </div>
+                              )}
                             </SelectContent>
                           </Select>
                         )}
@@ -1265,69 +1375,188 @@ export default function Products() {
                       {/* Only show weight if size is not NA */}
                       {newProduct.size !== "NA" && (
                       <div>
-                        <Label htmlFor="weight">Weight (kg)</Label>
+                        <Label htmlFor="weight">Weight *</Label>
+                        {showAddWeight ? (
+                          <div className="flex gap-2">
                         <Input
-                          id="weight"
-                          type="number"
+                              placeholder="Enter new weight (e.g., 1200gsm)"
+                              value={newWeightInput}
+                              onChange={(e) => setNewWeightInput(e.target.value)}
+                            />
+                            <Button size="sm" onClick={addNewWeight}>Add</Button>
+                            <Button size="sm" variant="outline" onClick={() => setShowAddWeight(false)}>Cancel</Button>
+                          </div>
+                        ) : (
+                          <Select
                           value={newProduct.weight}
-                          onChange={(e) => setNewProduct({...newProduct, weight: e.target.value})}
-                          placeholder="e.g., 45"
+                            onValueChange={(value) => {
+                              if (value === "add_new") {
+                                setShowAddWeight(true);
+                              } else {
+                                setNewProduct({...newProduct, weight: value});
+                                setWeightSearchTerm(""); // Clear search when weight is selected
+                              }
+                            }}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select weight" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {/* Search Input */}
+                              <div className="p-2 border-b">
+                                <Input
+                                  placeholder="Search weights..."
+                                  value={weightSearchTerm}
+                                  onChange={(e) => setWeightSearchTerm(e.target.value)}
+                                  className="h-8"
                         />
                       </div>
+                              
+                              {/* Add New Weight Option - Always at top */}
+                              <SelectItem value="add_new" className="text-blue-600 font-medium">
+                                + Add New Weight
+                              </SelectItem>
+                              
+                              {/* Weight Options */}
+                              {getFilteredWeights().map(weight => (
+                                <SelectItem key={weight} value={weight}>
+                                  {weight}
+                                </SelectItem>
+                              ))}
+                              
+                              {/* Show message if no weights found */}
+                              {getFilteredWeights().length === 0 && (
+                                <div className="p-2 text-sm text-gray-500 text-center">
+                                  No weights found matching "{weightSearchTerm}"
+                                </div>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
                       )}
                     </div>
 
-                    {/* Only show thickness if size is not NA */}
+                    {/* Only show thickness and pile height if size is not NA */}
                     {newProduct.size !== "NA" && (
+                    <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="thickness">Thickness (mm) *</Label>
+                        <Label htmlFor="thickness">Thickness *</Label>
+                        {showAddThickness ? (
+                          <div className="flex gap-2">
                       <Input
-                        id="thickness"
-                        type="number"
+                              placeholder="Enter new thickness (e.g., 15mm)"
+                              value={newThicknessInput}
+                              onChange={(e) => setNewThicknessInput(e.target.value)}
+                            />
+                            <Button size="sm" onClick={addNewThickness}>Add</Button>
+                            <Button size="sm" variant="outline" onClick={() => setShowAddThickness(false)}>Cancel</Button>
+                          </div>
+                        ) : (
+                        <Select
                         value={newProduct.thickness}
-                        onChange={(e) => setNewProduct({...newProduct, thickness: e.target.value})}
-                        placeholder="e.g., 12"
-                          required
-                      />
-                    </div>
-                    )}
-
-                    {/* Only show pile height if size is not NA */}
-                    {newProduct.size !== "NA" && (
-                      <div>
-                      <Label htmlFor="pileHeight">Pile Height (mm)</Label>
-                      {showAddPileHeight ? (
-                        <div className="flex gap-2">
-                        <Input
-                            placeholder="Enter new pile height (e.g., 8mm)"
-                            value={newPileHeightInput}
-                            onChange={(e) => setNewPileHeightInput(e.target.value)}
-                          />
-                          <Button size="sm" onClick={addNewPileHeight}>Add</Button>
-                          <Button size="sm" variant="outline" onClick={() => setShowAddPileHeight(false)}>Cancel</Button>
-                      </div>
-                      ) : (
-                        <Select value={newProduct.pileHeight} onValueChange={(value) => {
-                          if (value === "add_new") {
-                            setShowAddPileHeight(true);
-                          } else {
-                            setNewProduct({...newProduct, pileHeight: value});
-                          }
-                        }}>
+                          onValueChange={(value) => {
+                            if (value === "add_new") {
+                              setShowAddThickness(true);
+                            } else {
+                              setNewProduct({...newProduct, thickness: value});
+                              setThicknessSearchTerm(""); // Clear search when thickness is selected
+                            }
+                          }}
+                        >
                           <SelectTrigger>
-                            <SelectValue placeholder="Select pile height" />
+                            <SelectValue placeholder="Select thickness" />
                           </SelectTrigger>
                           <SelectContent>
-                            {pileHeights.map(pileHeight => (
-                              <SelectItem key={pileHeight} value={pileHeight}>{pileHeight}</SelectItem>
-                            ))}
-                            <SelectItem value="add_new">
-                              <span className="text-blue-600 font-medium">+ Add New Pile Height</span>
+                            {/* Search Input */}
+                            <div className="p-2 border-b">
+                              <Input
+                                placeholder="Search thicknesses..."
+                                value={thicknessSearchTerm}
+                                onChange={(e) => setThicknessSearchTerm(e.target.value)}
+                                className="h-8"
+                      />
+                    </div>
+
+                            {/* Add New Thickness Option - Always at top */}
+                            <SelectItem value="add_new" className="text-blue-600 font-medium">
+                              + Add New Thickness
                             </SelectItem>
+                            
+                            {/* Thickness Options */}
+                            {getFilteredThicknesses().map(thickness => (
+                              <SelectItem key={thickness} value={thickness}>
+                                {thickness}
+                              </SelectItem>
+                            ))}
+                            
+                            {/* Show message if no thicknesses found */}
+                            {getFilteredThicknesses().length === 0 && (
+                              <div className="p-2 text-sm text-gray-500 text-center">
+                                No thicknesses found matching "{thicknessSearchTerm}"
+                              </div>
+                            )}
                           </SelectContent>
                         </Select>
-                      )}
+                        )}
                       </div>
+                      
+                      <div>
+                        <Label htmlFor="pileHeight">Pile Height</Label>
+                        {showAddPileHeight ? (
+                          <div className="flex gap-2">
+                        <Input
+                              placeholder="Enter new pile height (e.g., 8mm)"
+                              value={newPileHeightInput}
+                              onChange={(e) => setNewPileHeightInput(e.target.value)}
+                            />
+                            <Button size="sm" onClick={addNewPileHeight}>Add</Button>
+                            <Button size="sm" variant="outline" onClick={() => setShowAddPileHeight(false)}>Cancel</Button>
+                      </div>
+                        ) : (
+                          <Select value={newProduct.pileHeight} onValueChange={(value) => {
+                            if (value === "add_new") {
+                              setShowAddPileHeight(true);
+                            } else {
+                              setNewProduct({...newProduct, pileHeight: value});
+                              setPileHeightSearchTerm(""); // Clear search when pile height is selected
+                            }
+                          }}>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select pile height" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {/* Search Input */}
+                              <div className="p-2 border-b">
+                        <Input
+                                  placeholder="Search pile heights..."
+                                  value={pileHeightSearchTerm}
+                                  onChange={(e) => setPileHeightSearchTerm(e.target.value)}
+                                  className="h-8"
+                        />
+                      </div>
+                              
+                              {/* Add New Pile Height Option - Always at top */}
+                              <SelectItem value="add_new">
+                                <span className="text-blue-600 font-medium">+ Add New Pile Height</span>
+                              </SelectItem>
+                              
+                              {/* Pile Height Options */}
+                              {getFilteredPileHeights().map(pileHeight => (
+                                <SelectItem key={pileHeight} value={pileHeight}>{pileHeight}</SelectItem>
+                              ))}
+                              
+                              {/* Show message if no pile heights found */}
+                              {getFilteredPileHeights().length === 0 && (
+                                <div className="p-2 text-sm text-gray-500 text-center">
+                                  No pile heights found matching "{pileHeightSearchTerm}"
+                    </div>
+                              )}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
+                    </div>
                     )}
 
                     {/* Location Dropdown */}
@@ -2250,21 +2479,39 @@ export default function Products() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="duplicate-weight">Weight</Label>
-                    <Input
-                      id="duplicate-weight"
+                    <Select
                       value={duplicateProduct.weight}
-                      onChange={(e) => setDuplicateProduct({...duplicateProduct, weight: e.target.value})}
-                      placeholder="Enter weight"
-                    />
+                      onValueChange={(value) => setDuplicateProduct({...duplicateProduct, weight: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select weight" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {weights.map(weight => (
+                          <SelectItem key={weight} value={weight}>
+                            {weight}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label htmlFor="duplicate-thickness">Thickness</Label>
-                    <Input
-                      id="duplicate-thickness"
+                    <Select
                       value={duplicateProduct.thickness}
-                      onChange={(e) => setDuplicateProduct({...duplicateProduct, thickness: e.target.value})}
-                      placeholder="Enter thickness"
-                    />
+                      onValueChange={(value) => setDuplicateProduct({...duplicateProduct, thickness: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select thickness" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {thicknesses.map(thickness => (
+                          <SelectItem key={thickness} value={thickness}>
+                            {thickness}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 
@@ -2484,21 +2731,39 @@ export default function Products() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label htmlFor="edit-weight">Weight</Label>
-                    <Input
-                      id="edit-weight"
+                    <Select
                       value={selectedProduct.weight}
-                      onChange={(e) => setSelectedProduct({...selectedProduct, weight: e.target.value})}
-                      placeholder="Enter weight"
-                    />
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, weight: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select weight" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {weights.map(weight => (
+                          <SelectItem key={weight} value={weight}>
+                            {weight}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <Label htmlFor="edit-thickness">Thickness</Label>
-                    <Input
-                      id="edit-thickness"
+                    <Select
                       value={selectedProduct.thickness}
-                      onChange={(e) => setSelectedProduct({...selectedProduct, thickness: e.target.value})}
-                      placeholder="Enter thickness"
-                    />
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, thickness: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select thickness" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {thicknesses.map(thickness => (
+                          <SelectItem key={thickness} value={thickness}>
+                            {thickness}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
 

@@ -552,17 +552,17 @@ export default function Orders() {
                   <span>Order Accepted - {getOrderStatusMessage(order)}</span>
                 </div>
                 {canDispatchOrder(order) ? (
-                  <Button 
-                    className="w-full bg-orange-600 hover:bg-orange-700"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDispatchOrder(order.id);
-                    }}
-                  >
-                    <Package className="w-4 h-4 mr-2" />
-                    Dispatch Order
-                  </Button>
+                <Button 
+                  className="w-full bg-orange-600 hover:bg-orange-700"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDispatchOrder(order.id);
+                  }}
+                >
+                  <Package className="w-4 h-4 mr-2" />
+                  Dispatch Order
+                </Button>
                 ) : (
                   <div className="space-y-2">
                     <Button 
@@ -631,17 +631,17 @@ export default function Orders() {
                     </Button>
                   </div>
                 ) : (
-                  <Button 
-                    className="w-full bg-green-600 hover:bg-green-700"
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleDeliverOrder(order.id);
-                    }}
-                  >
-                    <CheckCircle className="w-4 h-4 mr-2" />
-                    Mark as Delivered
-                  </Button>
+                <Button 
+                  className="w-full bg-green-600 hover:bg-green-700"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeliverOrder(order.id);
+                  }}
+                >
+                  <CheckCircle className="w-4 h-4 mr-2" />
+                  Mark as Delivered
+                </Button>
                 )}
               </div>
             )}
