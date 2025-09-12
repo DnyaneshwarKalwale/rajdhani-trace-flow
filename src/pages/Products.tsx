@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { getFromStorage, saveToStorage, saveProductRecipe, createRecipeFromMaterials, generateUniqueId, getNotifications, markNotificationAsRead, resolveNotification } from "@/lib/storage";
+import { getFromStorage, saveToStorage, replaceStorage, saveProductRecipe, createRecipeFromMaterials, generateUniqueId, getNotifications, markNotificationAsRead, resolveNotification } from "@/lib/storage";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,7 +29,7 @@ import {
   Plus, Search, Package, AlertTriangle, Upload, Image, X, Download, 
   FileSpreadsheet, CheckCircle, AlertCircle, QrCode, Calendar, 
   Edit, Eye, Filter, SortAsc, SortDesc, Hash, Play, RefreshCw,
-  Bell, Factory, Clock, ArrowRight
+  Bell, Factory, Clock, ArrowRight, Copy
 } from "lucide-react";
 
 interface ProductMaterial {
@@ -54,7 +54,7 @@ interface Product {
   materialsUsed: ProductMaterial[];
   totalCost: number;
   sellingPrice: number;
-  status: "in-stock" | "low-stock" | "out-of-stock" | "expired";
+  status: "in-stock" | "low-stock" | "out-of-stock" | "expired" | "in-production";
   location: string;
   notes: string;
   imageUrl?: string;
@@ -63,6 +63,8 @@ interface Product {
   thickness: string;
   width: string;
   height: string;
+  pileHeight: string;
+  manufacturingDate?: string;
   individualStockTracking?: boolean;
 }
 
@@ -70,23 +72,40 @@ interface IndividualProduct {
   id: string;
   qrCode: string;
   productId: string;
+  productName?: string;
+  size?: string;
+  color?: string;
+  pattern?: string;
+  pileHeight?: string;
+  weight?: string;
+  thickness?: string;
+  dimensions?: string;
+  width?: string;
+  height?: string;
   materialsUsed: ProductMaterial[];
   finalDimensions: string;
   finalWeight: string;
   finalThickness: string;
   finalWidth: string;
   finalHeight: string;
+  finalPileHeight?: string;
+  finalQualityGrade?: string;
   qualityGrade: string;
-  inspector: string;
+  inspector?: string;
   notes: string;
   status: "available" | "sold" | "damaged";
+  location?: string;
+  addedDate?: string;
+  productionDate?: string;
+  completionDate?: string;
 }
 
 const statusStyles = {
   "in-stock": "bg-success text-success-foreground",
   "low-stock": "bg-warning text-warning-foreground",
   "out-of-stock": "bg-destructive text-destructive-foreground",
-  "expired": "bg-destructive text-destructive-foreground"
+  "expired": "bg-destructive text-destructive-foreground",
+  "in-production": "bg-orange-100 text-orange-800 border-orange-200"
 };
 
 export default function Products() {
@@ -97,7 +116,9 @@ export default function Products() {
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isImportProductsOpen, setIsImportProductsOpen] = useState(false);
   const [isEditProductOpen, setIsEditProductOpen] = useState(false);
+  const [isDuplicateProductOpen, setIsDuplicateProductOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [duplicateProduct, setDuplicateProduct] = useState<Product | null>(null);
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string>("");
@@ -120,6 +141,21 @@ export default function Products() {
   const [patterns, setPatterns] = useState<string[]>(["Persian Medallion", "Geometric", "Floral", "Traditional", "Modern", "Abstract", "Tribal", "Plain", "Custom"]);
   const [units, setUnits] = useState<string[]>(["pieces", "sqm", "sets", "rolls", "kg", "gm", "m", "cm", "mm"]);
   const [locations, setLocations] = useState<string[]>(["Warehouse A - Shelf 1", "Warehouse A - Shelf 2", "Warehouse B - Shelf 1", "Warehouse B - Shelf 2", "Warehouse C - Shelf 1"]);
+  const [pileHeights, setPileHeights] = useState<string[]>(["3mm", "4mm", "5mm", "6mm", "7mm", "8mm", "9mm", "10mm", "11mm", "12mm", "13mm", "14mm", "15mm", "16mm", "18mm", "20mm", "22mm", "25mm"]);
+  
+  // Load products from storage on component mount
+  useEffect(() => {
+    const loadedProducts = getFromStorage('rajdhani_products') || [];
+    console.log("Loaded products from storage:", loadedProducts);
+    
+    // Ensure we're working with a proper array
+    if (Array.isArray(loadedProducts)) {
+      setProducts(loadedProducts);
+    } else {
+      console.error("Products data is not an array:", loadedProducts);
+      setProducts([]);
+    }
+  }, []);
   
   // New product form state with essential fields only
   const [newProduct, setNewProduct] = useState({
@@ -137,7 +173,9 @@ export default function Products() {
     thickness: "",
     dimensions: "",
     width: "",
-    height: ""
+    height: "",
+    pileHeight: "",
+    manufacturingDate: new Date().toISOString().split('T')[0] // Default to current date
   });
 
   // Materials section state
@@ -159,12 +197,14 @@ export default function Products() {
   const [newPatternInput, setNewPatternInput] = useState("");
   const [newUnitInput, setNewUnitInput] = useState("");
   const [newLocationInput, setNewLocationInput] = useState("");
+  const [newPileHeightInput, setNewPileHeightInput] = useState("");
   const [showAddCategory, setShowAddCategory] = useState(false);
   const [showAddColor, setShowAddColor] = useState(false);
   const [showAddSize, setShowAddSize] = useState(false);
   const [showAddPattern, setShowAddPattern] = useState(false);
   const [showAddUnit, setShowAddUnit] = useState(false);
   const [showAddLocation, setShowAddLocation] = useState(false);
+  const [showAddPileHeight, setShowAddPileHeight] = useState(false);
   const [materialsApplicable, setMaterialsApplicable] = useState(true);
   const [individualStockTracking, setIndividualStockTracking] = useState(true);
 
@@ -187,6 +227,7 @@ export default function Products() {
       const savedPatterns = getFromStorage('rajdhani_product_patterns');
       const savedUnits = getFromStorage('rajdhani_product_units');
       const savedLocations = getFromStorage('rajdhani_product_locations');
+      const savedPileHeights = getFromStorage('rajdhani_product_pile_heights');
       
       if (savedCategories.length > 0) setCategories(savedCategories);
       if (savedColors.length > 0) setColors(savedColors);
@@ -194,6 +235,7 @@ export default function Products() {
       if (savedPatterns.length > 0) setPatterns(savedPatterns);
       if (savedUnits.length > 0) setUnits(savedUnits);
       if (savedLocations.length > 0) setLocations(savedLocations);
+      if (savedPileHeights.length > 0) setPileHeights(savedPileHeights);
     };
 
     const loadRawMaterials = () => {
@@ -305,6 +347,141 @@ export default function Products() {
   };
 
   // Handle adding new product
+  const handleDuplicateProduct = (product: Product) => {
+    console.log("Original product being duplicated:", product);
+    
+    // Create a copy of the product with new ID and QR code
+    const duplicatedProduct: Product = {
+      ...product,
+      id: generateUniqueId('PROD'),
+      qrCode: generateQRCode(),
+    };
+    
+    console.log("Duplicated product:", duplicatedProduct);
+    
+    setDuplicateProduct(duplicatedProduct);
+    setIsDuplicateProductOpen(true);
+  };
+
+  const handleSaveDuplicateProduct = () => {
+    if (!duplicateProduct) return;
+    
+    // Validation - required fields
+    if (!duplicateProduct.name || !duplicateProduct.category || !duplicateProduct.sellingPrice || !duplicateProduct.unit) {
+      console.error("Please fill in all required fields: Name, Category, Selling Price, and Unit");
+      return;
+    }
+
+    try {
+      // Ensure products is a proper array
+      const currentProducts = Array.isArray(products) ? products : [];
+      console.log("Current products before adding duplicate:", currentProducts);
+      console.log("Duplicate product to add:", duplicateProduct);
+      
+      // Add the duplicated product to the products array
+      const updatedProducts = [...currentProducts, duplicateProduct];
+      console.log("Updated products after adding duplicate:", updatedProducts);
+      
+      // Ensure we're saving a clean array
+      const cleanProducts = updatedProducts.filter(p => p && typeof p === 'object' && p.id);
+      console.log("Clean products to save:", cleanProducts);
+      
+      setProducts(cleanProducts);
+      replaceStorage('rajdhani_products', cleanProducts);
+
+      // Generate individual products if quantity > 0 and individual stock tracking is enabled
+      if (duplicateProduct.quantity > 0 && duplicateProduct.individualStockTracking) {
+        const individualProducts = getFromStorage('rajdhani_individual_products') || [];
+        const newIndividualProducts = [];
+        
+        // Get current date
+        const currentDate = new Date().toISOString().split('T')[0];
+        
+        // Generate individual products for each quantity
+        for (let i = 0; i < duplicateProduct.quantity; i++) {
+          const individualProduct: IndividualProduct = {
+            id: generateUniqueId('IND'),
+            qrCode: generateQRCode(),
+            productId: duplicateProduct.id,
+            productName: duplicateProduct.name,
+            size: duplicateProduct.size,
+            color: duplicateProduct.color,
+            pattern: duplicateProduct.pattern,
+            pileHeight: duplicateProduct.pileHeight,
+            weight: duplicateProduct.weight,
+            thickness: duplicateProduct.thickness,
+            dimensions: duplicateProduct.dimensions,
+            width: duplicateProduct.width,
+            height: duplicateProduct.height,
+            materialsUsed: duplicateProduct.materialsUsed || [],
+            qualityGrade: "A", // Default quality grade
+            status: "available",
+            location: duplicateProduct.location,
+            addedDate: currentDate,
+            notes: `Auto-generated from ${duplicateProduct.name}`,
+            finalPileHeight: duplicateProduct.pileHeight,
+            finalWeight: duplicateProduct.weight,
+            finalThickness: duplicateProduct.thickness,
+            finalDimensions: duplicateProduct.dimensions,
+            finalWidth: duplicateProduct.width,
+            finalHeight: duplicateProduct.height,
+            finalQualityGrade: "A",
+            productionDate: currentDate,
+            completionDate: currentDate
+          };
+          
+          newIndividualProducts.push(individualProduct);
+        }
+        
+        // Save individual products to storage
+        const updatedIndividualProducts = [...(Array.isArray(individualProducts) ? individualProducts : []), ...newIndividualProducts];
+        replaceStorage('rajdhani_individual_products', updatedIndividualProducts);
+        
+        console.log(`Generated ${duplicateProduct.quantity} individual products for ${duplicateProduct.name}`);
+      }
+
+      // Reset form and close dialog
+      setDuplicateProduct(null);
+      setIsDuplicateProductOpen(false);
+      
+      console.log("Product duplicated successfully:", duplicateProduct.name);
+    } catch (error) {
+      console.error("Error duplicating product:", error);
+    }
+  };
+
+  const handleEditProduct = (product: Product) => {
+    setSelectedProduct(product);
+    setIsEditProductOpen(true);
+  };
+
+  const handleSaveEditProduct = () => {
+    if (!selectedProduct) return;
+    
+    // Validation - required fields
+    if (!selectedProduct.name || !selectedProduct.category || !selectedProduct.sellingPrice || !selectedProduct.unit) {
+      console.error("Please fill in all required fields: Name, Category, Selling Price, and Unit");
+      return;
+    }
+
+    try {
+      // Update the product in the products array
+      const updatedProducts = products.map(p => 
+        p.id === selectedProduct.id ? selectedProduct : p
+      );
+      setProducts(updatedProducts);
+      replaceStorage('rajdhani_products', updatedProducts);
+
+      // Reset form and close dialog
+      setSelectedProduct(null);
+      setIsEditProductOpen(false);
+      
+      console.log("Product updated successfully:", selectedProduct.name);
+    } catch (error) {
+      console.error("Error updating product:", error);
+    }
+  };
+
   const handleAddProduct = () => {
     // Validation - required fields
     if (!newProduct.name || !newProduct.category || !newProduct.quantity || !newProduct.sellingPrice || !newProduct.unit) {
@@ -341,39 +518,59 @@ export default function Products() {
         thickness: newProduct.thickness || "NA",
         width: newProduct.width || "NA",
         height: newProduct.height || "NA",
+        pileHeight: newProduct.pileHeight || "NA",
+        manufacturingDate: newProduct.manufacturingDate || new Date().toISOString().split('T')[0],
         individualStockTracking: individualStockTracking
       };
 
       // Save to products storage
-      const existingProducts = getFromStorage('rajdhani_products');
-      existingProducts.push(product);
-      localStorage.setItem('rajdhani_products', JSON.stringify(existingProducts));
+      const existingProducts = getFromStorage('rajdhani_products') || [];
+      const updatedProducts = Array.isArray(existingProducts) ? [...existingProducts, product] : [product];
+      localStorage.setItem('rajdhani_products', JSON.stringify(updatedProducts));
+      setProducts(updatedProducts);
 
       // Create individual stock items only if individual tracking is enabled
       if (individualStockTracking) {
-      const individualProducts: IndividualProduct[] = [];
-      for (let i = 0; i < product.quantity; i++) {
-        const individualProduct: IndividualProduct = {
-          id: generateUniqueId('IND'),
-          qrCode: generateQRCode(),
-          productId: productId,
-          materialsUsed: [],
-          finalDimensions: product.dimensions,
-          finalWeight: product.weight,
-          finalThickness: product.thickness,
-          finalWidth: product.width,
-          finalHeight: product.height,
-          qualityGrade: 'A',
-          inspector: 'System',
-          status: 'available',
-          notes: `Item ${i + 1} of ${product.quantity} - Auto-created from product entry`
-        };
-        individualProducts.push(individualProduct);
-      }
+        const individualProducts: IndividualProduct[] = [];
+        const currentDate = new Date().toISOString().split('T')[0];
+        
+        for (let i = 0; i < product.quantity; i++) {
+          const individualProduct: IndividualProduct = {
+            id: generateUniqueId('IND'),
+            qrCode: generateQRCode(),
+            productId: productId,
+            productName: product.name,
+            size: product.size,
+            color: product.color,
+            pattern: product.pattern,
+            pileHeight: product.pileHeight,
+            weight: product.weight,
+            thickness: product.thickness,
+            dimensions: product.dimensions,
+            width: product.width,
+            height: product.height,
+            materialsUsed: product.materialsUsed || [],
+            qualityGrade: 'A',
+            status: 'available',
+            location: product.location,
+            addedDate: currentDate,
+            notes: `Item ${i + 1} of ${product.quantity} - Auto-created from product entry`,
+            finalPileHeight: product.pileHeight,
+            finalWeight: product.weight,
+            finalThickness: product.thickness,
+            finalDimensions: product.dimensions,
+            finalWidth: product.width,
+            finalHeight: product.height,
+            finalQualityGrade: 'A',
+            productionDate: currentDate,
+            completionDate: currentDate
+          };
+          individualProducts.push(individualProduct);
+        }
 
       // Save individual products
-      const existingIndividualProducts = getFromStorage('rajdhani_individual_products');
-      const updatedIndividualProducts = [...existingIndividualProducts, ...individualProducts];
+      const existingIndividualProducts = getFromStorage('rajdhani_individual_products') || [];
+      const updatedIndividualProducts = [...(Array.isArray(existingIndividualProducts) ? existingIndividualProducts : []), ...individualProducts];
       localStorage.setItem('rajdhani_individual_products', JSON.stringify(updatedIndividualProducts));
       }
 
@@ -415,7 +612,9 @@ export default function Products() {
         thickness: "",
         dimensions: "",
         width: "",
-        height: ""
+        height: "",
+        pileHeight: "",
+        manufacturingDate: new Date().toISOString().split('T')[0]
       });
       setProductMaterials([]);
       setNewMaterial({
@@ -511,6 +710,17 @@ export default function Products() {
     }
   };
 
+  const addNewPileHeight = () => {
+    if (newPileHeightInput.trim() && !pileHeights.includes(newPileHeightInput.trim())) {
+      const updatedPileHeights = [...pileHeights, newPileHeightInput.trim()];
+      setPileHeights(updatedPileHeights);
+      localStorage.setItem('rajdhani_product_pile_heights', JSON.stringify(updatedPileHeights));
+      setNewProduct({...newProduct, pileHeight: newPileHeightInput.trim()});
+      setNewPileHeightInput("");
+      setShowAddPileHeight(false);
+    }
+  };
+
   // Handle image upload
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -595,6 +805,8 @@ export default function Products() {
         matchesStatus = product.status === "out-of-stock";
       } else if (statusFilter === "in-stock") {
         matchesStatus = product.status === "in-stock";
+      } else if (statusFilter === "in-production") {
+        matchesStatus = product.status === "in-production";
       }
       
       return matchesSearch && matchesCategory && matchesStatus;
@@ -631,6 +843,14 @@ export default function Products() {
   // Handle adding product to production
   const handleAddToProduction = (product: Product) => {
     console.log('Adding product to production:', product);
+    
+    // Update product status to "in-production"
+    const updatedProducts = products.map(p => 
+      p.id === product.id ? { ...p, status: "in-production" as const } : p
+    );
+    setProducts(updatedProducts);
+    replaceStorage('rajdhani_products', updatedProducts);
+    
     // Get all individual stock details for this product
     const individualProducts = getFromStorage('rajdhani_individual_products') || [];
     const productIndividualStocks = individualProducts.filter((item: IndividualProduct) => 
@@ -640,6 +860,7 @@ export default function Products() {
     // Create complete product data with individual stock details
     const completeProductData = {
       ...product,
+      status: "in-production" as const,
       individualStocks: productIndividualStocks
     };
 
@@ -704,6 +925,7 @@ export default function Products() {
                   <SelectItem value="in-stock">In Stock</SelectItem>
                   <SelectItem value="low-stock">Low Stock</SelectItem>
                   <SelectItem value="out-of-stock">Out of Stock</SelectItem>
+                  <SelectItem value="in-production">In Production</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -870,7 +1092,8 @@ export default function Products() {
                                 thickness: "",
                                 width: "",
                                 height: "",
-                                dimensions: ""
+                                dimensions: "",
+                                pileHeight: ""
                               });
                             } else {
                               const calculatedDimensions = calculateDimensionsFromSize(value);
@@ -1069,28 +1292,42 @@ export default function Products() {
                     </div>
                     )}
 
-                    {/* Only show width and height if size is not NA */}
+                    {/* Only show pile height if size is not NA */}
                     {newProduct.size !== "NA" && (
-                    <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <Label htmlFor="width">Width (meters)</Label>
+                      <Label htmlFor="pileHeight">Pile Height (mm)</Label>
+                      {showAddPileHeight ? (
+                        <div className="flex gap-2">
                         <Input
-                          id="width"
-                          value={newProduct.width}
-                          onChange={(e) => setNewProduct({...newProduct, width: e.target.value})}
-                          placeholder="e.g., 2.44m"
-                        />
+                            placeholder="Enter new pile height (e.g., 8mm)"
+                            value={newPileHeightInput}
+                            onChange={(e) => setNewPileHeightInput(e.target.value)}
+                          />
+                          <Button size="sm" onClick={addNewPileHeight}>Add</Button>
+                          <Button size="sm" variant="outline" onClick={() => setShowAddPileHeight(false)}>Cancel</Button>
                       </div>
-                      <div>
-                        <Label htmlFor="height">Height (meters)</Label>
-                        <Input
-                          id="height"
-                          value={newProduct.height}
-                          onChange={(e) => setNewProduct({...newProduct, height: e.target.value})}
-                          placeholder="e.g., 3.05m"
-                        />
+                      ) : (
+                        <Select value={newProduct.pileHeight} onValueChange={(value) => {
+                          if (value === "add_new") {
+                            setShowAddPileHeight(true);
+                          } else {
+                            setNewProduct({...newProduct, pileHeight: value});
+                          }
+                        }}>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select pile height" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {pileHeights.map(pileHeight => (
+                              <SelectItem key={pileHeight} value={pileHeight}>{pileHeight}</SelectItem>
+                            ))}
+                            <SelectItem value="add_new">
+                              <span className="text-blue-600 font-medium">+ Add New Pile Height</span>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
                       </div>
-                    </div>
                     )}
 
                     {/* Location Dropdown */}
@@ -1499,12 +1736,18 @@ export default function Products() {
                               <Button 
                                 variant="outline" 
                                 size="sm"
-                                onClick={() => {
-                                  setSelectedProduct(product);
-                                  setIsEditProductOpen(true);
-                                }}
+                                onClick={() => handleEditProduct(product)}
                               >
                                 <Edit className="w-4 h-4" />
+                              </Button>
+                              <Button 
+                                variant="outline" 
+                                size="sm"
+                                onClick={() => handleDuplicateProduct(product)}
+                                className="border-green-500 text-green-600 hover:bg-green-50"
+                                title="Duplicate Product"
+                              >
+                                <Copy className="w-4 h-4" />
                               </Button>
                               {hasIndividualStock(product.id) && (
                               <Button 
@@ -1838,6 +2081,462 @@ export default function Products() {
             )}
           </TabsContent>
         </Tabs>
+
+        {/* Duplicate Product Dialog */}
+        <Dialog open={isDuplicateProductOpen} onOpenChange={setIsDuplicateProductOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Duplicate Product</DialogTitle>
+              <DialogDescription>
+                Edit the product details and save as a new product.
+              </DialogDescription>
+            </DialogHeader>
+            
+            {duplicateProduct && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="duplicate-name">Product Name *</Label>
+                    <Input
+                      id="duplicate-name"
+                      value={duplicateProduct.name}
+                      readOnly
+                      className="bg-gray-50 cursor-not-allowed"
+                      placeholder="Product name (read-only)"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="duplicate-category">Category *</Label>
+                    <Select
+                      value={duplicateProduct.category}
+                      disabled
+                    >
+                      <SelectTrigger className="bg-gray-50 cursor-not-allowed">
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="duplicate-color">Color</Label>
+                    <Select
+                      value={duplicateProduct.color}
+                      onValueChange={(value) => setDuplicateProduct({...duplicateProduct, color: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select color" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {colors.map((color) => (
+                          <SelectItem key={color} value={color}>
+                            {color}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="duplicate-size">Size</Label>
+                    <Select
+                      value={duplicateProduct.size}
+                      onValueChange={(value) => setDuplicateProduct({...duplicateProduct, size: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sizes.map((size) => (
+                          <SelectItem key={size} value={size}>
+                            {size}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="duplicate-pattern">Pattern</Label>
+                    <Select
+                      value={duplicateProduct.pattern}
+                      onValueChange={(value) => setDuplicateProduct({...duplicateProduct, pattern: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select pattern" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {patterns.map((pattern) => (
+                          <SelectItem key={pattern} value={pattern}>
+                            {pattern}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="duplicate-pile-height">Pile Height</Label>
+                    <Select
+                      value={duplicateProduct.pileHeight}
+                      onValueChange={(value) => setDuplicateProduct({...duplicateProduct, pileHeight: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select pile height" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pileHeights.map((height) => (
+                          <SelectItem key={height} value={height}>
+                            {height}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="duplicate-selling-price">Selling Price *</Label>
+                    <Input
+                      id="duplicate-selling-price"
+                      type="number"
+                      value={duplicateProduct.sellingPrice}
+                      onChange={(e) => setDuplicateProduct({...duplicateProduct, sellingPrice: parseFloat(e.target.value) || 0})}
+                      placeholder="Enter selling price"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="duplicate-unit">Unit *</Label>
+                    <Select
+                      value={duplicateProduct.unit}
+                      onValueChange={(value) => setDuplicateProduct({...duplicateProduct, unit: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {units.map((unit) => (
+                          <SelectItem key={unit} value={unit}>
+                            {unit}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="duplicate-quantity">Quantity *</Label>
+                    <Input
+                      id="duplicate-quantity"
+                      type="number"
+                      value={duplicateProduct.quantity}
+                      onChange={(e) => setDuplicateProduct({...duplicateProduct, quantity: parseInt(e.target.value) || 0})}
+                      placeholder="Enter quantity"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="duplicate-weight">Weight</Label>
+                    <Input
+                      id="duplicate-weight"
+                      value={duplicateProduct.weight}
+                      onChange={(e) => setDuplicateProduct({...duplicateProduct, weight: e.target.value})}
+                      placeholder="Enter weight"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="duplicate-thickness">Thickness</Label>
+                    <Input
+                      id="duplicate-thickness"
+                      value={duplicateProduct.thickness}
+                      onChange={(e) => setDuplicateProduct({...duplicateProduct, thickness: e.target.value})}
+                      placeholder="Enter thickness"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="duplicate-location">Location</Label>
+                    <Input
+                      id="duplicate-location"
+                      value={duplicateProduct.location}
+                      onChange={(e) => setDuplicateProduct({...duplicateProduct, location: e.target.value})}
+                      placeholder="Enter location"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="duplicate-notes">Notes</Label>
+                  <Textarea
+                    id="duplicate-notes"
+                    value={duplicateProduct.notes}
+                    onChange={(e) => setDuplicateProduct({...duplicateProduct, notes: e.target.value})}
+                    placeholder="Enter product notes"
+                    rows={3}
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    id="generate-individual-products"
+                    checked={duplicateProduct.individualStockTracking || false}
+                    onChange={(e) => setDuplicateProduct({...duplicateProduct, individualStockTracking: e.target.checked})}
+                    className="rounded border-gray-300"
+                  />
+                  <Label htmlFor="generate-individual-products" className="text-sm">
+                    Generate individual product details for each piece (Recommended for carpets)
+                  </Label>
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsDuplicateProductOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveDuplicateProduct}>
+                Save as New Product
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Edit Product Dialog */}
+        <Dialog open={isEditProductOpen} onOpenChange={setIsEditProductOpen}>
+          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Edit Product</DialogTitle>
+              <DialogDescription>
+                Update the product details.
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedProduct && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-name">Product Name *</Label>
+                    <Input
+                      id="edit-name"
+                      value={selectedProduct.name}
+                      onChange={(e) => setSelectedProduct({...selectedProduct, name: e.target.value})}
+                      placeholder="Enter product name"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-category">Category *</Label>
+                    <Select
+                      value={selectedProduct.category}
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, category: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {categories.map((category) => (
+                          <SelectItem key={category} value={category}>
+                            {category}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-color">Color</Label>
+                    <Select
+                      value={selectedProduct.color}
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, color: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select color" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {colors.map((color) => (
+                          <SelectItem key={color} value={color}>
+                            {color}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-size">Size</Label>
+                    <Select
+                      value={selectedProduct.size}
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, size: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select size" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {sizes.map((size) => (
+                          <SelectItem key={size} value={size}>
+                            {size}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-pattern">Pattern</Label>
+                    <Select
+                      value={selectedProduct.pattern}
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, pattern: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select pattern" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {patterns.map((pattern) => (
+                          <SelectItem key={pattern} value={pattern}>
+                            {pattern}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-pile-height">Pile Height</Label>
+                    <Select
+                      value={selectedProduct.pileHeight}
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, pileHeight: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select pile height" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {pileHeights.map((height) => (
+                          <SelectItem key={height} value={height}>
+                            {height}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-selling-price">Selling Price *</Label>
+                    <Input
+                      id="edit-selling-price"
+                      type="number"
+                      value={selectedProduct.sellingPrice}
+                      onChange={(e) => setSelectedProduct({...selectedProduct, sellingPrice: parseFloat(e.target.value) || 0})}
+                      placeholder="Enter selling price"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-unit">Unit *</Label>
+                    <Select
+                      value={selectedProduct.unit}
+                      onValueChange={(value) => setSelectedProduct({...selectedProduct, unit: value})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select unit" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {units.map((unit) => (
+                          <SelectItem key={unit} value={unit}>
+                            {unit}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-quantity">Quantity *</Label>
+                    <Input
+                      id="edit-quantity"
+                      type="number"
+                      value={selectedProduct.quantity}
+                      onChange={(e) => setSelectedProduct({...selectedProduct, quantity: parseInt(e.target.value) || 0})}
+                      placeholder="Enter quantity"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-weight">Weight</Label>
+                    <Input
+                      id="edit-weight"
+                      value={selectedProduct.weight}
+                      onChange={(e) => setSelectedProduct({...selectedProduct, weight: e.target.value})}
+                      placeholder="Enter weight"
+                    />
+                  </div>
+                  <div>
+                    <Label htmlFor="edit-thickness">Thickness</Label>
+                    <Input
+                      id="edit-thickness"
+                      value={selectedProduct.thickness}
+                      onChange={(e) => setSelectedProduct({...selectedProduct, thickness: e.target.value})}
+                      placeholder="Enter thickness"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <Label htmlFor="edit-location">Location</Label>
+                    <Input
+                      id="edit-location"
+                      value={selectedProduct.location}
+                      onChange={(e) => setSelectedProduct({...selectedProduct, location: e.target.value})}
+                      placeholder="Enter location"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <Label htmlFor="edit-notes">Notes</Label>
+                  <Textarea
+                    id="edit-notes"
+                    value={selectedProduct.notes}
+                    onChange={(e) => setSelectedProduct({...selectedProduct, notes: e.target.value})}
+                    placeholder="Enter product notes"
+                    rows={3}
+                  />
+                </div>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsEditProductOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveEditProduct}>
+                Update Product
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     );
   }

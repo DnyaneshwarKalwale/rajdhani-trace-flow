@@ -1551,18 +1551,18 @@ export default function NewOrder() {
                               "bg-green-500"
                             }`} />
                             <span className="font-medium text-xs">{product.id}</span>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleIndividualProductSelection(currentOrderItem.id, product, false);
-                            }}
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleIndividualProductSelection(currentOrderItem.id, product, false);
+                              }}
                             className="h-4 w-4 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
-                          >
-                            ×
-                          </Button>
+                            >
+                              ×
+                            </Button>
                         </div>
                       ))}
                     </div>

@@ -91,6 +91,7 @@ interface IndividualProductData {
   finalDimensions: string;
   finalWeight: string;
   finalThickness: string;
+  finalPileHeight: string;
   qualityGrade: "A+" | "A" | "B" | "C" | "D";
   status: "available" | "damaged";
   notes: string;
@@ -820,6 +821,7 @@ export default function DynamicProductionFlow() {
         finalDimensions: productionProduct.size || '',
         finalWeight: '',
         finalThickness: '',
+        finalPileHeight: '',
         qualityGrade: 'A' as const,
         status: 'available' as const,
         notes: ''
@@ -830,13 +832,12 @@ export default function DynamicProductionFlow() {
   };
   
   const handleCompleteProduction = () => {
-    // Validate individual products (excluding optional fields like pile height and notes)
-    const requiredFields = ['finalWeight', 'finalThickness', 'finalWidth', 'finalHeight'];
+    // Validate individual products (excluding optional fields like notes)
+    const requiredFields = ['finalWeight', 'finalThickness', 'finalPileHeight'];
     const fieldLabels = {
       'finalWeight': 'Final Weight',
       'finalThickness': 'Final Thickness', 
-      'finalWidth': 'Final Width',
-      'finalHeight': 'Final Height'
+      'finalPileHeight': 'Final Pile Height'
     };
     
     const errors: Array<{index: number, productId: string, missingFields: string[]}> = [];
@@ -889,6 +890,12 @@ export default function DynamicProductionFlow() {
     if (productIndex !== -1) {
       const availableCount = individualProducts.filter(p => p.status === "available").length;
       availableProducts[productIndex].quantity += availableCount;
+      
+      // Update status back to "in-stock" when production is completed
+      const newQuantity = availableProducts[productIndex].quantity;
+      availableProducts[productIndex].status = newQuantity <= 0 ? 'out-of-stock' : 
+                                              newQuantity <= 5 ? 'low-stock' : 'in-stock';
+      
       saveToStorage('rajdhani_products', availableProducts);
     }
     

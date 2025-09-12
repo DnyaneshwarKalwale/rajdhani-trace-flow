@@ -44,6 +44,7 @@ interface Product {
   thickness: string;
   width: string;
   height: string;
+  pileHeight: string;
   individualStockTracking?: boolean;
 }
 
@@ -92,7 +93,8 @@ const sampleProducts: Product[] = [
     weight: "45 kg",
     thickness: "12 mm",
     width: "2.44m",
-    height: "3.05m"
+    height: "3.05m",
+    pileHeight: "8"
   },
   {
     id: "PROD002",
@@ -120,7 +122,8 @@ const sampleProducts: Product[] = [
     weight: "32 kg",
     thickness: "10 mm",
     width: "1.83m",
-    height: "2.74m"
+    height: "2.74m",
+    pileHeight: "6"
   }
 ];
 
@@ -600,6 +603,12 @@ export default function ProductDetail() {
                       <div>
                         <Label className="text-sm font-medium">Height</Label>
                         <p className="text-sm text-muted-foreground">{product.height}</p>
+                      </div>
+                      )}
+                      {product.pileHeight && product.pileHeight !== "NA" && product.size !== "NA" && (
+                      <div>
+                        <Label className="text-sm font-medium">Pile Height</Label>
+                        <p className="text-sm text-muted-foreground">{product.pileHeight} mm</p>
                       </div>
                       )}
                     </div>

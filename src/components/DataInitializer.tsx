@@ -9,7 +9,7 @@ import rawMaterialsData from '@/data/rawMaterials.json';
 // Traditional Persian Carpet: TRA-001 to TRA-005
 // Modern Geometric Carpet: MOD-001 to MOD-012
 
-// Sample product data with updated structure (no pileHeight, with width/height in meters)
+// Sample product data with updated structure (with pileHeight, with width/height in meters)
 const completeProductData = {
   products: [
     {
@@ -31,6 +31,7 @@ const completeProductData = {
       thickness: "12 mm",
       width: "2.44m",
       height: "3.05m",
+      pileHeight: "8mm",
       materialsUsed: [
         {
           materialId: "MAT001",
@@ -79,6 +80,7 @@ const completeProductData = {
       thickness: "10 mm",
       width: "1.83m",
       height: "2.74m",
+      pileHeight: "6mm",
       materialsUsed: [
         {
           materialId: "MAT004",
@@ -149,6 +151,7 @@ const completeProductData = {
       finalThickness: "12.5 mm",
       finalWidth: "2.49m",
       finalHeight: "3.07m",
+      finalPileHeight: "8mm",
       qualityGrade: "A+",
       inspector: "Ahmed Khan",
       inspectorId: "INSP001",
@@ -251,6 +254,7 @@ const completeProductData = {
       finalThickness: "12.3 mm",
       finalWidth: "2.44m",
       finalHeight: "3.07m",
+      finalPileHeight: "8mm",
       qualityGrade: "A",
       inspector: "Ahmed Khan",
       inspectorId: "INSP001",
@@ -320,6 +324,7 @@ const completeProductData = {
       finalThickness: "10.2 mm",
       finalWidth: "1.85m",
       finalHeight: "2.74m",
+      finalPileHeight: "6mm",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       inspectorId: "INSP002",
@@ -354,6 +359,7 @@ const completeProductData = {
       finalThickness: "10.0 mm",
       finalWidth: "1.83m",
       finalHeight: "2.74m",
+      finalPileHeight: "6mm",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       inspectorId: "INSP002",
@@ -386,6 +392,7 @@ const completeProductData = {
       finalThickness: "10.1 mm",
       finalWidth: "1.85m",
       finalHeight: "2.74m",
+      finalPileHeight: "6mm",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Excellent precision",
@@ -431,6 +438,7 @@ const completeProductData = {
       finalThickness: "10.1 mm",
       finalWidth: "1.83m",
       finalHeight: "2.74m",
+      finalPileHeight: "6mm",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       notes: "Good geometric pattern",
@@ -446,6 +454,7 @@ const completeProductData = {
       finalThickness: "10.2 mm",
       finalWidth: "1.85m",
       finalHeight: "2.74m",
+      finalPileHeight: "6mm",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Perfect finish",
@@ -491,6 +500,7 @@ const completeProductData = {
       finalThickness: "10.0 mm",
       finalWidth: "1.83m",
       finalHeight: "2.74m",
+      finalPileHeight: "6mm",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       notes: "Good quality",
@@ -506,6 +516,7 @@ const completeProductData = {
       finalThickness: "10.2 mm",
       finalWidth: "1.85m",
       finalHeight: "2.74m",
+      finalPileHeight: "6mm",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Excellent finish",
@@ -995,6 +1006,7 @@ const completeProductData = {
           finalThickness: "12.5 mm",
           finalWidth: "2.49m",
           finalHeight: "3.07m",
+          finalPileHeight: "8mm",
           qualityGrade: "A+",
           inspector: "Ahmed Khan",
           notes: "Perfect finish, no defects",
@@ -1040,6 +1052,7 @@ const completeProductData = {
           finalThickness: "12.3 mm",
           finalWidth: "2.44m",
           finalHeight: "3.07m",
+          finalPileHeight: "8mm",
           qualityGrade: "A",
           inspector: "Ahmed Khan",
           notes: "Good quality, minor texture variation",

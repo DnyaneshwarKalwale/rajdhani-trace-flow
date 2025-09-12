@@ -71,7 +71,7 @@ interface RawMaterial {
   reorderPoint: number;
   lastRestocked: string;
   dailyUsage: number;
-  status: "in-stock" | "low-stock" | "out-of-stock" | "overstock";
+  status: "in-stock" | "low-stock" | "out-of-stock" | "overstock" | "in-transit";
   supplier: string;
   supplierId: string;
   costPerUnit: number;
@@ -133,7 +133,8 @@ const statusStyles = {
   "in-stock": "bg-success text-success-foreground",
   "low-stock": "bg-warning text-warning-foreground",
   "out-of-stock": "bg-destructive text-destructive-foreground",
-  "overstock": "bg-blue-100 text-blue-800 border-blue-200"
+  "overstock": "bg-blue-100 text-blue-800 border-blue-200",
+  "in-transit": "bg-orange-100 text-orange-800 border-orange-200"
 };
 
 export default function Materials() {
@@ -244,6 +245,34 @@ export default function Materials() {
       setIsOrderDialogOpen(true);
     }
   }, [location.state]);
+
+  // Refresh raw materials when returning from other pages (like ManageStock)
+  useEffect(() => {
+    const handleFocus = () => {
+      console.log('🔄 Refreshing materials data on page focus');
+      const materials = rawMaterialsStorage.getAll();
+      const uniqueMaterials = removeDuplicateBatchNumbers(materials);
+      setRawMaterials(uniqueMaterials);
+    };
+
+    // Listen for page focus to refresh data
+    window.addEventListener('focus', handleFocus);
+    
+    // Also refresh when component becomes visible
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('🔄 Refreshing materials data on visibility change');
+        handleFocus();
+      }
+    };
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // Get waste recovery count for the dashboard
   const getWasteRecoveryCount = () => {
@@ -906,6 +935,8 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
       matchesStatus = material.status === "out-of-stock";
     } else if (statusFilter === "overstock") {
       matchesStatus = material.status === "overstock";
+    } else if (statusFilter === "in-transit") {
+      matchesStatus = material.status === "in-transit";
     }
       
       return matchesSearch && matchesCategory && matchesStatus;
@@ -1027,7 +1058,8 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
             costPerUnit: newMaterial.costPerUnit,
             expectedDelivery: newMaterial.expectedDelivery,
             minThreshold: newMaterial.minThreshold,
-            maxCapacity: newMaterial.maxCapacity
+            maxCapacity: newMaterial.maxCapacity,
+            isRestock: true // Mark as restock order so status gets updated to "in-transit"
           }
         }
       });
@@ -1165,7 +1197,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
             maxCapacity: selectedMaterial.maxCapacity,
             qualityGrade: selectedMaterial.qualityGrade || "A",
             notes: orderDetails.notes,
-            isRestock: false
+            isRestock: true // This is a restock order, so status should be updated to "in-transit"
           }
         }
       });
@@ -1223,6 +1255,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                   <SelectItem value="low-stock">Low Stock</SelectItem>
                   <SelectItem value="sufficient">Sufficient</SelectItem>
                   <SelectItem value="out-of-stock">Out of Stock</SelectItem>
+                  <SelectItem value="in-transit">In Transit</SelectItem>
                   <SelectItem value="all">All Status</SelectItem>
                 </SelectContent>
               </Select>
@@ -2438,6 +2471,7 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                           selectedMaterial.status === "in-stock" ? "bg-green-100 text-green-800 border-green-200" :
                           selectedMaterial.status === "low-stock" ? "bg-yellow-100 text-yellow-800 border-yellow-200" :
                           selectedMaterial.status === "out-of-stock" ? "bg-red-100 text-red-800 border-red-200" :
+                          selectedMaterial.status === "in-transit" ? "bg-orange-100 text-orange-800 border-orange-200" :
                           "bg-blue-100 text-blue-800 border-blue-200"
                         }
                       >

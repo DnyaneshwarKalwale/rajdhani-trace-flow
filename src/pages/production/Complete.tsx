@@ -34,6 +34,7 @@ interface IndividualProduct {
   finalThickness: string;
   finalWidth: string;
   finalHeight: string;
+  finalPileHeight: string;
   qualityGrade: "A+" | "A" | "B" | "C" | "D";
   status: "available" | "damaged";
   inspector: string;
@@ -148,6 +149,7 @@ export default function Complete() {
           finalThickness: "",
           finalWidth: calculatedDimensions.width,
           finalHeight: calculatedDimensions.height,
+          finalPileHeight: "",
           qualityGrade: "A" as const,
           status: "available" as const,
           inspector: inspector,
@@ -226,6 +228,7 @@ export default function Complete() {
       finalThickness: "",
       finalWidth: calculatedDimensions.width,
       finalHeight: calculatedDimensions.height,
+      finalPileHeight: "",
       qualityGrade: "A" as const,
       status: "available" as const,
       inspector: inspector,
@@ -300,6 +303,11 @@ export default function Complete() {
       
       // Update quantity with available products only
       availableProducts[productIndex].quantity += availableCount;
+      
+      // Update status back to "in-stock" when production is completed
+      const newQuantity = availableProducts[productIndex].quantity;
+      availableProducts[productIndex].status = newQuantity <= 0 ? 'out-of-stock' : 
+                                              newQuantity <= 5 ? 'low-stock' : 'in-stock';
       
       // Add production batch information
       if (!availableProducts[productIndex].productionBatches) {
@@ -504,8 +512,7 @@ export default function Complete() {
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Dimensions</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Weight</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Thickness</th>
-                  <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Width</th>
-                  <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Height</th>
+                  <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Pile Height</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Quality Grade</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Status</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Notes</th>
@@ -610,38 +617,21 @@ export default function Complete() {
                       )}
                     </td>
                     <td className="border border-gray-200 p-2">
-                      {editingCell?.row === index && editingCell?.col === 'finalWidth' ? (
+                      {editingCell?.row === index && editingCell?.col === 'finalPileHeight' ? (
               <Input
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={handleCellSave}
                           onKeyDown={(e) => e.key === 'Enter' && handleCellSave()}
                           autoFocus
+                          placeholder="e.g., 8mm"
                         />
                       ) : (
                         <div
                           className="cursor-pointer p-1 hover:bg-blue-50 rounded"
-                          onClick={() => handleCellClick(index, 'finalWidth')}
+                          onClick={() => handleCellClick(index, 'finalPileHeight')}
                         >
-                          {product.finalWidth || "Click to edit"}
-            </div>
-                      )}
-                    </td>
-                    <td className="border border-gray-200 p-2">
-                      {editingCell?.row === index && editingCell?.col === 'finalHeight' ? (
-              <Input
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={handleCellSave}
-                          onKeyDown={(e) => e.key === 'Enter' && handleCellSave()}
-                          autoFocus
-                        />
-                      ) : (
-                        <div
-                          className="cursor-pointer p-1 hover:bg-blue-50 rounded"
-                          onClick={() => handleCellClick(index, 'finalHeight')}
-                        >
-                          {product.finalHeight || "Click to edit"}
+                          {product.finalPileHeight || "Click to edit"}
             </div>
                       )}
                     </td>

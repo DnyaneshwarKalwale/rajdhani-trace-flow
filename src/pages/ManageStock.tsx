@@ -194,6 +194,14 @@ export default function ManageStock() {
         const savedOrder = materialOrdersStorage.add(newOrder);
         setOrders(prev => [savedOrder, ...prev]);
         
+        // Update raw material status to "in-transit" if it's a restock order
+        if (newOrder.isRestock) {
+          console.log(`🚀 Calling updateRawMaterialStatusToInTransit for order:`, newOrder);
+          updateRawMaterialStatusToInTransit(newOrder);
+        } else {
+          console.log(`⚠️ Order is not marked as restock, skipping status update:`, newOrder);
+        }
+        
         // Mark this prefillOrder as processed
         processedPrefillOrders.current.add(prefillKey);
         
@@ -253,6 +261,53 @@ export default function ManageStock() {
     if (orderToUpdate) {
       materialOrdersStorage.update(orderId, orderToUpdate);
     }
+  };
+
+  // Function to update raw material status to "in-transit" when order is created
+  const updateRawMaterialStatusToInTransit = (order: StockOrder) => {
+    const rawMaterials = rawMaterialsStorage.getAll();
+    console.log(`🔍 Looking for material to update:`, {
+      orderName: order.materialName,
+      orderSupplier: order.supplier,
+      orderUnit: order.unit
+    });
+    console.log(`📋 Available materials:`, rawMaterials.map(m => ({
+      name: m.name,
+      supplier: m.supplier,
+      unit: m.unit,
+      status: m.status
+    })));
+    
+    let materialFound = false;
+    const updatedMaterials = rawMaterials.map((material: any) => {
+      // More flexible matching - check name first, then supplier and unit
+      const nameMatches = material.name.toLowerCase().trim() === order.materialName.toLowerCase().trim();
+      const supplierMatches = material.supplier.toLowerCase().trim() === order.supplier.toLowerCase().trim();
+      const unitMatches = material.unit.toLowerCase().trim() === order.unit.toLowerCase().trim();
+      
+      if (nameMatches && supplierMatches && unitMatches) {
+        materialFound = true;
+        console.log(`✅ Found matching material: ${material.name} (${material.supplier})`);
+        console.log(`🔄 Updating material ${material.name} status from "${material.status}" to "in-transit"`);
+        return {
+          ...material,
+          status: "in-transit" as const
+        };
+      }
+      return material;
+    });
+    
+    if (!materialFound) {
+      console.log(`❌ No matching material found for order:`, {
+        name: order.materialName,
+        supplier: order.supplier,
+        unit: order.unit
+      });
+    }
+    
+    // Update localStorage
+    rawMaterialsStorage.replaceAll(updatedMaterials);
+    console.log(`📦 Updated ${order.materialName} status to "in-transit"`);
   };
 
       // Function to update raw material stock when order is delivered

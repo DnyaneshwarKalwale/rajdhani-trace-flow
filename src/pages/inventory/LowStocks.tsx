@@ -9,18 +9,18 @@ export default function LowStocks() {
     <div className="flex-1 space-y-6 p-6">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
+              <div>
           <h1 className="text-3xl font-bold tracking-tight">Low Stock Alerts</h1>
           <p className="text-muted-foreground">
             Monitor and manage low stock levels with automated alerts
           </p>
-        </div>
+              </div>
         <Badge variant="outline" className="flex items-center gap-2">
           <Clock className="w-4 h-4" />
           Coming Soon
-        </Badge>
-      </div>
-
+                    </Badge>
+                  </div>
+                  
       {/* Coming Soon Card */}
       <Card className="border-dashed border-2 border-muted-foreground/25">
         <CardHeader className="text-center pb-4">
@@ -42,31 +42,31 @@ export default function LowStocks() {
               <p className="text-sm text-muted-foreground">
                 Automated notifications when stock levels fall below threshold
               </p>
-            </div>
-            
+                    </div>
+                    
             <div className="p-4 border rounded-lg bg-muted/50">
               <ShoppingCart className="w-8 h-8 text-primary mx-auto mb-2" />
               <h3 className="font-semibold mb-1">Reorder Suggestions</h3>
               <p className="text-sm text-muted-foreground">
                 Intelligent reorder recommendations based on usage patterns
-              </p>
-            </div>
-            
+                      </p>
+                    </div>
+                    
             <div className="p-4 border rounded-lg bg-muted/50">
               <AlertTriangle className="w-8 h-8 text-primary mx-auto mb-2" />
               <h3 className="font-semibold mb-1">Critical Alerts</h3>
               <p className="text-sm text-muted-foreground">
                 Priority alerts for critical stock shortages
               </p>
-            </div>
-          </div>
-
+                    </div>
+                  </div>
+                  
           <div className="pt-6">
             <Button disabled className="opacity-50 cursor-not-allowed">
               <Clock className="w-4 h-4 mr-2" />
               Low Stock Management Coming Soon
             </Button>
-          </div>
+                    </div>
         </CardContent>
       </Card>
 
@@ -85,17 +85,17 @@ export default function LowStocks() {
               <Badge variant="default" className="bg-yellow-100 text-yellow-800">
                 In Development
               </Badge>
-            </div>
+                </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Expected Release:</span>
               <span className="font-medium">Q2 2024</span>
-            </div>
+                </div>
             <div className="flex justify-between">
               <span className="text-muted-foreground">Alert Types:</span>
               <span className="font-medium">5+ Alert Types</span>
-            </div>
-          </CardContent>
-        </Card>
+              </div>
+            </CardContent>
+          </Card>
 
         <Card>
           <CardHeader>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { saveToStorage, getFromStorage, STORAGE_KEYS, fixNestedArray } from "@/lib/storage";
+import { saveToStorage, getFromStorage, replaceStorage, STORAGE_KEYS, fixNestedArray } from "@/lib/storage";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,7 +108,7 @@ export default function Customers() {
       
       if (customersWithOrders.length !== customers.length) {
         setCustomers(customersWithOrders);
-        saveToStorage(STORAGE_KEYS.CUSTOMERS, customersWithOrders);
+        replaceStorage(STORAGE_KEYS.CUSTOMERS, customersWithOrders);
         console.log(`🧹 Auto-removed ${customers.length - customersWithOrders.length} empty customers`);
       }
     }
@@ -145,7 +145,7 @@ export default function Customers() {
     
     if (customersWithOrders.length !== customers.length) {
       setCustomers(customersWithOrders);
-      saveToStorage(STORAGE_KEYS.CUSTOMERS, customersWithOrders);
+      replaceStorage(STORAGE_KEYS.CUSTOMERS, customersWithOrders);
       console.log(`🧹 Removed ${customers.length - customersWithOrders.length} empty customers`);
     }
   };
@@ -171,7 +171,7 @@ export default function Customers() {
     );
     
     setCustomers(updatedCustomers);
-    saveToStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
+    replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
     setShowEditCustomerDialog(false);
     setEditingCustomer(null);
   };
@@ -264,7 +264,7 @@ export default function Customers() {
     // Add to customers array and save to localStorage
     const updatedCustomers = [...customers, newCustomer];
     setCustomers(updatedCustomers);
-    saveToStorage(STORAGE_KEYS.CUSTOMERS, newCustomer);
+    replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
     
     // Reset form and close dialog
     resetForm();

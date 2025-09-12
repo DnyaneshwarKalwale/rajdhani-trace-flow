@@ -1,0 +1,474 @@
+RAJDHANI CARPET ERP SYSTEM - COMPLETE REQUIREMENTS DOCUMENT
+
+PROJECT OVERVIEW
+System Name: Rajdhani Carpet ERP System
+Purpose: Complete ERP solution for carpet manufacturing, inventory, production, and sales management
+Target Users: Carpet manufacturers, production managers, sales team, inventory managers
+
+1. PRODUCT CONFIGURATION
+
+1.1 Product Categories (Required)
+What carpet categories do you manufacture?
+- Handmade
+- Machine Made
+- Commercial
+- Residential
+- Custom
+- Other: _______________
+
+1.2 Colors (Required)
+List all colors you use:
+- Primary colors: Red, Blue, Green, Brown, White, Black
+- Color combinations: Red & Gold, Blue & White, Green & Gold
+- Custom colors: _______________
+
+1.3 Sizes (Required)
+Standard sizes you manufacture:
+- Small: 3x5 feet, 4x6 feet
+- Medium: 5x7 feet, 6x9 feet
+- Large: 8x10 feet, 9x12 feet, 10x14 feet
+- Custom sizes: _______________
+
+1.4 Patterns (Required)
+Patterns you create:
+- Geometric
+- Floral
+- Traditional
+- Modern
+- Abstract
+- Custom patterns: _______________
+
+1.5 Pile Heights (Required)
+Pile height options:
+- Low: 3mm, 4mm, 5mm, 6mm
+- Medium: 7mm, 8mm, 9mm, 10mm
+- High: 11mm, 12mm, 15mm, 20mm
+- Custom heights: _______________
+
+1.6 Weight (Required)
+How do you measure carpet weight?
+- Per square meter (GSM - Grams per Square Meter)
+- Per square foot
+- Total weight per piece
+- Weight categories: Light, Medium, Heavy
+- Other: _______________
+
+2. PRICING STRUCTURE
+
+2.1 Pricing Method (Critical)
+How do you price carpets?
+- Per square foot (sqft)
+- Per square meter (sqm)
+- Per piece (fixed price)
+- Per kilogram (kg)
+- Other: _______________
+
+2.2 Price Variations (Critical)
+Do different variations cost different?
+- Yes, different colors have different prices
+- Yes, different sizes have different prices per sqft
+- Yes, different patterns cost different
+- Yes, different pile heights cost different
+- No, all variations same price
+
+2.3 Industry Terms (Critical)
+What do these terms mean in your business?
+- GSM: Grams per Square Meter (carpet density/weight)
+- SSM: Square Meters (area measurement)
+- Pile Height: Thickness of carpet fibers
+- Density: How tightly packed the fibers are
+- Other terms: _______________
+
+2.4 Pricing Examples (Critical)
+Provide sample pricing:
+- Example 1: Product name, size, price per sqft, total price
+- Example 2: Product name, size, price per sqft, total price
+- Example 3: Product name, size, price per sqft, total price
+
+2.5 Bulk Pricing (Critical)
+Do you offer quantity discounts?
+- Yes, discount tiers (e.g., 10+ pieces = 5% off)
+- Yes, minimum order quantities
+- Yes, special pricing for wholesale customers
+- No, same price for all quantities
+
+3. RAW MATERIALS
+
+3.1 Material Types (Required)
+What raw materials do you use?
+- Wool (types: _______________)
+- Cotton (types: _______________)
+- Silk (types: _______________)
+- Synthetic fibers (types: _______________)
+- Dyes (types: _______________)
+- Other: _______________
+
+3.2 Material Units (Required)
+Units for materials:
+- Weight: kg, gm, tons
+- Length: m, cm, mm
+- Volume: liters, ml
+- Area: sqm, sqft
+- Other: _______________
+
+3.3 Material Suppliers (Required)
+Who are your main suppliers?
+- Wool supplier: _______________
+- Cotton supplier: _______________
+- Dye supplier: _______________
+- Other suppliers: _______________
+
+3.4 Material Pricing (Required)
+How do you price raw materials?
+- Per kilogram
+- Per meter
+- Per liter
+- Per roll
+- Other: _______________
+
+4. PRODUCTION PROCESS
+
+4.1 Production Steps (Required)
+Your production steps:
+- Step 1: _______________
+- Step 2: _______________
+- Step 3: _______________
+- Step 4: _______________
+- Step 5: _______________
+
+4.2 Production Completion (Required)
+How do you track production completion?
+- Expected completion date for each order
+- Quality check after each step
+- Final inspection before adding to inventory
+- Other: _______________
+
+4.3 Quality Grades (Required)
+Quality grades you use:
+- A+ (Premium)
+- A (Standard)
+- B (Good)
+- C (Average)
+- D (Below Average)
+- Other: _______________
+
+4.4 Individual Product Details (Required)
+How do you track individual products?
+- Each product gets unique ID/QR code
+- Track individual product specifications
+- Track individual product quality
+- Track individual product location
+- Other: _______________
+
+5. ORDER PROCESS
+
+5.1 Order Types (Required)
+Types of orders you receive:
+- Standard products (pre-made)
+- Custom orders (made to order)
+- Bulk orders
+- Export orders
+- Other: _______________
+
+5.2 Customer Types (Required)
+Customer categories:
+- Individual customers
+- Wholesale customers
+- Export customers
+- Corporate customers
+- Other: _______________
+
+5.3 Order Information (Required)
+What information do you collect from customers?
+- Customer name and contact details
+- Product type (what kind of carpet they want)
+- Size requirements
+- Color preferences
+- Quantity needed
+- Budget range
+- Delivery timeline
+- Other requirements: _______________
+
+5.4 Order Confirmation (Required)
+How do you confirm orders with customers?
+- Do you quote prices immediately?
+- Do you check stock availability first?
+- Do you require advance payment?
+- How do you handle custom orders?
+- What happens if product is not available?
+
+5.5 Payment Methods (Required)
+How do customers pay?
+- Cash
+- Bank transfer
+- Cheque
+- Credit card
+- Other methods: _______________
+
+5.6 Payment Terms (Required)
+What are your payment terms?
+- Cash on delivery
+- Advance payment required
+- Credit terms (how many days?)
+- Partial payment options
+- Other terms: _______________
+
+5.7 Payment Collection Process (Required)
+How do you collect payments?
+- Collect full payment before delivery
+- Collect partial payment before delivery
+- Collect remaining payment after delivery
+- Give credit to customers (how many days?)
+- Other: _______________
+
+5.8 Payment Follow-up (Required)
+How do you follow up on pending payments?
+- Call customers for pending payments
+- Send payment reminders
+- Visit customers for payment collection
+- Stop future orders until payment
+- Other: _______________
+
+5.9 Discounts After Delivery (Required)
+Do you give discounts after delivery?
+- Yes, if customer complains about quality
+- Yes, for long-term customers
+- Yes, for bulk orders
+- No, no discounts after delivery
+- Other: _______________
+
+5.10 Product Selection Process (Required)
+How do you currently select products for customers?
+- Show customer all available products
+- Customer picks from inventory
+- Customer selects specific individual pieces
+- Customer orders custom products
+- Other: _______________
+
+5.11 Individual Product Selection (Required)
+How do you handle individual product selection?
+- Customer can see all individual pieces
+- Customer can see product details (size, color, quality)
+- Customer can see product location in warehouse
+- Customer can see product condition
+- Other: _______________
+
+6. INVENTORY MANAGEMENT
+
+6.1 Stock Tracking (Required)
+How do you track inventory?
+- Individual pieces (each carpet has unique ID)
+- Bulk tracking (only total quantity)
+- Both (some products individual, some bulk)
+
+6.2 Stock Units (Required)
+Units for finished products:
+- Pieces
+- Square feet (sqft)
+- Square meters (sqm)
+- Sets
+- Other: _______________
+
+6.3 Stock Levels (Required)
+How do you manage stock levels?
+- Do you have minimum stock levels?
+- Do you reorder automatically?
+- How do you know when to produce more?
+- What are your safety stock levels?
+
+6.4 Warehouse Management (Required)
+How do you organize your warehouse?
+- Warehouse locations: _______________
+- Storage systems: _______________
+- How products are stored: _______________
+
+6.5 QR Code System (Required)
+How do you use QR codes for products?
+- Each product has unique QR code
+- QR code contains product details
+- QR code shows product location
+- QR code shows product status
+- Other: _______________
+
+6.6 Product Details in QR Code (Required)
+What information do you store in QR code?
+- Product ID
+- Product name
+- Size and dimensions
+- Color and pattern
+- Quality grade
+- Production date
+- Location in warehouse
+- Other: _______________
+
+6.7 Finding Products (Required)
+How do you find products in warehouse?
+- Search by product name
+- Search by QR code
+- Search by location
+- Search by size/color
+- Search by quality grade
+- Other: _______________
+
+6.8 Product Status Tracking (Required)
+How do you track product status?
+- Available for sale
+- Reserved for customer
+- Sold
+- Damaged
+- In production
+- Other: _______________
+
+7. WASTE MANAGEMENT
+
+7.1 Raw Material Waste (Required)
+What raw material waste do you generate?
+- Cutting waste (excess material after cutting)
+- Dye waste (leftover dyes)
+- Fiber waste (broken/damaged fibers)
+- Other material waste: _______________
+
+7.2 Finished Product Waste (Required)
+What finished product waste do you generate?
+- Defective carpets (quality issues)
+- Damaged products (during handling)
+- Unsold inventory (outdated designs)
+- Other product waste: _______________
+
+7.3 Waste Quantities (Required)
+How much waste do you generate?
+- Raw material waste: _______________ % of total materials
+- Finished product waste: _______________ % of total production
+- Monthly waste quantity: _______________
+- Other: _______________
+
+7.4 Waste Handling (Required)
+How do you handle different types of waste?
+- Raw material waste: Reuse/Recycle/Dispose
+- Finished product waste: Reuse/Recycle/Dispose
+- Waste collection method: _______________
+- Waste disposal method: _______________
+
+7.5 Waste Tracking (Required)
+Do you track waste?
+- Yes, we track waste quantities
+- Yes, we track waste costs
+- Yes, we track waste by type
+- No, we don't track waste
+- Other: _______________
+
+7.6 Waste Cost Impact (Required)
+How does waste affect your business?
+- Waste cost per month: _______________
+- Waste as % of total cost: _______________
+- Do you want to reduce waste: Yes/No
+- Other: _______________
+
+8. BUSINESS REPORTS
+
+8.1 Essential Reports (Required)
+Reports you need daily/weekly:
+- Sales summary
+- Inventory levels
+- Production status
+- Customer orders
+- Other: _______________
+
+8.2 Performance Metrics (Required)
+What do you measure for business performance?
+- Sales volume
+- Production efficiency
+- Customer satisfaction
+- Profit margins
+- Other: _______________
+
+9. SYSTEM CONFIGURATION
+
+9.1 User Roles (Required)
+Who will use the system?
+- Admin (full access)
+- Manager (production, inventory)
+- Sales person (orders, customers)
+- Worker (production details)
+- Other: _______________
+
+9.2 Access Method (Required)
+How will users access the system?
+- Desktop computer
+- Mobile phone
+- Tablet
+- All of the above
+
+9.3 System Integration (Required)
+Do you have any existing systems?
+- Accounting software
+- Inventory system
+- Other systems: _______________
+
+10. CRITICAL DEVELOPMENT QUESTIONS
+
+10.1 Order Processing Flow (Most Important for Development)
+How does a typical order work in your system?
+1. Customer comes to you
+2. You check inventory: _______________
+3. You calculate price: _______________
+4. You create order: _______________
+5. You process payment: _______________
+6. You deliver: _______________
+7. You update inventory: _______________
+
+10.2 Product Creation Flow (Most Important for Development)
+How do you add new products to your system?
+1. You decide to create new product
+2. You define product details: _______________
+3. You set pricing: _______________
+4. You add to inventory: _______________
+5. You generate QR codes: _______________
+6. You store in warehouse: _______________
+
+10.3 Inventory Management Flow (Most Important for Development)
+How do you manage inventory in your system?
+1. Product comes from production
+2. You add to system: _______________
+3. You assign location: _______________
+4. You generate QR code: _______________
+5. You update stock levels: _______________
+6. You track status: _______________
+
+10.4 Production Flow (Most Important for Development)
+How do you track production in your system?
+1. You start production order
+2. You select materials: _______________
+3. You track progress: _______________
+4. You complete production: _______________
+5. You add to inventory: _______________
+6. You update system: _______________
+
+10.5 System Requirements (Most Important for Development)
+What do you want the system to do for you?
+- Automate order processing
+- Track inventory automatically
+- Calculate prices automatically
+- Manage production workflow
+- Generate reports
+- Other: _______________
+
+10.6 Current Problems (Most Important for Development)
+What takes most time in your business?
+- Finding products in warehouse
+- Calculating prices manually
+- Tracking orders manually
+- Managing inventory manually
+- Other: _______________
+
+10.7 System Features Needed (Most Important for Development)
+What features do you need in the system?
+- Product management
+- Order management
+- Inventory tracking
+- Production tracking
+- Customer management
+- Payment tracking
+- Reports generation
+- Other: _______________
+

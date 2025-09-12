@@ -28,7 +28,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { getFromStorage, saveToStorage, generateUniqueId } from "@/lib/storage";
+import { getFromStorage, saveToStorage, replaceStorage, generateUniqueId } from "@/lib/storage";
 
 interface ProductMaterial {
   materialName: string;
@@ -180,7 +180,7 @@ export default function ProductStock() {
         ? { ...item, ...editForm }
         : item
     );
-    saveToStorage('rajdhani_individual_products', updatedProducts);
+    replaceStorage('rajdhani_individual_products', updatedProducts);
     
     // Update local state
     const updatedItem = { ...editingItem, ...editForm };

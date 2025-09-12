@@ -374,7 +374,7 @@ export const createNotification = (notification: Omit<Notification, 'id' | 'crea
   // Flatten any nested arrays before adding new notification
   const flattenedNotifications = existingNotifications.flat(Infinity);
   const updatedNotifications = [newNotification, ...flattenedNotifications];
-  saveToStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
+  replaceStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
   
   return newNotification;
 };
@@ -403,7 +403,7 @@ export const markNotificationAsRead = (notificationId: string): void => {
       ? { ...n, status: 'read' as const, readAt: new Date().toISOString() }
       : n
   );
-  saveToStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
+  replaceStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
 };
 
 export const resolveNotification = (notificationId: string): void => {
@@ -414,7 +414,7 @@ export const resolveNotification = (notificationId: string): void => {
       ? { ...n, status: 'resolved' as const, resolvedAt: new Date().toISOString() }
       : n
   );
-  saveToStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
+  replaceStorage(STORAGE_KEYS.NOTIFICATIONS, updatedNotifications);
 };
 
 // Utility function to fix nested arrays in localStorage
