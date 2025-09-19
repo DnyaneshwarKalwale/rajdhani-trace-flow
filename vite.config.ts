@@ -31,7 +31,7 @@ export default defineConfig(({ mode }) => ({
     },
   },
   optimizeDeps: {
-    include: ['sonner', 'react', 'react-dom'],
+    include: ['react', 'react-dom'],
     exclude: [],
   },
 }));
