@@ -18,7 +18,8 @@ import {
   ArrowLeft, Package, Search, Plus, Calendar, AlertTriangle,
   Factory, Clock, CheckCircle
 } from "lucide-react";
-import { getFromStorage, saveToStorage, generateUniqueId } from "@/lib/storage";
+import { generateUniqueId } from "@/lib/storageUtils";
+import { ProductService } from "@/services/ProductService";
 
 interface ProductMaterial {
   materialName: string;
@@ -96,9 +97,18 @@ export default function NewBatch() {
   const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
-    // Load products from inventory
-    const savedProducts = getFromStorage('rajdhani_products');
-    setProducts(savedProducts);
+    // Load products from Supabase
+    const loadProducts = async () => {
+      try {
+        const response = await ProductService.getProducts();
+        const products = response.data || [];
+        setProducts(products);
+      } catch (error) {
+        console.error('Error loading products:', error);
+        setProducts([]);
+      }
+    };
+    loadProducts();
 
     // Check if a product was pre-selected from the inventory page
     if (location.state?.selectedProduct) {
@@ -129,7 +139,7 @@ export default function NewBatch() {
     if (!selectedProduct) return;
 
     const productionProduct: ProductionProduct = {
-      id: generateUniqueId('PROD'),
+      id: selectedProduct.id, // Use actual product ID instead of generating new one
       productId: selectedProduct.id,
       productName: selectedProduct.name,
       category: selectedProduct.category,
@@ -152,10 +162,8 @@ export default function NewBatch() {
       notes
     };
 
-    // Save to production products
-    const existing = getFromStorage('rajdhani_production_products');
-    existing.push(productionProduct);
-    saveToStorage('rajdhani_production_products', productionProduct);
+    // TODO: Save to production products in Supabase
+    console.log('Production product to save:', productionProduct);
 
     // Save complete product data with individual stock details for auto-filling
     const completeProductData = {
@@ -164,11 +172,8 @@ export default function NewBatch() {
       addedToProductionAt: new Date().toISOString()
     };
     
-    // Save to a special storage key for production product data
-    const existingProductData = getFromStorage('rajdhani_production_product_data');
-    const updatedProductData = existingProductData.filter((item: any) => item.id !== selectedProduct.id);
-    updatedProductData.push(completeProductData);
-    localStorage.setItem('rajdhani_production_product_data', JSON.stringify(updatedProductData));
+    // TODO: Save complete product data to Supabase
+    console.log('Complete product data to save:', completeProductData);
 
     // Navigate directly to production detail page for planning
     navigate(`/production-detail/${productionProduct.id}`);

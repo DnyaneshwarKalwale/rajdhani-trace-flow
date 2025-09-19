@@ -7,19 +7,19 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { 
-  Package, 
-  Search, 
-  Truck, 
-  CheckCircle, 
-  Clock, 
+import {
+  Package,
+  Search,
+  Truck,
+  CheckCircle,
+  Clock,
   AlertTriangle,
   DollarSign,
   Calendar,
@@ -28,10 +28,12 @@ import {
   Plus
 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { materialOrdersStorage, rawMaterialsStorage } from "@/utils/localStorage";
+import { supabase } from "@/lib/supabase";
+import { PurchaseOrderService, RawMaterialService } from "@/services";
 
 interface StockOrder {
   id: string;
+  order_number: string;
   materialName: string;
   materialBrand?: string;
   materialCategory?: string;
@@ -43,19 +45,22 @@ interface StockOrder {
   totalCost: number;
   orderDate: string;
   expectedDelivery: string;
-  status: "ordered" | "in-transit" | "delivered" | "cancelled";
+  status: "ordered" | "pending" | "approved" | "shipped" | "in-transit" | "delivered" | "cancelled";
   notes?: string;
   actualDelivery?: string;
   minThreshold?: number;
   maxCapacity?: number;
   qualityGrade?: string;
-  isRestock?: boolean; // Indicates if this is a restock order
+  isRestock?: boolean;
 }
 
-// No hardcoded orders - all orders are now loaded from localStorage
+// All orders are now loaded from Supabase database
 
 const statusConfig = {
-  "ordered": { label: "Ordered", icon: Clock, color: "bg-blue-100 text-blue-800" },
+  "ordered": { label: "Ordered", icon: Clock, color: "bg-gray-100 text-gray-800" },
+  "pending": { label: "Pending", icon: Clock, color: "bg-gray-100 text-gray-800" },
+  "approved": { label: "Approved", icon: CheckCircle, color: "bg-blue-100 text-blue-800" },
+  "shipped": { label: "Shipped", icon: Truck, color: "bg-yellow-100 text-yellow-800" },
   "in-transit": { label: "In Transit", icon: Truck, color: "bg-yellow-100 text-yellow-800" },
   "delivered": { label: "Delivered", icon: CheckCircle, color: "bg-green-100 text-green-800" },
   "cancelled": { label: "Cancelled", icon: AlertTriangle, color: "bg-red-100 text-red-800" }
@@ -70,7 +75,9 @@ export default function ManageStock() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState<StockOrder | null>(null);
-  
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   // Ref to track processed prefillOrders to prevent duplicates
   const processedPrefillOrders = useRef<Set<string>>(new Set());
 
@@ -87,38 +94,81 @@ export default function ManageStock() {
     });
   };
 
-  // Load orders from localStorage on component mount
+  // Load orders from Supabase on component mount
   useEffect(() => {
-    const loadedOrders = materialOrdersStorage.getAll();
+    const loadOrders = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('purchase_orders')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        
+        // Map database fields to interface format
+        const loadedOrders = (data || []).map((order: any) => {
+          // Try to parse material details from notes
+          let materialDetails: any = {};
+          try {
+            if (order.notes) {
+              materialDetails = JSON.parse(order.notes);
+            }
+          } catch (e) {
+            // If parsing fails, use the notes as-is (for old orders)
+            console.log('Could not parse material details from notes:', order.notes);
+          }
+
+          return {
+            id: order.id,
+            order_number: order.order_number,
+            materialName: materialDetails.materialName || 'Material Order',
+            materialBrand: materialDetails.materialBrand || 'Unknown',
+            materialCategory: materialDetails.materialCategory || 'Other',
+            materialBatchNumber: materialDetails.materialBatchNumber || `BATCH-${order.id}`,
+            supplier: order.supplier_name,
+            quantity: materialDetails.quantity || 0,
+            unit: materialDetails.unit || 'units',
+            costPerUnit: materialDetails.costPerUnit || 0,
+            totalCost: order.total_amount,
+            orderDate: order.order_date,
+            expectedDelivery: order.expected_delivery,
+            status: order.status === 'pending' ? 'ordered' : order.status,
+            notes: typeof materialDetails === 'string' ? materialDetails : (materialDetails.userNotes || ''),
+            actualDelivery: order.actual_delivery,
+            minThreshold: materialDetails.minThreshold || 100,
+            maxCapacity: materialDetails.maxCapacity || 1000,
+            qualityGrade: materialDetails.qualityGrade || 'A',
+            isRestock: materialDetails.isRestock || false
+          };
+        });
 
     
-    // Remove any duplicate orders that might exist
-    const uniqueOrders = removeDuplicateOrders(loadedOrders);
-    if (uniqueOrders.length !== loadedOrders.length) {
-
-      // Update localStorage with unique orders
-      uniqueOrders.forEach((order, index) => {
-        if (index === 0) {
-          localStorage.setItem('rajdhani_material_orders', JSON.stringify([order]));
-        } else {
-          const existing = JSON.parse(localStorage.getItem('rajdhani_material_orders') || '[]');
-          existing.push(order);
-          localStorage.setItem('rajdhani_material_orders', JSON.stringify(existing));
-        }
-      });
-    }
+        // Remove any duplicate orders that might exist
+        const uniqueOrders = removeDuplicateOrders(loadedOrders);
     
-    setOrders(uniqueOrders);
+        setOrders(uniqueOrders);
+      } catch (error) {
+        console.error('Error loading orders:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load orders",
+          variant: "destructive",
+        });
+      }
+    };
+
+    loadOrders();
     
     // Cleanup function to clear processed prefillOrders when component unmounts
     return () => {
       processedPrefillOrders.current.clear();
     };
-  }, []);
+  }, [toast]);
 
   // Handle pre-filled order data from Materials page
   useEffect(() => {
-    if (location.state?.prefillOrder) {
+    const handlePrefillOrder = async () => {
+      if (location.state?.prefillOrder) {
       const prefillData = location.state.prefillOrder;
       
       // Create a unique key for this prefillOrder to prevent duplicates
@@ -134,43 +184,37 @@ export default function ManageStock() {
         return;
       }
       
-      // Check if this order already exists in localStorage to prevent duplicates
-      const allOrders = materialOrdersStorage.getAll();
-      const existingOrder = allOrders.find(order => 
-        order.materialName === prefillData.materialName &&
-        order.supplier === prefillData.supplier &&
-        order.quantity === parseInt(prefillData.quantity) &&
-        order.unit === prefillData.unit &&
-        order.costPerUnit === parseFloat(prefillData.costPerUnit) &&
-        order.status === "ordered"
-      );
-      
-      // Also check for recent orders (within last 5 seconds) to prevent rapid duplicates
-      const recentOrder = allOrders.find(order => {
-        const orderTime = new Date(order.createdAt || order.orderDate).getTime();
-        const currentTime = Date.now();
-        const timeDiff = currentTime - orderTime;
-        
-        return order.materialName === prefillData.materialName &&
-               order.supplier === prefillData.supplier &&
-               order.quantity === parseInt(prefillData.quantity) &&
-               order.unit === prefillData.unit &&
-               order.costPerUnit === parseFloat(prefillData.costPerUnit) &&
-               order.status === "ordered" &&
-               timeDiff < 5000; // 5 seconds
-      });
-      
-      if (recentOrder) {
+      // Check for recent orders (within last 5 minutes) to prevent rapid duplicates
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      const { data: recentOrders, error: recentError } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .eq('supplier_name', prefillData.supplier)
+        .eq('status', 'pending')
+        .gte('created_at', fiveMinutesAgo);
+
+      if (recentError) {
+        console.error('Error checking for recent orders:', recentError);
+      }
+
+      if (recentOrders && recentOrders.length > 0) {
+        console.log('Duplicate order detected, skipping creation');
+        toast({
+          title: "⚠️ Duplicate Order Detected",
+          description: `An order for ${prefillData.materialName} from ${prefillData.supplier} was created recently.`,
+          variant: "destructive",
+        });
 
         // Clear the state to prevent re-opening on refresh
         window.history.replaceState({}, document.title);
         return;
       }
       
-      if (!existingOrder) {
-
-        const newOrder: StockOrder = {
-          id: Date.now().toString(),
+      // Create the new order since no duplicates found
+      const timestamp = Date.now();
+      const newOrder: StockOrder = {
+          id: `PO_${timestamp}`,
+          order_number: `PO-${timestamp}`,
           materialName: prefillData.materialName,
           materialBrand: prefillData.materialBrand || "Unknown",
           materialCategory: prefillData.materialCategory || "Other",
@@ -190,17 +234,43 @@ export default function ManageStock() {
           isRestock: prefillData.isRestock || false
         };
 
-        // Add to localStorage and update state
-        const savedOrder = materialOrdersStorage.add(newOrder);
-        setOrders(prev => [savedOrder, ...prev]);
+        // Store material details in notes as JSON for now
+        const materialDetails = {
+          materialName: newOrder.materialName,
+          materialBrand: newOrder.materialBrand,
+          materialCategory: newOrder.materialCategory,
+          materialBatchNumber: newOrder.materialBatchNumber,
+          quantity: newOrder.quantity,
+          unit: newOrder.unit,
+          costPerUnit: newOrder.costPerUnit,
+          minThreshold: newOrder.minThreshold,
+          maxCapacity: newOrder.maxCapacity,
+          qualityGrade: newOrder.qualityGrade,
+          isRestock: newOrder.isRestock
+        };
+
+        // Add to Supabase and update state
+        const { data, error } = await supabase
+          .from('purchase_orders')
+          .insert({
+            id: newOrder.id,
+            order_number: newOrder.order_number,
+            supplier_name: newOrder.supplier,
+            order_date: newOrder.orderDate,
+            expected_delivery: newOrder.expectedDelivery,
+            status: newOrder.status === 'ordered' ? 'pending' : newOrder.status,
+            total_amount: newOrder.totalCost,
+            notes: JSON.stringify(materialDetails)
+          })
+          .select()
+          .single();
+
+        if (error) throw error;
         
-        // Update raw material status to "in-transit" if it's a restock order
-        if (newOrder.isRestock) {
-          console.log(`🚀 Calling updateRawMaterialStatusToInTransit for order:`, newOrder);
-          updateRawMaterialStatusToInTransit(newOrder);
-        } else {
-          console.log(`⚠️ Order is not marked as restock, skipping status update:`, newOrder);
-        }
+        setOrders(prev => [newOrder, ...prev]);
+        
+        // Don't update raw material status immediately - wait for order approval
+        console.log(`📋 Order created with status: ${newOrder.status}. Material status will be updated when order is approved.`);
         
         // Mark this prefillOrder as processed
         processedPrefillOrders.current.add(prefillKey);
@@ -212,9 +282,6 @@ export default function ManageStock() {
           variant: "default",
         });
         
-
-      } else {
-
       }
       
       // Clear the state to prevent re-opening on refresh
@@ -224,8 +291,10 @@ export default function ManageStock() {
       if (location.state?.prefillOrder) {
         navigate(location.pathname, { replace: true });
       }
-    }
-  }, [location.state, navigate]); // Added navigate to dependencies
+    };
+
+    handlePrefillOrder();
+  }, [location.state, navigate, toast]); // Added navigate to dependencies
 
   const filteredOrders = orders.filter(order => {
     const matchesSearch = order.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -234,7 +303,7 @@ export default function ManageStock() {
     return matchesSearch && matchesStatus;
   });
 
-  const updateOrderStatus = (orderId: string, newStatus: StockOrder["status"]) => {
+  const updateOrderStatus = async (orderId: string, newStatus: StockOrder["status"]) => {
     const updatedOrders = orders.map(order => 
       order.id === orderId 
         ? { 
@@ -248,66 +317,144 @@ export default function ManageStock() {
     // Update local state
     setOrders(updatedOrders);
     
-    // If status is "delivered", update the raw material inventory
-    if (newStatus === "delivered") {
-      const deliveredOrder = updatedOrders.find(order => order.id === orderId);
-      if (deliveredOrder) {
-        updateRawMaterialStock(deliveredOrder);
+    const orderToUpdate = updatedOrders.find(order => order.id === orderId);
+    
+    // Handle material status changes based on order status
+    if (orderToUpdate) {
+      if (newStatus === "approved") {
+        // When order is approved, set material to "in-transit"
+        await updateRawMaterialStatusToInTransit(orderToUpdate);
+      } else if (newStatus === "cancelled") {
+        // When order is cancelled, revert material back to original status
+        await revertRawMaterialStatus(orderToUpdate);
+      } else if (newStatus === "delivered") {
+        // When order is delivered, update the raw material inventory
+        await updateRawMaterialStock(orderToUpdate);
       }
     }
     
-    // Update the order in localStorage
-    const orderToUpdate = updatedOrders.find(order => order.id === orderId);
+    // Update the order in Supabase
     if (orderToUpdate) {
-      materialOrdersStorage.update(orderId, orderToUpdate);
+      // Map frontend status to database status
+      const dbStatus = orderToUpdate.status === 'ordered' ? 'pending' : orderToUpdate.status;
+      
+      // Recreate material details JSON to preserve all data
+      const materialDetails = {
+        materialName: orderToUpdate.materialName,
+        materialBrand: orderToUpdate.materialBrand,
+        materialCategory: orderToUpdate.materialCategory,
+        materialBatchNumber: orderToUpdate.materialBatchNumber,
+        quantity: orderToUpdate.quantity,
+        unit: orderToUpdate.unit,
+        costPerUnit: orderToUpdate.costPerUnit,
+        minThreshold: orderToUpdate.minThreshold,
+        maxCapacity: orderToUpdate.maxCapacity,
+        qualityGrade: orderToUpdate.qualityGrade,
+        isRestock: orderToUpdate.isRestock,
+        userNotes: orderToUpdate.notes || '' // Preserve user notes
+      };
+      
+      const { error } = await supabase
+        .from('purchase_orders')
+        .update({
+          status: dbStatus,
+          notes: JSON.stringify(materialDetails)
+        })
+        .eq('id', orderId);
+
+      if (error) {
+        console.error('Error updating order:', error);
+        toast({
+          title: "Error",
+          description: "Failed to update order",
+          variant: "destructive",
+        });
+      }
     }
   };
 
-  // Function to update raw material status to "in-transit" when order is created
-  const updateRawMaterialStatusToInTransit = (order: StockOrder) => {
-    const rawMaterials = rawMaterialsStorage.getAll();
-    console.log(`🔍 Looking for material to update:`, {
-      orderName: order.materialName,
-      orderSupplier: order.supplier,
-      orderUnit: order.unit
-    });
-    console.log(`📋 Available materials:`, rawMaterials.map(m => ({
-      name: m.name,
-      supplier: m.supplier,
-      unit: m.unit,
-      status: m.status
-    })));
-    
-    let materialFound = false;
-    const updatedMaterials = rawMaterials.map((material: any) => {
-      // More flexible matching - check name first, then supplier and unit
-      const nameMatches = material.name.toLowerCase().trim() === order.materialName.toLowerCase().trim();
-      const supplierMatches = material.supplier.toLowerCase().trim() === order.supplier.toLowerCase().trim();
-      const unitMatches = material.unit.toLowerCase().trim() === order.unit.toLowerCase().trim();
-      
-      if (nameMatches && supplierMatches && unitMatches) {
-        materialFound = true;
-        console.log(`✅ Found matching material: ${material.name} (${material.supplier})`);
-        console.log(`🔄 Updating material ${material.name} status from "${material.status}" to "in-transit"`);
-        return {
-          ...material,
-          status: "in-transit" as const
-        };
+  // Function to revert raw material status when order is cancelled
+  const revertRawMaterialStatus = async (order: StockOrder) => {
+    try {
+      // Find matching material in Supabase
+      const { data: materials, error } = await supabase
+        .from('raw_materials')
+        .select('*')
+        .eq('name', order.materialName)
+        .eq('supplier_name', order.supplier)
+        .eq('unit', order.unit);
+
+      if (error) throw error;
+
+      if (materials && materials.length > 0) {
+        const material = materials[0];
+        console.log(`🔄 Reverting ${order.materialName} status from "in-transit" back to original status`);
+        
+        // Determine the appropriate status based on current stock
+        let newStatus = 'in-stock';
+        if (material.current_stock === 0) {
+          newStatus = 'out-of-stock';
+        } else if (material.current_stock <= material.min_threshold) {
+          newStatus = 'low-stock';
+        }
+        
+        // Update status back to appropriate status
+        const { error: updateError } = await supabase
+          .from('raw_materials')
+          .update({ status: newStatus })
+          .eq('id', material.id);
+
+        if (updateError) throw updateError;
+        
+        console.log(`✅ Reverted ${order.materialName} status to "${newStatus}"`);
+      } else {
+        console.log(`❌ No matching material found to revert status for order:`, {
+          name: order.materialName,
+          supplier: order.supplier,
+          unit: order.unit
+        });
       }
-      return material;
-    });
-    
-    if (!materialFound) {
-      console.log(`❌ No matching material found for order:`, {
-        name: order.materialName,
-        supplier: order.supplier,
-        unit: order.unit
-      });
+    } catch (error) {
+      console.error('Error reverting material status:', error);
     }
-    
-    // Update localStorage
-    rawMaterialsStorage.replaceAll(updatedMaterials);
-    console.log(`📦 Updated ${order.materialName} status to "in-transit"`);
+  };
+
+  // Function to update raw material status to "in-transit" when order is approved
+  const updateRawMaterialStatusToInTransit = async (order: StockOrder) => {
+    try {
+      // Find matching material in Supabase
+      const { data: materials, error } = await supabase
+        .from('raw_materials')
+        .select('*')
+        .eq('name', order.materialName)
+        .eq('supplier_name', order.supplier)
+        .eq('unit', order.unit);
+
+      if (error) throw error;
+
+      if (materials && materials.length > 0) {
+        const material = materials[0];
+        console.log(`✅ Found matching material: ${material.name} (${material.supplier_name})`);
+        
+        // Update status to in-transit
+        const { error: updateError } = await supabase
+          .from('raw_materials')
+          .update({ status: 'in-transit' })
+          .eq('id', material.id);
+
+        if (updateError) throw updateError;
+        
+        console.log(`📦 Updated ${order.materialName} status to "in-transit" (order approved)`);
+      } else {
+        console.log(`❌ No matching material found for order:`, {
+          name: order.materialName,
+          supplier: order.supplier,
+          unit: order.unit
+        });
+      }
+    } catch (error) {
+      console.error('Error updating material status:', error);
+    }
   };
 
       // Function to update raw material stock when order is delivered
@@ -321,11 +468,9 @@ export default function ManageStock() {
       // - Same material + different supplier = NEW MATERIAL (create new entry)
       // - Same material + same supplier + price change = RESTOCK (update existing, new price)
       // - Same material + same supplier + different quality = NEW MATERIAL (create new entry)
-      const updateRawMaterialStock = (deliveredOrder: StockOrder) => {
+      const updateRawMaterialStock = async (deliveredOrder: StockOrder) => {
     try {
-      const rawMaterials = rawMaterialsStorage.getAll();
       console.log('📦 Processing delivered order:', deliveredOrder);
-      console.log('📋 Current raw materials in inventory:', rawMaterials.length);
       
               // Check if this is EXACTLY the same material (ALL fields must match for restock)
         // SMART RESTOCK LOGIC: Only supplier, brand, and quality matter for restock
@@ -345,22 +490,30 @@ export default function ManageStock() {
         
         if (deliveredOrder.isRestock) {
           // RESTOCK ORDER: More flexible matching - prioritize name and supplier
-          existingMaterial = rawMaterials.find(material => 
-            material.name === deliveredOrder.materialName &&
-            material.supplier === deliveredOrder.supplier &&
-            material.unit === deliveredOrder.unit
-          );
+          const { data: materials, error } = await supabase
+            .from('raw_materials')
+            .select('*')
+            .eq('name', deliveredOrder.materialName)
+            .eq('supplier_name', deliveredOrder.supplier)
+            .eq('unit', deliveredOrder.unit);
+          
+          if (error) throw error;
+          existingMaterial = materials?.[0];
           console.log('🔄 Restock order detected - using flexible matching');
         } else {
           // NEW ORDER: Strict matching - all fields must match
-          existingMaterial = rawMaterials.find(material => 
-            material.name === deliveredOrder.materialName &&
-            material.brand === deliveredOrder.materialBrand &&
-            material.category === deliveredOrder.materialCategory &&
-            material.supplier === deliveredOrder.supplier &&
-            material.qualityGrade === deliveredOrder.qualityGrade &&
-            material.unit === deliveredOrder.unit
-          );
+          const { data: materials, error } = await supabase
+            .from('raw_materials')
+            .select('*')
+            .eq('name', deliveredOrder.materialName)
+            .eq('brand', deliveredOrder.materialBrand)
+            .eq('category', deliveredOrder.materialCategory)
+            .eq('supplier_name', deliveredOrder.supplier)
+            .eq('quality_grade', deliveredOrder.qualityGrade)
+            .eq('unit', deliveredOrder.unit);
+          
+          if (error) throw error;
+          existingMaterial = materials?.[0];
           console.log('🆕 New order detected - using strict matching');
         }
         
@@ -379,20 +532,25 @@ export default function ManageStock() {
       
       if (existingMaterial) {
         // This is an EXACT match - automatically treat as RESTOCK
-        const newStock = existingMaterial.currentStock + deliveredOrder.quantity;
-        const updatedMaterial = {
-          ...existingMaterial,
-          currentStock: newStock,
-          lastRestocked: new Date().toISOString().split('T')[0],
-          status: newStock === 0 ? 'out-of-stock' : 
-                  newStock <= existingMaterial.minThreshold ? 'low-stock' : 'in-stock',
-          // Update cost per unit if it's different (allow price changes)
-          costPerUnit: deliveredOrder.costPerUnit,
-          totalValue: newStock * deliveredOrder.costPerUnit
-        };
-        rawMaterialsStorage.update(existingMaterial.id, updatedMaterial);
+        const newStock = existingMaterial.current_stock + deliveredOrder.quantity;
+        const newStatus = newStock === 0 ? 'out-of-stock' : 
+                         newStock <= existingMaterial.min_threshold ? 'low-stock' : 'in-stock';
         
-        console.log(`Restocked existing ${deliveredOrder.materialName} from ${existingMaterial.currentStock} to ${newStock}`);
+        // Update material in Supabase
+        const { error: updateError } = await supabase
+          .from('raw_materials')
+          .update({
+            current_stock: newStock,
+            last_restocked: new Date().toISOString(),
+            status: newStatus,
+            cost_per_unit: deliveredOrder.costPerUnit,
+            total_value: newStock * deliveredOrder.costPerUnit
+          })
+          .eq('id', existingMaterial.id);
+
+        if (updateError) throw updateError;
+        
+        console.log(`Restocked existing ${deliveredOrder.materialName} from ${existingMaterial.current_stock} to ${newStock}`);
         
         // Auto-detect action type: If fields match exactly, it's a restock
         const isAutoRestock = true; // Since we found an exact match
@@ -401,44 +559,37 @@ export default function ManageStock() {
         
         toast({
           title: title,
-          description: `${deliveredOrder.materialName} (${deliveredOrder.supplier}): ${existingMaterial.currentStock} + ${deliveredOrder.quantity} = ${newStock} ${deliveredOrder.unit}`,
+          description: `${deliveredOrder.materialName} (${deliveredOrder.supplier}): ${existingMaterial.current_stock} + ${deliveredOrder.quantity} = ${newStock} ${deliveredOrder.unit}`,
           variant: "default",
         });
         
-        // Store stock update info for Materials page notification
-        localStorage.setItem('last_stock_update', JSON.stringify({
-          materialName: deliveredOrder.materialName,
-          oldStock: existingMaterial.currentStock,
-          newStock: newStock,
-          quantity: deliveredOrder.quantity,
-          unit: deliveredOrder.unit,
-          timestamp: Date.now(),
-          action: actionType
-        }));
       } else {
         // This is a NEW material (different name, brand, supplier, quality, price, etc.)
         // Even if name is same, if ANY field is different, it's treated as NEW
-        const newMaterial = {
-          id: Date.now().toString(),
-          name: deliveredOrder.materialName,
-          brand: deliveredOrder.materialBrand || "Unknown",
-          category: deliveredOrder.materialCategory || "Other",
-          batchNumber: deliveredOrder.materialBatchNumber || `BATCH-${Date.now()}`,
-          currentStock: deliveredOrder.quantity,
-          unit: deliveredOrder.unit,
-          minThreshold: deliveredOrder.minThreshold || 100,
-          maxCapacity: deliveredOrder.maxCapacity || 1000,
-          supplier: deliveredOrder.supplier,
-          costPerUnit: deliveredOrder.costPerUnit,
-          qualityGrade: deliveredOrder.qualityGrade || "A",
-          expiryDate: "",
-          imageUrl: "",
-          lastRestocked: new Date().toISOString().split('T')[0],
-          status: 'in-stock',
-          totalValue: deliveredOrder.quantity * deliveredOrder.costPerUnit
-        };
-        
-        rawMaterialsStorage.add(newMaterial);
+        const { error: insertError } = await supabase
+          .from('raw_materials')
+          .insert({
+            id: `MAT_${Date.now()}`,
+            name: deliveredOrder.materialName,
+            brand: deliveredOrder.materialBrand || "Unknown",
+            category: deliveredOrder.materialCategory || "Other",
+            batch_number: deliveredOrder.materialBatchNumber || `BATCH-${Date.now()}`,
+            current_stock: deliveredOrder.quantity,
+            unit: deliveredOrder.unit,
+            min_threshold: deliveredOrder.minThreshold || 100,
+            max_capacity: deliveredOrder.maxCapacity || 1000,
+            reorder_point: deliveredOrder.minThreshold || 100,
+            supplier_name: deliveredOrder.supplier,
+            cost_per_unit: deliveredOrder.costPerUnit,
+            quality_grade: deliveredOrder.qualityGrade || "A",
+            last_restocked: new Date().toISOString(),
+            status: 'in-stock',
+            total_value: deliveredOrder.quantity * deliveredOrder.costPerUnit,
+            daily_usage: 0,
+            supplier_performance: 85
+          });
+
+        if (insertError) throw insertError;
         
         console.log(`Added NEW material ${deliveredOrder.materialName} from ${deliveredOrder.supplier} to inventory (different specifications)`);
         
@@ -447,18 +598,6 @@ export default function ManageStock() {
           description: `${deliveredOrder.materialName} (${deliveredOrder.supplier}) has been added as a NEW material with ${deliveredOrder.quantity} ${deliveredOrder.unit}`,
           variant: "default",
         });
-        
-        // Store stock update info for Materials page notification
-        localStorage.setItem('last_stock_update', JSON.stringify({
-          materialName: deliveredOrder.materialName,
-          oldStock: 0,
-          newStock: deliveredOrder.quantity,
-          quantity: deliveredOrder.quantity,
-          unit: deliveredOrder.unit,
-          supplier: deliveredOrder.supplier,
-          timestamp: Date.now(),
-          action: 'new_material_added'
-        }));
       }
     } catch (error) {
       console.error('Error updating raw material stock:', error);
@@ -472,7 +611,13 @@ export default function ManageStock() {
 
   const totalOrders = orders.length;
   const totalValue = orders.reduce((sum, order) => sum + order.totalCost, 0);
-  const pendingOrders = orders.filter(order => order.status === "ordered" || order.status === "in-transit").length;
+  const pendingOrders = orders.filter(order => 
+    order.status === "ordered" || 
+    order.status === "pending" || 
+    order.status === "approved" || 
+    order.status === "shipped" || 
+    order.status === "in-transit"
+  ).length;
   const deliveredOrders = orders.filter(order => order.status === "delivered").length;
 
   return (
@@ -545,6 +690,9 @@ export default function ManageStock() {
                 <SelectContent>
                   <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="ordered">Ordered</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                  <SelectItem value="shipped">Shipped</SelectItem>
                   <SelectItem value="in-transit">In Transit</SelectItem>
                   <SelectItem value="delivered">Delivered</SelectItem>
                   <SelectItem value="cancelled">Cancelled</SelectItem>
@@ -629,29 +777,38 @@ export default function ManageStock() {
                   )}
                   
                   <div className="flex gap-2">
-                    {order.status === "ordered" && (
+                    {(order.status === "ordered" || order.status === "pending") && (
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => updateOrderStatus(order.id, "in-transit")}
+                        onClick={async () => await updateOrderStatus(order.id, "approved")}
                       >
-                        Mark In Transit
+                        Approve
                       </Button>
                     )}
-                    {order.status === "in-transit" && (
+                    {order.status === "approved" && (
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => updateOrderStatus(order.id, "delivered")}
+                        onClick={async () => await updateOrderStatus(order.id, "shipped")}
+                      >
+                        Mark Shipped
+                      </Button>
+                    )}
+                    {order.status === "shipped" && (
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={async () => await updateOrderStatus(order.id, "delivered")}
                       >
                         Mark Delivered
                       </Button>
                     )}
-                    {(order.status === "ordered" || order.status === "in-transit") && (
+                    {(order.status === "ordered" || order.status === "pending" || order.status === "approved" || order.status === "shipped") && (
                       <Button 
                         size="sm" 
                         variant="destructive"
-                        onClick={() => updateOrderStatus(order.id, "cancelled")}
+                        onClick={async () => await updateOrderStatus(order.id, "cancelled")}
                       >
                         Cancel Order
                       </Button>
@@ -788,12 +945,12 @@ export default function ManageStock() {
                           <Button 
                             size="sm" 
                             variant="outline"
-                            onClick={() => {
+                            onClick={async () => {
                               const newDate = prompt("Enter new delivery date (YYYY-MM-DD):", selectedOrder.actualDelivery);
                               if (newDate && newDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
                                 const updatedOrder = { ...selectedOrder, actualDelivery: newDate };
                                 setSelectedOrder(updatedOrder);
-                                updateOrderStatus(selectedOrder.id, selectedOrder.status);
+                                await updateOrderStatus(selectedOrder.id, selectedOrder.status);
                                 setIsDetailsDialogOpen(false);
                               }
                             }}

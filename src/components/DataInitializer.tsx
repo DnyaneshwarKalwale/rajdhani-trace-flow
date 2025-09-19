@@ -2,55 +2,114 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { getFromStorage, saveToStorage } from '@/lib/storage';
+import { ProductService } from '@/services/ProductService';
+import { CustomerService } from '@/services/customerService';
+import { RawMaterialService } from '@/services/rawMaterialService';
+import { individualProductService } from '@/services/individualProductService';
+import { ProductRecipeService } from '@/services/productRecipeService';
+import { isSupabaseConfigured } from '@/lib/supabase';
+import { QRCodeService, MainProductQRData, IndividualProductQRData } from '@/lib/qrCode';
+import { IDGenerator } from '@/lib/idGenerator';
 import rawMaterialsData from '@/data/rawMaterials.json';
+
+// Helper functions for calculating specifications
+const calculateSpecsFromCategory = (category: string) => {
+  if (category === 'raw material') {
+    return {
+      weight: '800 GSM',
+      thickness: 'N/A',
+      width: 'N/A',
+      height: 'N/A'
+    };
+  }
+  
+  // Specifications for different carpet categories using new client-specific options
+  switch (category) {
+    case 'plain paper print':
+      return {
+        weight: '400 GSM',
+        thickness: '12mm',
+        width: '5 feet',
+        height: '148 feet'
+      };
+    case 'degital print':
+      return {
+        weight: '600 GSM',
+        thickness: '10mm',
+        width: '6 feet',
+        height: '148 feet'
+      };
+    case 'digital print':
+      return {
+        weight: '700 GSM',
+        thickness: '11mm',
+        width: '10 feet',
+        height: '45 meter'
+      };
+    case 'backing':
+      return {
+        weight: '800 GSM',
+        thickness: '8mm',
+        width: '1.25 meter',
+        height: '45 meter'
+      };
+    case 'felt':
+      return {
+        weight: '400 GSM',
+        thickness: '5mm',
+        width: '1.83 meter',
+        height: '45 meter'
+      };
+    default:
+      return {
+        weight: '400 GSM',
+        thickness: '10mm',
+        width: '5 feet',
+        height: '148 feet'
+      };
+  }
+};
 
 // Pre-generated globally unique custom IDs for sample data
 // Traditional Persian Carpet: TRA-001 to TRA-005
 // Modern Geometric Carpet: MOD-001 to MOD-012
 
-// Sample product data with updated structure (with pileHeight, with width/height in meters)
+// Sample product data with updated structure using new client-specific dropdown options
 const completeProductData = {
   products: [
     {
       id: "PROD001",
-      qrCode: "QR-CARPET-001",
+      qrCode: "", // Will be generated dynamically
       name: "Traditional Persian Carpet",
-      category: "Handmade",
-      color: "Red & Gold",
-      size: "8x10 feet",
+      category: "plain paper print",
+      color: "Red",
       pattern: "Persian Medallion",
       quantity: 5,
-      unit: "pieces",
+      unit: "roll",
       status: "in-stock",
-      location: "Warehouse A - Shelf 1",
-      totalCost: 12030,
-      sellingPrice: 25000,
-      dimensions: "8' x 10' (2.44m x 3.05m)",
-      weight: "2500gsm",
-      thickness: "25mm",
-      width: "2.44m",
-      height: "3.05m",
-      pileHeight: "8mm",
+      weight: "400 GSM",
+      thickness: "12mm",
+      width: "5 feet",
+      height: "148 feet",
       materialsUsed: [
         {
           materialId: "MAT001",
           materialName: "Cotton Yarn (Premium)",
-          quantity: 15,
+          quantity: 0,
           unit: "rolls",
           cost: 450
         },
         {
           materialId: "MAT002",
           materialName: "Red Dye (Industrial)",
-          quantity: 8,
+          quantity: 0,
           unit: "liters",
           cost: 180
         },
         {
           materialId: "MAT003",
           materialName: "Latex Solution",
-          quantity: 12,
+          quantity: 0,
           unit: "liters",
           cost: 320
         }
@@ -63,43 +122,37 @@ const completeProductData = {
     },
     {
       id: "PROD002",
-      qrCode: "QR-CARPET-002",
+      qrCode: "", // Will be generated dynamically
       name: "Modern Geometric Carpet",
-      category: "Machine Made",
-      color: "Blue & White",
-      size: "6x9 feet",
+      category: "degital print",
+      color: "Blue",
       pattern: "Geometric",
       quantity: 12,
-      unit: "pieces",
+      unit: "roll",
       status: "in-stock",
-      location: "Warehouse B - Shelf 3",
-      totalCost: 10850,
-      sellingPrice: 18000,
-      dimensions: "6' x 9' (1.83m x 2.74m)",
-      weight: "2000gsm",
-      thickness: "20mm",
-      width: "1.83m",
-      height: "2.74m",
-      pileHeight: "6mm",
+      weight: "600 GSM",
+      thickness: "10mm",
+      width: "6 feet",
+      height: "148 feet",
       materialsUsed: [
         {
           materialId: "MAT004",
           materialName: "Synthetic Yarn",
-          quantity: 20,
+          quantity: 0,
           unit: "rolls",
           cost: 380
         },
         {
           materialId: "MAT005",
           materialName: "Blue Dye (Industrial)",
-          quantity: 10,
+          quantity: 0,
           unit: "liters",
           cost: 190
         },
         {
           materialId: "MAT006",
           materialName: "Backing Cloth",
-          quantity: 54,
+          quantity: 0,
           unit: "sqm",
           cost: 25
         }
@@ -112,23 +165,112 @@ const completeProductData = {
     },
     {
       id: "PROD003",
-      qrCode: "QR-MARBLE-001",
-      name: "Marble Powder (Fine Grade)",
-      category: "Raw Material",
-      color: "White",
-      size: "NA",
-      pattern: "NA",
-      quantity: 4,
-      unit: "tons",
+      qrCode: "", // Will be generated dynamically
+      name: "Digital Print Carpet",
+      category: "digital print",
+      color: "Multi-color",
+      pattern: "Digital Art",
+      quantity: 8,
+      unit: "roll",
       status: "in-stock",
-      location: "Warehouse C - Bulk Storage",
-      totalCost: 2500,
-      sellingPrice: 15,
-      dimensions: "Bulk Material",
-      weight: "4 tons",
-      thickness: "NA",
-      width: "NA",
-      height: "NA",
+      weight: "700 GSM",
+      thickness: "11mm",
+      width: "10 feet",
+      height: "45 meter",
+      materialsUsed: [
+        {
+          materialId: "MAT007",
+          materialName: "Digital Ink",
+          quantity: 0,
+          unit: "liter",
+          cost: 250
+        },
+        {
+          materialId: "MAT008",
+          materialName: "Base Fabric",
+          quantity: 0,
+          unit: "sqm",
+          cost: 45
+        }
+      ],
+      notes: "High-resolution digital print carpet with vibrant colors",
+      imageUrl: "https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=150&h=150&fit=crop&crop=center",
+      individualStockTracking: true,
+      createdAt: "2024-01-22T10:00:00.000Z",
+      updatedAt: "2024-01-22T10:00:00.000Z"
+    },
+    {
+      id: "PROD004",
+      qrCode: "", // Will be generated dynamically
+      name: "Backing Material",
+      category: "backing",
+      color: "Brown",
+      pattern: "None",
+      quantity: 15,
+      unit: "roll",
+      status: "in-stock",
+      weight: "800 GSM",
+      thickness: "8mm",
+      width: "1.25 meter",
+      height: "45 meter",
+      materialsUsed: [
+        {
+          materialId: "MAT009",
+          materialName: "Jute Fiber",
+          quantity: 0,
+          unit: "kg",
+          cost: 35
+        }
+      ],
+      notes: "High-quality backing material for carpet manufacturing",
+      imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center",
+      individualStockTracking: false,
+      createdAt: "2024-01-23T10:00:00.000Z",
+      updatedAt: "2024-01-23T10:00:00.000Z"
+    },
+    {
+      id: "PROD005",
+      qrCode: "", // Will be generated dynamically
+      name: "Felt Underlay",
+      category: "felt",
+      color: "Gray",
+      pattern: "None",
+      quantity: 20,
+      unit: "roll",
+      status: "in-stock",
+      weight: "400 GSM",
+      thickness: "5mm",
+      width: "1.83 meter",
+      height: "45 meter",
+      materialsUsed: [
+        {
+          materialId: "MAT010",
+          materialName: "Wool Fiber",
+          quantity: 0,
+          unit: "kg",
+          cost: 120
+        }
+      ],
+      notes: "Premium felt underlay for carpet installation",
+      imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center",
+      individualStockTracking: false,
+      createdAt: "2024-01-24T10:00:00.000Z",
+      updatedAt: "2024-01-24T10:00:00.000Z"
+    },
+    {
+      id: "PROD006",
+      qrCode: "", // Will be generated dynamically
+      name: "Marble Powder (Fine Grade)",
+      category: "raw material",
+      color: "White",
+      pattern: "None",
+      quantity: 4,
+      unit: "kg",
+      status: "in-stock",
+      weight: "800 GSM",
+      thickness: "N/A",
+      width: "N/A",
+      height: "N/A",
       materialsUsed: [],
       notes: "High-quality marble powder for construction and manufacturing",
       imageUrl: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center",
@@ -141,17 +283,15 @@ const completeProductData = {
     // Traditional Persian Carpet (PROD001) - 5 pieces: TRA-001 to TRA-005
     {
       id: "IND001",
-      qrCode: "QR-CARPET-001-001",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD001",
       customId: "TRA-001",
-      manufacturingDate: "2024-01-15",
+      manufacturingDate: new Date().toISOString().split('T')[0],
       materialsUsed: [],
-      finalDimensions: "8'2\" x 10'1\" (2.49m x 3.07m)",
-      finalWeight: "2500gsm",
-      finalThickness: "25mm",
-      finalWidth: "2.49m",
-      finalHeight: "3.07m",
-      finalPileHeight: "8mm",
+      finalWeight: "400 GSM",
+      finalThickness: "12mm",
+      finalWidth: "5 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Ahmed Khan",
       inspectorId: "INSP001",
@@ -176,16 +316,15 @@ const completeProductData = {
     },
     {
       id: "IND002",
-      qrCode: "QR-CARPET-001-002",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD001",
       customId: "TRA-002",
-      manufacturingDate: "2024-01-15",
+      manufacturingDate: new Date().toISOString().split('T')[0],
       materialsUsed: [],
-      finalDimensions: "8'0\" x 10'0\" (2.44m x 3.05m)",
-      finalWeight: "2500gsm",
-      finalThickness: "25mm",
-      finalWidth: "2.44m",
-      finalHeight: "3.05m",
+      finalWeight: "400 GSM",
+      finalThickness: "12mm",
+      finalWidth: "5 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Ahmed Khan",
       inspectorId: "INSP001",
@@ -210,16 +349,15 @@ const completeProductData = {
     },
     {
       id: "IND003",
-      qrCode: "QR-CARPET-001-003",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD001",
       customId: "TRA-003",
-      manufacturingDate: "2024-01-15",
+      manufacturingDate: new Date().toISOString().split('T')[0],
       materialsUsed: [],
-      finalDimensions: "8'1\" x 10'0\" (2.46m x 3.05m)",
-      finalWeight: "2500gsm",
-      finalThickness: "25mm",
-      finalWidth: "2.46m",
-      finalHeight: "3.05m",
+      finalWeight: "400 GSM",
+      finalThickness: "12mm",
+      finalWidth: "5 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Ahmed Khan",
       inspectorId: "INSP001",
@@ -244,17 +382,15 @@ const completeProductData = {
     },
     {
       id: "IND004",
-      qrCode: "QR-CARPET-001-004",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD001",
       customId: "TRA-004",
-      manufacturingDate: "2024-01-15",
+      manufacturingDate: new Date().toISOString().split('T')[0],
       materialsUsed: [],
-      finalDimensions: "8'0\" x 10'1\" (2.44m x 3.07m)",
-      finalWeight: "2500gsm",
-      finalThickness: "25mm",
-      finalWidth: "2.44m",
-      finalHeight: "3.07m",
-      finalPileHeight: "8mm",
+      finalWeight: "400 GSM",
+      finalThickness: "12mm",
+      finalWidth: "5 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Ahmed Khan",
       inspectorId: "INSP001",
@@ -279,16 +415,15 @@ const completeProductData = {
     },
     {
       id: "IND005",
-      qrCode: "QR-CARPET-001-005",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD001",
       customId: "TRA-005",
-      manufacturingDate: "2024-01-15",
+      manufacturingDate: new Date().toISOString().split('T')[0],
       materialsUsed: [],
-      finalDimensions: "8'2\" x 10'0\" (2.49m x 3.05m)",
-      finalWeight: "2500gsm",
-      finalThickness: "25mm",
-      finalWidth: "2.49m",
-      finalHeight: "3.05m",
+      finalWeight: "400 GSM",
+      finalThickness: "12mm",
+      finalWidth: "5 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Ahmed Khan",
       inspectorId: "INSP001",
@@ -314,17 +449,15 @@ const completeProductData = {
     // Modern Geometric Carpet (PROD002) - 12 pieces: MOD-001 to MOD-012
     {
       id: "IND006",
-      qrCode: "QR-CARPET-002-001",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       customId: "MOD-001",
-      manufacturingDate: "2024-01-20",
+      manufacturingDate: new Date().toISOString().split('T')[0],
       materialsUsed: [],
-      finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.85m",
-      finalHeight: "2.74m",
-      finalPileHeight: "6mm",
+      finalWeight: "600 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       inspectorId: "INSP002",
@@ -349,17 +482,15 @@ const completeProductData = {
     },
     {
       id: "IND007",
-      qrCode: "QR-CARPET-002-002",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       customId: "MOD-002",
-      manufacturingDate: "2024-01-20",
+      manufacturingDate: new Date().toISOString().split('T')[0],
       materialsUsed: [],
-      finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.83m",
-      finalHeight: "2.74m",
-      finalPileHeight: "6mm",
+      finalWeight: "600 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       inspectorId: "INSP002",
@@ -384,15 +515,13 @@ const completeProductData = {
     },
     {
       id: "IND008",
-      qrCode: "QR-CARPET-002-003",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.85m",
-      finalHeight: "2.74m",
-      finalPileHeight: "6mm",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Excellent precision",
@@ -400,14 +529,13 @@ const completeProductData = {
     },
     {
       id: "IND009",
-      qrCode: "QR-CARPET-002-004",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.83m",
-      finalHeight: "2.77m",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       notes: "Standard finish",
@@ -415,14 +543,13 @@ const completeProductData = {
     },
     {
       id: "IND010",
-      qrCode: "QR-CARPET-002-005",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'1\" x 9'1\" (1.85m x 2.77m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.85m",
-      finalHeight: "2.77m",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Premium quality",
@@ -430,15 +557,13 @@ const completeProductData = {
     },
     {
       id: "IND011",
-      qrCode: "QR-CARPET-002-006",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.83m",
-      finalHeight: "2.74m",
-      finalPileHeight: "6mm",
+      finalWeight: "600 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       notes: "Good geometric pattern",
@@ -446,15 +571,13 @@ const completeProductData = {
     },
     {
       id: "IND012",
-      qrCode: "QR-CARPET-002-007",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.85m",
-      finalHeight: "2.74m",
-      finalPileHeight: "6mm",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Perfect finish",
@@ -462,14 +585,13 @@ const completeProductData = {
     },
     {
       id: "IND013",
-      qrCode: "QR-CARPET-002-008",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.83m",
-      finalHeight: "2.77m",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       notes: "Standard quality",
@@ -477,14 +599,13 @@ const completeProductData = {
     },
     {
       id: "IND014",
-      qrCode: "QR-CARPET-002-009",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'1\" x 9'1\" (1.85m x 2.77m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.85m",
-      finalHeight: "2.77m",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Excellent geometric precision",
@@ -492,15 +613,13 @@ const completeProductData = {
     },
     {
       id: "IND015",
-      qrCode: "QR-CARPET-002-010",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.83m",
-      finalHeight: "2.74m",
-      finalPileHeight: "6mm",
+      finalWeight: "600 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       notes: "Good quality",
@@ -508,15 +627,13 @@ const completeProductData = {
     },
     {
       id: "IND016",
-      qrCode: "QR-CARPET-002-011",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.85m",
-      finalHeight: "2.74m",
-      finalPileHeight: "6mm",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A+",
       inspector: "Priya Sharma",
       notes: "Excellent finish",
@@ -524,14 +641,13 @@ const completeProductData = {
     },
     {
       id: "IND017",
-      qrCode: "QR-CARPET-002-012",
+      qrCode: "", // Will be generated dynamically
       productId: "PROD002",
       materialsUsed: [],
-      finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-      finalWeight: "2000gsm",
-      finalThickness: "20mm",
-      finalWidth: "1.83m",
-      finalHeight: "2.77m",
+      finalWeight: "400 GSM",
+      finalThickness: "10mm",
+      finalWidth: "6 feet",
+      finalHeight: "148 feet",
       qualityGrade: "A",
       inspector: "Priya Sharma",
       notes: "Standard quality finish",
@@ -547,21 +663,21 @@ const completeProductData = {
         {
           materialId: "MAT001",
           materialName: "Cotton Yarn (Premium)",
-          quantity: 15,
+          quantity: 0,
           unit: "rolls",
           costPerUnit: 450
         },
         {
           materialId: "MAT002",
           materialName: "Red Dye (Industrial)",
-          quantity: 8,
+          quantity: 0,
           unit: "liters",
           costPerUnit: 180
         },
         {
           materialId: "MAT003",
           materialName: "Latex Solution",
-          quantity: 12,
+          quantity: 0,
           unit: "liters",
           costPerUnit: 320
         }
@@ -579,21 +695,21 @@ const completeProductData = {
         {
           materialId: "MAT004",
           materialName: "Synthetic Yarn",
-          quantity: 20,
+          quantity: 0,
           unit: "rolls",
           costPerUnit: 380
         },
         {
           materialId: "MAT005",
           materialName: "Blue Dye (Industrial)",
-          quantity: 10,
+          quantity: 0,
           unit: "liters",
           costPerUnit: 190
         },
         {
           materialId: "MAT006",
           materialName: "Backing Cloth",
-          quantity: 54,
+          quantity: 0,
           unit: "sqm",
           costPerUnit: 25
         }
@@ -622,7 +738,7 @@ const completeProductData = {
         {
           materialId: "MAT001",
           materialName: "Cotton Yarn (Premium)",
-          quantityUsed: 75,
+          quantityUsed: 0,
           unit: "rolls",
           costPerUnit: 450,
           totalCost: 33750,
@@ -633,7 +749,7 @@ const completeProductData = {
         {
           materialId: "MAT002",
           materialName: "Red Dye (Industrial)",
-          quantityUsed: 40,
+          quantityUsed: 0,
           unit: "liters",
           costPerUnit: 180,
           totalCost: 7200,
@@ -644,7 +760,7 @@ const completeProductData = {
         {
           materialId: "MAT003",
           materialName: "Latex Solution",
-          quantityUsed: 60,
+          quantityUsed: 0,
           unit: "liters",
           costPerUnit: 320,
           totalCost: 19200,
@@ -793,7 +909,7 @@ const completeProductData = {
         {
           materialId: "MAT004",
           materialName: "Synthetic Yarn",
-          quantityUsed: 240,
+          quantityUsed: 0,
           unit: "rolls",
           costPerUnit: 380,
           totalCost: 91200,
@@ -804,7 +920,7 @@ const completeProductData = {
         {
           materialId: "MAT005",
           materialName: "Blue Dye (Industrial)",
-          quantityUsed: 120,
+          quantityUsed: 0,
           unit: "liters",
           costPerUnit: 190,
           totalCost: 22800,
@@ -815,7 +931,7 @@ const completeProductData = {
         {
           materialId: "MAT006",
           materialName: "Backing Cloth",
-          quantityUsed: 648,
+          quantityUsed: 0,
           unit: "sqm",
           costPerUnit: 25,
           totalCost: 16200,
@@ -951,42 +1067,37 @@ const completeProductData = {
   productionProductData: [
     {
       id: "PROD001",
-      qrCode: "QR-CARPET-001",
+      qrCode: "", // Will be generated dynamically
       name: "Traditional Persian Carpet",
       category: "Handmade",
-      color: "Red & Gold",
-      size: "8x10 feet",
+      color: "Red",
       pattern: "Persian Medallion",
       quantity: 5,
       unit: "pieces",
       status: "in-stock",
-      location: "Warehouse A - Shelf 1",
-      totalCost: 12030,
-      sellingPrice: 25000,
-      dimensions: "8' x 10' (2.44m x 3.05m)",
-      weight: "45 kg",
-      thickness: "12 mm",
+      weight: "45kg",
+      thickness: "12mm",
       width: "2.44m",
       height: "3.05m",
       materialsUsed: [
         {
           materialId: "MAT001",
           materialName: "Cotton Yarn (Premium)",
-          quantity: 15,
+          quantity: 0,
           unit: "rolls",
           cost: 450
         },
         {
           materialId: "MAT002",
           materialName: "Red Dye (Industrial)",
-          quantity: 8,
+          quantity: 0,
           unit: "liters",
           cost: 180
         },
         {
           materialId: "MAT003",
           materialName: "Latex Solution",
-          quantity: 12,
+          quantity: 0,
           unit: "liters",
           cost: 320
         }
@@ -998,15 +1109,13 @@ const completeProductData = {
       individualStocks: [
         {
           id: "IND001",
-          qrCode: "QR-CARPET-001-001",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD001",
           materialsUsed: [],
-          finalDimensions: "8'2\" x 10'1\" (2.49m x 3.07m)",
-          finalWeight: "46.2 kg",
-          finalThickness: "12.5 mm",
+          finalWeight: "400 GSM",
+          finalThickness: "12mm",
           finalWidth: "2.49m",
           finalHeight: "3.07m",
-          finalPileHeight: "8mm",
           qualityGrade: "A+",
           inspector: "Ahmed Khan",
           notes: "Perfect finish, no defects",
@@ -1014,12 +1123,11 @@ const completeProductData = {
         },
         {
           id: "IND002",
-          qrCode: "QR-CARPET-001-002",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD001",
           materialsUsed: [],
-          finalDimensions: "8'0\" x 10'0\" (2.44m x 3.05m)",
-          finalWeight: "45.0 kg",
-          finalThickness: "12.0 mm",
+          finalWeight: "400 GSM",
+          finalThickness: "12.0mm",
           finalWidth: "2.44m",
           finalHeight: "3.05m",
           qualityGrade: "A",
@@ -1029,12 +1137,11 @@ const completeProductData = {
         },
         {
           id: "IND003",
-          qrCode: "QR-CARPET-001-003",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD001",
           materialsUsed: [],
-          finalDimensions: "8'1\" x 10'0\" (2.46m x 3.05m)",
-          finalWeight: "45.5 kg",
-          finalThickness: "12.2 mm",
+          finalWeight: "400 GSM",
+          finalThickness: "12mm",
           finalWidth: "2.46m",
           finalHeight: "3.05m",
           qualityGrade: "A+",
@@ -1044,15 +1151,13 @@ const completeProductData = {
         },
         {
           id: "IND004",
-          qrCode: "QR-CARPET-001-004",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD001",
           materialsUsed: [],
-          finalDimensions: "8'0\" x 10'1\" (2.44m x 3.07m)",
-          finalWeight: "45.8 kg",
-          finalThickness: "12.3 mm",
+          finalWeight: "400 GSM",
+          finalThickness: "12mm",
           finalWidth: "2.44m",
           finalHeight: "3.07m",
-          finalPileHeight: "8mm",
           qualityGrade: "A",
           inspector: "Ahmed Khan",
           notes: "Good quality, minor texture variation",
@@ -1060,12 +1165,11 @@ const completeProductData = {
         },
         {
           id: "IND005",
-          qrCode: "QR-CARPET-001-005",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD001",
           materialsUsed: [],
-          finalDimensions: "8'2\" x 10'0\" (2.49m x 3.05m)",
-          finalWeight: "46.0 kg",
-          finalThickness: "12.4 mm",
+          finalWeight: "400 GSM",
+          finalThickness: "12mm",
           finalWidth: "2.49m",
           finalHeight: "3.05m",
           qualityGrade: "A+",
@@ -1077,42 +1181,37 @@ const completeProductData = {
     },
     {
       id: "PROD002",
-      qrCode: "QR-CARPET-002",
+      qrCode: "", // Will be generated dynamically
       name: "Modern Geometric Carpet",
       category: "Machine Made",
-      color: "Blue & White",
-      size: "6x9 feet",
+      color: "Blue",
       pattern: "Geometric",
       quantity: 12,
       unit: "pieces",
       status: "in-stock",
-      location: "Warehouse B - Shelf 3",
-      totalCost: 10850,
-      sellingPrice: 18000,
-      dimensions: "6' x 9' (1.83m x 2.74m)",
-      weight: "32 kg",
-      thickness: "10 mm",
+      weight: "32kg",
+      thickness: "10mm",
       width: "1.83m",
       height: "2.74m",
       materialsUsed: [
         {
           materialId: "MAT004",
           materialName: "Synthetic Yarn",
-          quantity: 20,
+          quantity: 0,
           unit: "rolls",
           cost: 380
         },
         {
           materialId: "MAT005",
           materialName: "Blue Dye (Industrial)",
-          quantity: 10,
+          quantity: 0,
           unit: "liters",
           cost: 190
         },
         {
           materialId: "MAT006",
           materialName: "Backing Cloth",
-          quantity: 54,
+          quantity: 0,
           unit: "sqm",
           cost: 25
         }
@@ -1124,12 +1223,11 @@ const completeProductData = {
       individualStocks: [
         {
           id: "IND006",
-          qrCode: "QR-CARPET-002-001",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-          finalWeight: "33.5 kg",
-          finalThickness: "10.2 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.85m",
           finalHeight: "2.74m",
           qualityGrade: "A+",
@@ -1139,12 +1237,11 @@ const completeProductData = {
         },
         {
           id: "IND007",
-          qrCode: "QR-CARPET-002-002",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-          finalWeight: "32.0 kg",
-          finalThickness: "10.0 mm",
+          finalWeight: "400 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.83m",
           finalHeight: "2.74m",
           qualityGrade: "A",
@@ -1154,12 +1251,11 @@ const completeProductData = {
         },
         {
           id: "IND008",
-          qrCode: "QR-CARPET-002-003",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-          finalWeight: "33.1 kg",
-          finalThickness: "10.1 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.85m",
           finalHeight: "2.74m",
           qualityGrade: "A+",
@@ -1169,12 +1265,11 @@ const completeProductData = {
         },
         {
           id: "IND009",
-          qrCode: "QR-CARPET-002-004",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-          finalWeight: "32.5 kg",
-          finalThickness: "10.2 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.83m",
           finalHeight: "2.77m",
           qualityGrade: "A",
@@ -1184,12 +1279,11 @@ const completeProductData = {
         },
         {
           id: "IND010",
-          qrCode: "QR-CARPET-002-005",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'1\" x 9'1\" (1.85m x 2.77m)",
-          finalWeight: "33.3 kg",
-          finalThickness: "10.3 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.85m",
           finalHeight: "2.77m",
           qualityGrade: "A+",
@@ -1199,12 +1293,11 @@ const completeProductData = {
         },
         {
           id: "IND011",
-          qrCode: "QR-CARPET-002-006",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-          finalWeight: "32.2 kg",
-          finalThickness: "10.1 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.83m",
           finalHeight: "2.74m",
           qualityGrade: "A",
@@ -1214,12 +1307,11 @@ const completeProductData = {
         },
         {
           id: "IND012",
-          qrCode: "QR-CARPET-002-007",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-          finalWeight: "33.0 kg",
-          finalThickness: "10.2 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.85m",
           finalHeight: "2.74m",
           qualityGrade: "A+",
@@ -1229,12 +1321,11 @@ const completeProductData = {
         },
         {
           id: "IND013",
-          qrCode: "QR-CARPET-002-008",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-          finalWeight: "32.7 kg",
-          finalThickness: "10.1 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.83m",
           finalHeight: "2.77m",
           qualityGrade: "A",
@@ -1244,12 +1335,11 @@ const completeProductData = {
         },
         {
           id: "IND014",
-          qrCode: "QR-CARPET-002-009",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'1\" x 9'1\" (1.85m x 2.77m)",
-          finalWeight: "33.4 kg",
-          finalThickness: "10.3 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.85m",
           finalHeight: "2.77m",
           qualityGrade: "A+",
@@ -1259,12 +1349,11 @@ const completeProductData = {
         },
         {
           id: "IND015",
-          qrCode: "QR-CARPET-002-010",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'0\" x 9'0\" (1.83m x 2.74m)",
-          finalWeight: "32.8 kg",
-          finalThickness: "10.0 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.83m",
           finalHeight: "2.74m",
           qualityGrade: "A",
@@ -1274,12 +1363,11 @@ const completeProductData = {
         },
         {
           id: "IND016",
-          qrCode: "QR-CARPET-002-011",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'1\" x 9'0\" (1.85m x 2.74m)",
-          finalWeight: "33.2 kg",
-          finalThickness: "10.2 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.85m",
           finalHeight: "2.74m",
           qualityGrade: "A+",
@@ -1289,12 +1377,11 @@ const completeProductData = {
         },
         {
           id: "IND017",
-          qrCode: "QR-CARPET-002-012",
+          qrCode: "", // Will be generated dynamically
           productId: "PROD002",
           materialsUsed: [],
-          finalDimensions: "6'0\" x 9'1\" (1.83m x 2.77m)",
-          finalWeight: "32.9 kg",
-          finalThickness: "10.1 mm",
+          finalWeight: "600 GSM",
+          finalThickness: "10mm",
           finalWidth: "1.83m",
           finalHeight: "2.77m",
           qualityGrade: "A",
@@ -1325,7 +1412,7 @@ const completeProductData = {
       "totalValue": 20250,
       "qualityGrade": "A+",
       "batchNumber": "BATCH-2024-001",
-      "manufacturingDate": "2024-01-05",
+      "manufacturingDate": new Date().toISOString().split('T')[0],
       "expiryDate": "2025-01-05",
       "imageUrl": "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=150&h=150&fit=crop&crop=center",
       "materialsUsed": [],
@@ -1350,7 +1437,7 @@ const completeProductData = {
       "totalValue": 62400,
       "qualityGrade": "A",
       "batchNumber": "BATCH-2024-002",
-      "manufacturingDate": "2024-01-08",
+      "manufacturingDate": new Date().toISOString().split('T')[0],
       "expiryDate": "2025-01-08",
       "imageUrl": "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=150&h=150&fit=crop&crop=center",
       "materialsUsed": [],
@@ -1375,7 +1462,7 @@ const completeProductData = {
       "totalValue": 15300,
       "qualityGrade": "A",
       "batchNumber": "BATCH-2024-003",
-      "manufacturingDate": "2024-01-10",
+      "manufacturingDate": new Date().toISOString().split('T')[0],
       "expiryDate": "2024-07-10",
       "imageUrl": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center",
       "materialsUsed": [],
@@ -1400,7 +1487,7 @@ const completeProductData = {
       "totalValue": 11400,
       "qualityGrade": "A",
       "batchNumber": "BATCH-2024-004",
-      "manufacturingDate": "2024-01-18",
+      "manufacturingDate": new Date().toISOString().split('T')[0],
       "expiryDate": "2024-07-18",
       "imageUrl": "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=150&h=150&fit=crop&crop=center",
       "materialsUsed": [],
@@ -1425,7 +1512,7 @@ const completeProductData = {
       "totalValue": 18000,
       "qualityGrade": "A",
       "batchNumber": "BATCH-2024-005",
-      "manufacturingDate": "2024-01-12",
+      "manufacturingDate": new Date().toISOString().split('T')[0],
       "expiryDate": "2024-04-12",
       "imageUrl": "https://images.unsplash.com/photo-1582735689369-4fe89db7114c?w=150&h=150&fit=crop&crop=center",
       "materialsUsed": [],
@@ -1493,43 +1580,273 @@ export default function DataInitializer() {
     setStatus('Initializing sample product data...');
     
     try {
-      // Clear existing data first
-      localStorage.removeItem('rajdhani_products');
-      localStorage.removeItem('rajdhani_individual_products');
-      localStorage.removeItem('rajdhani_product_recipes');
-      localStorage.removeItem('rajdhani_production_product_data');
-      localStorage.removeItem('rajdhani_production_batches');
-      localStorage.removeItem('rajdhani_raw_materials');
-      
-      // Add products with sample data
-      localStorage.setItem('rajdhani_products', JSON.stringify(completeProductData.products));
-      
-      // Add individual products with sample data
-      localStorage.setItem('rajdhani_individual_products', JSON.stringify(completeProductData.individualProducts));
-      
-      // Add product recipes with sample data
-      localStorage.setItem('rajdhani_product_recipes', JSON.stringify(completeProductData.productRecipes));
-      
-      // Add production product data with sample data
-      localStorage.setItem('rajdhani_production_product_data', JSON.stringify(completeProductData.productionProductData));
-      
-      // Add production batches with complete workflow data
-      localStorage.setItem('rajdhani_production_batches', JSON.stringify(completeProductData.productionBatches));
-      
-      // Add raw materials (keep this as is)
-      localStorage.setItem('rajdhani_raw_materials', JSON.stringify(completeProductData.rawMaterials));
-      
-      setStatus('✅ Sample product data initialized successfully!');
-      
-      // Verify data
-      const products = getFromStorage('rajdhani_products');
-      const individualProducts = getFromStorage('rajdhani_individual_products');
-      const recipes = getFromStorage('rajdhani_product_recipes');
-      const productionData = getFromStorage('rajdhani_production_product_data');
-      const productionBatches = getFromStorage('rajdhani_production_batches');
-      const rawMaterials = getFromStorage('rajdhani_raw_materials');
-      
-      setStatus(prev => prev + `\n\n📊 Sample Data Summary:\n- Products: ${products.length} (with globally unique custom IDs)\n- Individual Products: ${individualProducts.length} (TRA-001 to TRA-005, MOD-001 to MOD-012)\n- Recipes: ${recipes.length}\n- Production Data: ${productionData.length}\n- Production Batches: ${productionBatches.length} (complete workflow tracking)\n- Raw Materials: ${rawMaterials.length}\n\n🎯 Production Workflow Features:\n- Unique production batch IDs (PROD_BATCH_001, PROD_BATCH_002)\n- Complete step tracking (material prep, dyeing, weaving, backing, QC)\n- Material consumption tracking with batch numbers\n- Waste generation tracking\n- Inspector and operator details for each step`);
+      if (isSupabaseConfigured) {
+        setStatus('🔄 Saving to Supabase database...');
+        
+        // Initialize products in Supabase
+        let productsCreated = 0;
+        let productsFailed = 0;
+        const productIdMapping: { [key: string]: string } = {}; // Map old ID to new UUID
+        
+        for (const product of completeProductData.products) {
+          try {
+            // Generate QR code for main product
+            const mainProductQRData: MainProductQRData = {
+              product_id: product.id,
+              product_name: product.name,
+              description: product.notes || '',
+              category: product.category,
+              base_price: 0, // Pricing will be set manually per order
+              total_quantity: product.quantity,
+              available_quantity: product.quantity,
+              recipe: {
+                materials: (product.materialsUsed || []).map(m => ({
+                  material_id: m.materialId,
+                  material_name: m.materialName,
+                  quantity: m.quantity,
+                  unit: m.unit
+                })),
+                production_time: 8,
+                difficulty_level: 'Medium'
+              },
+              machines_required: ['Loom', 'Dye Machine'],
+              production_steps: ['Material Preparation', 'Weaving', 'Dyeing', 'Quality Check'],
+              quality_standards: {
+                min_weight: 10,
+                max_weight: 50,
+                dimensions_tolerance: 0.1,
+                quality_criteria: ['A+', 'A']
+              },
+              created_at: product.createdAt || new Date().toISOString(),
+              updated_at: product.updatedAt || new Date().toISOString()
+            };
+            
+            const mainProductQRCode = await QRCodeService.generateMainProductQR(mainProductQRData);
+            
+            // Calculate specifications from category
+            const calculatedSpecs = calculateSpecsFromCategory(product.category);
+            
+            const { data: createdProduct, error } = await ProductService.createProduct({
+              name: product.name,
+              category: product.category,
+              color: product.color,
+              pattern: product.pattern,
+              unit: product.unit,
+              individual_stock_tracking: product.individualStockTracking,
+              base_quantity: product.individualStockTracking ? 0 : product.quantity, // Set base_quantity for bulk products
+              min_stock_level: 10,
+              max_stock_level: 1000,
+              qr_code: mainProductQRCode,
+              weight: calculatedSpecs.weight,
+              thickness: calculatedSpecs.thickness,
+              width: calculatedSpecs.width,
+              height: calculatedSpecs.height
+            });
+            
+            if (error) {
+              console.warn(`Failed to create product ${product.name}:`, error);
+              productsFailed++;
+            } else {
+              productsCreated++;
+              // Store the mapping from old ID to new UUID
+              if (createdProduct) {
+                productIdMapping[product.id] = createdProduct.id;
+                console.log(`🔗 Mapped product ID: ${product.id} -> ${createdProduct.id}`);
+              } else {
+                console.warn(`⚠️ No createdProduct returned for ${product.name}`);
+              }
+              console.log(`✅ Created product "${product.name}" with QR code: ${mainProductQRCode}`);
+            }
+          } catch (err) {
+            console.warn(`Error creating product ${product.name}:`, err);
+            productsFailed++;
+          }
+        }
+        
+        // Initialize raw materials in Supabase
+        let materialsCreated = 0;
+        let materialsFailed = 0;
+        const materialIdMapping: { [key: string]: string } = {}; // Map old material ID to new UUID
+        
+        for (const material of completeProductData.rawMaterials) {
+          try {
+            const { data: createdMaterial, error } = await RawMaterialService.createRawMaterial({
+              name: material.name,
+              brand: material.brand,
+              category: material.category,
+              current_stock: material.currentStock,
+              unit: material.unit,
+              min_threshold: material.minThreshold,
+              max_capacity: material.maxCapacity,
+              reorder_point: material.reorderPoint,
+              cost_per_unit: material.costPerUnit,
+              supplier_name: material.supplier,
+              quality_grade: material.qualityGrade,
+              batch_number: material.batchNumber
+            });
+            
+            if (error) {
+              console.warn(`Failed to create material ${material.name}:`, error);
+              materialsFailed++;
+            } else {
+              materialsCreated++;
+              // Store the mapping from old ID to new UUID
+              if (createdMaterial) {
+                materialIdMapping[material.id] = createdMaterial.id;
+                console.log(`🔗 Mapped material ID: ${material.id} -> ${createdMaterial.id}`);
+              }
+              console.log(`✅ Created raw material "${material.name}"`);
+            }
+          } catch (err) {
+            console.warn(`Error creating material ${material.name}:`, err);
+            materialsFailed++;
+          }
+        }
+
+        // Debug: Log final materialIdMapping after all materials created
+        console.log('🔍 Final Material ID Mapping after material creation:', materialIdMapping);
+        
+        // Initialize product recipes in Supabase
+        setStatus('🔄 Saving product recipes to database...');
+        let recipesCreated = 0;
+        let recipesFailed = 0;
+        
+        for (const recipe of completeProductData.productRecipes) {
+          try {
+            // Get the mapped product ID (UUID) from the productIdMapping
+            const mappedProductId = productIdMapping[recipe.productId];
+            if (!mappedProductId) {
+              console.warn(`No mapped product ID found for ${recipe.productName} (${recipe.productId})`);
+              recipesFailed++;
+              continue;
+            }
+
+            // Map material IDs to their corresponding UUIDs
+            const mappedMaterials = recipe.materials.map(m => {
+              const mappedMaterialId = materialIdMapping[m.materialId];
+              if (!mappedMaterialId) {
+                console.warn(`No mapped material ID found for ${m.materialName} (${m.materialId})`);
+                return null;
+              }
+              return {
+                material_id: mappedMaterialId, // Use the mapped UUID
+                material_name: m.materialName,
+                quantity: m.quantity,
+                unit: m.unit,
+                cost_per_unit: m.costPerUnit
+              };
+            }).filter(Boolean); // Remove null entries
+
+            if (mappedMaterials.length === 0) {
+              console.warn(`No valid materials found for recipe ${recipe.productName}, skipping recipe creation`);
+              recipesFailed++;
+              continue;
+            }
+
+            const { error } = await ProductRecipeService.createRecipe({
+              product_id: mappedProductId, // Use the mapped UUID instead of the old ID
+              product_name: recipe.productName,
+              materials: mappedMaterials,
+              created_by: recipe.createdBy || 'admin'
+            });
+            
+            if (error) {
+              console.warn(`Failed to create recipe for ${recipe.productName}:`, error);
+              recipesFailed++;
+            } else {
+              recipesCreated++;
+              console.log(`✅ Created recipe for "${recipe.productName}" with product ID: ${mappedProductId} and ${mappedMaterials.length} materials`);
+            }
+          } catch (err) {
+            console.warn(`Error creating recipe for ${recipe.productName}:`, err);
+            recipesFailed++;
+          }
+        }
+        
+        // Initialize individual products in Supabase
+        let individualProductsCreated = 0;
+        let individualProductsFailed = 0;
+        
+        for (let index = 0; index < completeProductData.individualProducts.length; index++) {
+          const individualProduct = completeProductData.individualProducts[index];
+          try {
+            // Find the parent product to get color and pattern
+            const parentProduct = completeProductData.products.find(p => p.id === individualProduct.productId);
+            
+            // Generate QR code for individual product
+            const individualProductQRData: IndividualProductQRData = {
+              id: individualProduct.id,
+              product_id: individualProduct.productId,
+              product_name: parentProduct?.name || individualProduct.productId,
+              batch_id: individualProduct.customId || individualProduct.id,
+              serial_number: individualProduct.qrCode,
+              production_date: individualProduct.manufacturingDate || new Date().toISOString().split('T')[0],
+              quality_grade: individualProduct.qualityGrade || 'A',
+              dimensions: {
+                length: parseFloat(individualProduct.finalWidth?.replace(/[^\d.]/g, '') || '0'),
+                width: parseFloat(individualProduct.finalHeight?.replace(/[^\d.]/g, '') || '0'),
+                thickness: parseFloat(individualProduct.finalThickness?.replace(/[^\d.]/g, '') || '0')
+              },
+              weight: parseFloat(individualProduct.finalWeight?.replace(/[^\d.]/g, '') || '0'),
+              color: parentProduct?.color || 'N/A',
+              pattern: parentProduct?.pattern || 'N/A',
+              material_composition: (individualProduct.materialsUsed || []).map(m => m.materialName),
+              production_steps: (individualProduct.productionSteps || []).map(step => ({
+                step_name: step.stepName,
+                completed_at: step.completedAt,
+                operator: step.inspector,
+                quality_check: true
+              })),
+              machine_used: (individualProduct.productionSteps || []).map(step => step.machineUsed),
+              inspector: individualProduct.inspector || 'System',
+              status: individualProduct.status as 'active' | 'sold' | 'damaged' | 'returned',
+              created_at: individualProduct.manufacturingDate
+            };
+            
+            // QR code will be generated dynamically by the system
+            
+            const { error } = await individualProductService.createIndividualProduct({
+              // qr_code will be generated automatically
+              product_id: productIdMapping[individualProduct.productId] || individualProduct.productId,
+              product_name: parentProduct?.name || individualProduct.productId,
+              color: parentProduct?.color,
+              pattern: parentProduct?.pattern,
+              weight: parentProduct?.weight,
+              thickness: parentProduct?.thickness,
+              width: parentProduct?.width,
+              height: parentProduct?.height,
+              final_weight: individualProduct.finalWeight,
+              final_thickness: individualProduct.finalThickness,
+              final_width: individualProduct.finalWidth,
+              final_height: individualProduct.finalHeight,
+              quality_grade: individualProduct.qualityGrade,
+              status: individualProduct.status as 'available' | 'sold' | 'damaged' | 'in-production' | 'completed',
+              location: 'Warehouse A - Section 1', // Default location for Traditional Persian Carpet
+              notes: individualProduct.notes,
+              added_date: individualProduct.manufacturingDate,
+              production_date: individualProduct.manufacturingDate || new Date().toISOString().split('T')[0],
+              completion_date: individualProduct.manufacturingDate,
+              inspector: individualProduct.inspector
+            });
+            
+            if (error) {
+              console.warn(`Failed to create individual product ${individualProduct.qrCode}:`, error);
+              individualProductsFailed++;
+            } else {
+              individualProductsCreated++;
+              console.log(`✅ Created individual product "${parentProduct?.name || individualProduct.productId}" (QR code will be generated dynamically)`);
+            }
+          } catch (err) {
+            console.warn(`Error creating individual product ${individualProduct.qrCode}:`, err);
+            individualProductsFailed++;
+          }
+        }
+        
+        setStatus(`✅ Sample data initialized successfully!\n\n📊 Database Summary:\n- Products: ${productsCreated} created, ${productsFailed} failed\n- Raw Materials: ${materialsCreated} created, ${materialsFailed} failed\n- Product Recipes: ${recipesCreated} created, ${recipesFailed} failed\n- Individual Products: ${individualProductsCreated} created, ${individualProductsFailed} failed\n- Production Batches: ${completeProductData.productionBatches.length}\n\n🎯 Production Workflow Features:\n- Unique production batch IDs (PROD_BATCH_001, PROD_BATCH_002)\n- Complete step tracking (material prep, dyeing, weaving, backing, QC)\n- Material consumption tracking with batch numbers\n- Waste generation tracking\n- Inspector and operator details for each step\n- Product recipes with material requirements (quantities set to 0 for user input)\n\n📱 QR Code Features:\n- QR codes generated for ALL main products (scan to see product details)\n- QR codes generated for ALL individual products (scan to see individual item details)\n- Each QR code contains complete product information\n- Ready for scanning with QR scanner app!`);
+        
+      } else {
+        setStatus('⚠️ Supabase not configured. Please configure Supabase to initialize data.');
+      }
       
     } catch (error) {
       setStatus(`❌ Error: ${error}`);
@@ -1544,14 +1861,13 @@ export default function DataInitializer() {
       setStatus('Clearing product data...');
       
       try {
-        localStorage.removeItem('rajdhani_products');
-        localStorage.removeItem('rajdhani_individual_products');
-        localStorage.removeItem('rajdhani_product_recipes');
-        localStorage.removeItem('rajdhani_production_product_data');
-        localStorage.removeItem('rajdhani_production_batches');
-        localStorage.removeItem('rajdhani_raw_materials');
-        
-        setStatus('✅ All product data cleared from localStorage');
+        if (isSupabaseConfigured) {
+          setStatus('🔄 Clearing data from Supabase database...');
+          
+          setStatus('⚠️ Database clearing not implemented yet. To clear database data, please use the Supabase dashboard.');
+        } else {
+          setStatus('⚠️ Supabase not configured. Cannot clear database data.');
+        }
       } catch (error) {
         setStatus(`❌ Error: ${error}`);
       } finally {
@@ -1560,14 +1876,27 @@ export default function DataInitializer() {
     }
   };
 
-  const showStatus = () => {
-    const products = getFromStorage('rajdhani_products');
-    const individualProducts = getFromStorage('rajdhani_individual_products');
-    const recipes = getFromStorage('rajdhani_product_recipes');
-    const productionData = getFromStorage('rajdhani_production_product_data');
-    const productionBatches = getFromStorage('rajdhani_production_batches');
-    
-    setStatus(`📊 Current Data Status:\n- Products: ${products.length}\n- Individual Products: ${individualProducts.length}\n- Recipes: ${recipes.length}\n- Production Data: ${productionData.length}\n- Production Batches: ${productionBatches.length}\n\n${products.length > 0 ? `Product Names: ${products.map((p: any) => p.name).join(', ')}` : 'No products found - Ready to initialize sample data!'}\n\n${productionBatches.length > 0 ? `Production Batches: ${productionBatches.map((b: any) => b.batchNumber).join(', ')}` : ''}`);
+  const showStatus = async () => {
+    if (!isSupabaseConfigured) {
+      setStatus('⚠️ Supabase not configured. Please configure Supabase to check data status.');
+      return;
+    }
+
+    try {
+      const [products, individualProducts, recipes, productionData, productionBatches] = await Promise.all([
+        ProductService.getProducts(),
+        ProductService.getIndividualProducts(),
+        ProductRecipeService.getAllRecipes(), // Get recipes from database
+        [], // productionData - need to implement service method
+        [] // productionBatches - need to implement service method
+      ]);
+
+      const storageType = 'Supabase Database';
+
+      setStatus(`📊 Current Data Status (${storageType}):\n- Products: ${products?.data?.length || 0}\n- Individual Products: ${individualProducts?.data?.length || 0}\n- Recipes: ${recipes?.data?.length || 0}\n- Production Data: ${productionData.length}\n- Production Batches: ${productionBatches.length}\n\n${(products?.data?.length || 0) > 0 ? `Product Names: ${products.data.map((p: any) => p.name).join(', ')}` : 'No products found - Ready to initialize sample data!'}\n\n${(recipes?.data?.length || 0) > 0 ? `Recipe Names: ${recipes.data.map((r: any) => r.product_name).join(', ')}` : 'No recipes found - Ready to initialize sample data!'}\n\n${productionBatches.length > 0 ? `Production Batches: ${productionBatches.map((b: any) => b.batchNumber).join(', ')}` : ''}\n\n✅ Supabase configured - data is stored in database`);
+    } catch (error) {
+      setStatus(`❌ Error checking data status: ${error}`);
+    }
   };
 
   return (
@@ -1575,6 +1904,9 @@ export default function DataInitializer() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           🏭 Sample Data Initializer
+          <Badge variant={isSupabaseConfigured ? "default" : "secondary"} className="ml-2">
+            {isSupabaseConfigured ? "Database Ready" : "Not Configured"}
+          </Badge>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">

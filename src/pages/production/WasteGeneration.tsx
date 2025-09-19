@@ -10,9 +10,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { 
   ArrowLeft, AlertTriangle, Plus, Trash2, Save, Factory, Info
 } from "lucide-react";
-import { getFromStorage, updateStorage, saveToStorage, replaceStorage, generateUniqueId } from "@/lib/storage";
-import { updateProductionStep, moveToNextStep, getProductionFlow } from "@/lib/machines";
+import { generateUniqueId } from "@/lib/storageUtils";
+import { RawMaterialService } from "@/services/rawMaterialService";
+import { ProductService } from "@/services/ProductService";
+import { ProductionFlowService } from "@/services/productionFlowService";
 import ProductionProgressBar from "@/components/production/ProductionProgressBar";
+import { supabase } from "@/lib/supabase";
 
 interface MaterialConsumption {
   materialId: string;
@@ -48,6 +51,16 @@ interface ProductionProduct {
   createdAt: string;
   materialsConsumed: MaterialConsumption[];
   wasteGenerated: WasteItem[];
+  expectedProduct: {
+    name: string;
+    category: string;
+    height: string;
+    width: string;
+    weight: string;
+    thickness: string;
+    materialComposition: string;
+    qualityGrade: string;
+  };
   notes: string;
 }
 
@@ -73,6 +86,7 @@ export default function WasteGeneration() {
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
   const [isAddingWaste, setIsAddingWaste] = useState(false);
   const [productionFlow, setProductionFlow] = useState<any>(null);
+  const [productionSteps, setProductionSteps] = useState<any[]>([]);
   
   // Waste form
   const [newWaste, setNewWaste] = useState({
@@ -87,50 +101,125 @@ export default function WasteGeneration() {
 
   useEffect(() => {
     if (productId) {
-      const products = getFromStorage('rajdhani_production_products');
-      const product = products.find((p: ProductionProduct) => p.id === productId);
-      if (product) {
-        setProductionProduct(product);
-      }
-    }
-    
-    // Load raw materials
-    const materials = getFromStorage('rajdhani_raw_materials') || [];
-    setRawMaterials(materials);
-    
-    // Load production flow
-    if (productId) {
-      const flow = getProductionFlow(productId);
-      if (flow) {
-        // Auto-set waste tracking step to 'in_progress' if it's pending
-        const wasteStep = flow.steps.find(s => s.stepType === 'wastage_tracking');
-        if (wasteStep && wasteStep.status === 'pending') {
-          const updatedFlow = {
-            ...flow,
-            steps: flow.steps.map(step => 
-              step.id === wasteStep.id 
-                ? { 
-                    ...step, 
-                    status: 'in_progress' as const, 
-                    startTime: new Date().toISOString()
-                  }
-                : step
-            ),
-            updatedAt: new Date().toISOString()
-          };
-          
-          // Save updated flow
-          const flows = getFromStorage('rajdhani_production_flows') || [];
-          const updatedFlows = flows.map(f => f.id === flow.id ? updatedFlow : f);
-          replaceStorage('rajdhani_production_flows', updatedFlows);
-          
-          setProductionFlow(updatedFlow);
-          console.log('Waste tracking step automatically set to in_progress');
-        } else {
-      setProductionFlow(flow);
+      // Load production product from production flow data
+      const loadProductionData = async () => {
+        try {
+          // First load the production flow to get the actual product ID
+          const flow = await ProductionFlowService.getProductionFlow(productId);
+          if (flow) {
+            setProductionFlow(flow);
+
+            // Extract actual product ID from production_product_id
+            const actualProductId = flow.production_product_id.replace('PRO-', '').replace('PROD_', '');
+
+            // Load the actual product data
+            const response = await ProductService.getProducts();
+            const products = response.data || [];
+            const product = products.find((p: any) => p.id === actualProductId);
+
+            // Load material consumption from Supabase
+            const { data: materialsConsumed, error: materialsError } = await supabase
+              .from('material_consumption')
+              .select('*')
+              .eq('production_batch_id', flow.production_product_id);
+
+            if (materialsError) {
+              console.warn('Error loading materials consumed:', materialsError);
+            }
+
+            if (product) {
+              // Convert to production product format with loaded materials
+              const productionProduct: ProductionProduct = {
+                id: flow.production_product_id, // Use production flow product ID
+                productId: product.id,
+                productName: product.name,
+                category: product.category,
+                color: product.color || 'Standard',
+                size: `${product.height || 'N/A'} x ${product.width || 'N/A'}`,
+                pattern: product.pattern || 'N/A',
+                targetQuantity: 1,
+                priority: 'normal',
+                status: 'active',
+                expectedCompletion: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+                createdAt: flow.created_at || new Date().toISOString(),
+                materialsConsumed: (materialsConsumed || []).map((m: any) => ({
+                  materialId: m.material_id,
+                  materialName: m.material_name || 'Unknown Material',
+                  quantity: m.consumed_quantity,
+                  unit: m.unit || 'units',
+                  cost: m.cost_per_unit || 0,
+                  consumedAt: m.created_at
+                })),
+                wasteGenerated: [],
+                expectedProduct: {
+                  name: product.name,
+                  category: product.category,
+                  height: product.height || '',
+                  width: product.width || '',
+                  weight: product.weight || '',
+                  thickness: product.thickness || '',
+                  materialComposition: product.material_composition || '',
+                  qualityGrade: 'A+'
+                },
+                notes: ''
+              };
+              setProductionProduct(productionProduct);
+              console.log('Loaded production product with materials:', productionProduct);
+            }
+
+            // Load production steps
+            const steps = await ProductionFlowService.getFlowSteps(flow.id);
+            if (steps) {
+              setProductionSteps(steps);
+
+              // Auto-set waste tracking step to 'in_progress' if it's pending
+              const wasteStep = steps.find(s => s.step_type === 'wastage_tracking');
+              if (wasteStep && wasteStep.status === 'pending') {
+                // Update step status to in_progress
+                await ProductionFlowService.updateFlowStep(wasteStep.id, {
+                  status: 'in_progress',
+                  start_time: new Date().toISOString()
+                });
+                console.log('Waste tracking step set to in_progress');
+              }
+            }
+          }
+        } catch (error) {
+          console.error('Error loading production data:', error);
         }
-      }
+      };
+      loadProductionData();
     }
+    
+    // Load raw materials from Supabase
+    const loadRawMaterials = async () => {
+      try {
+        const result = await RawMaterialService.getRawMaterials();
+        if (result?.data) {
+          // Map Supabase RawMaterial to local interface
+          const mappedMaterials = result.data.map((material: any) => ({
+            id: material.id,
+            name: material.name,
+            brand: material.brand || '',
+            category: material.category,
+            currentStock: material.current_stock,
+            unit: material.unit,
+            costPerUnit: material.cost_per_unit,
+            supplier: material.supplier_name || '',
+            supplierId: material.supplier_id || '',
+            status: material.status || 'in-stock',
+            location: material.location,
+            batchNumber: material.batch_number
+          }));
+          setRawMaterials(mappedMaterials);
+        }
+      } catch (error) {
+        console.error('Error loading raw materials:', error);
+        setRawMaterials([]);
+      }
+    };
+
+    loadRawMaterials();
   }, [productId]);
 
   // Handle waste material selection change
@@ -147,11 +236,8 @@ export default function WasteGeneration() {
   };
 
   const updateProductionProduct = (updatedProduct: ProductionProduct) => {
-    const products = getFromStorage('rajdhani_production_products');
-    const updatedProducts = products.map((p: ProductionProduct) => 
-      p.id === updatedProduct.id ? updatedProduct : p
-    );
-    localStorage.setItem('rajdhani_production_products', JSON.stringify(updatedProducts));
+    // TODO: Update production product in Supabase
+    console.log('Updated production product:', updatedProduct);
     setProductionProduct(updatedProduct);
   };
 
@@ -176,20 +262,20 @@ export default function WasteGeneration() {
     updateProductionProduct(updatedProduct);
     
     // Update production flow if wastage step is active
-    const flow = getProductionFlow(productionProduct.id);
-    if (flow) {
-      const wastageStep = flow.steps.find(s => s.stepType === 'wastage_tracking' && s.status === 'in_progress');
-      if (wastageStep) {
-        // Auto-complete wastage step when waste is added
-        updateProductionStep(flow.id, wastageStep.id, {
-          status: 'completed',
-          endTime: new Date().toISOString(),
-          inspectorName: 'Admin',
-          qualityNotes: `Wastage recorded: ${updatedProduct.wasteGenerated.length} items`
-        });
-        moveToNextStep(flow.id);
+    ProductionFlowService.getProductionFlow(productionProduct.id).then(flow => {
+      if (flow) {
+        const wastageStep = productionSteps.find(s => s.step_type === 'wastage_tracking' && s.status === 'in_progress');
+        if (wastageStep) {
+          // Auto-complete wastage step when waste is added
+          ProductionFlowService.updateFlowStep(wastageStep.id, {
+            status: 'completed',
+            end_time: new Date().toISOString(),
+            inspector_name: 'Admin',
+            notes: `Wastage recorded: ${updatedProduct.wasteGenerated.length} items`
+          });
+        }
       }
-    }
+    });
     
     // Reset form
     setNewWaste({
@@ -216,7 +302,7 @@ export default function WasteGeneration() {
     updateProductionProduct(updatedProduct);
   };
 
-  const completeWasteTracking = () => {
+  const completeWasteTracking = async () => {
     if (!productionProduct) return;
     
     // 1. Deduct consumed materials from raw material inventory
@@ -235,12 +321,33 @@ export default function WasteGeneration() {
         return material;
       });
       
-      // Update raw materials in localStorage
-      replaceStorage('rajdhani_raw_materials', updatedRawMaterials);
+      // Update raw materials in Supabase
+      const materialUpdates = productionProduct.materialsConsumed.map(async (consumed) => {
+        const material = rawMaterials.find(m => m.id === consumed.materialId);
+        if (material) {
+          const newQuantity = material.currentStock - consumed.quantity;
+          const newStatus = newQuantity <= 0 ? "out-of-stock" :
+                           newQuantity <= 10 ? "low-stock" : "in-stock";
+
+          return supabase
+            .from('raw_materials')
+            .update({
+              current_stock: Math.max(0, newQuantity),
+              status: newStatus,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', consumed.materialId);
+        }
+        return null;
+      });
+
+      // Execute all material updates
+      await Promise.all(materialUpdates.filter(update => update !== null));
+
       // Update local state to reflect changes in UI
       setRawMaterials(updatedRawMaterials);
-      console.log('✅ Materials deducted from inventory after waste generation');
-      console.log('Updated materials:', updatedRawMaterials.filter(m => 
+      console.log('✅ Materials deducted from inventory in database');
+      console.log('Updated materials:', updatedRawMaterials.filter(m =>
         productionProduct.materialsConsumed.some(cm => cm.materialId === m.id)
       ));
     }
@@ -262,55 +369,43 @@ export default function WasteGeneration() {
         status: waste.canBeReused ? 'available_for_reuse' : 'disposed'
       }));
       
-      // Get existing waste management data
-      const existingWaste = getFromStorage('rajdhani_waste_management') || [];
-      console.log('Existing waste data:', existingWaste);
-      console.log('New waste items to add:', wasteManagementItems);
-      
-      // Ensure existingWaste is a flat array
-      const flatExistingWaste = Array.isArray(existingWaste) ? existingWaste : [];
-      const updatedWaste = [...flatExistingWaste, ...wasteManagementItems];
-      
-      saveToStorage('rajdhani_waste_management', updatedWaste);
-      console.log('✅ Waste items added to waste management system');
-      console.log('Waste management items:', wasteManagementItems);
-      console.log('Total waste in system:', updatedWaste.length);
-      console.log('Final waste data structure:', updatedWaste);
+      // TODO: Save waste management data to Supabase
+      console.log('Waste management items to save:', wasteManagementItems);
+      console.log('✅ Waste items prepared for waste management system');
+      console.log('Final waste data structure:', wasteManagementItems);
     }
     
     // 3. Mark waste generation step as completed
-    const flow = getProductionFlow(productionProduct.id);
-    if (flow) {
-      const wasteStep = flow.steps.find(s => s.stepType === 'wastage_tracking');
-      if (wasteStep && wasteStep.status !== 'completed') {
-        // Update the waste step to completed
-        const updatedFlow = {
-          ...flow,
-          steps: flow.steps.map(step => 
+    ProductionFlowService.getProductionFlow(productionProduct.id).then(flow => {
+      if (flow) {
+        const wasteStep = productionSteps.find(s => s.step_type === 'wastage_tracking');
+        if (wasteStep && wasteStep.status !== 'completed') {
+          // Update the waste step to completed
+          ProductionFlowService.updateFlowStep(wasteStep.id, {
+            status: 'completed',
+            end_time: new Date().toISOString(),
+            inspector_name: 'Admin',
+            notes: `Waste tracking completed with ${(productionProduct?.wasteGenerated || []).length} items. Materials deducted from inventory.`
+          });
+          
+          // Update local production steps state
+          const updatedSteps = productionSteps.map(step => 
             step.id === wasteStep.id 
               ? { 
                   ...step, 
                   status: 'completed' as const, 
-                  endTime: new Date().toISOString(),
-                  inspector: 'Admin',
-                  qualityNotes: `Waste tracking completed with ${(productionProduct?.wasteGenerated || []).length} items. Materials deducted from inventory.`
+                  end_time: new Date().toISOString(),
+                  inspector_name: 'Admin',
+                  notes: `Waste tracking completed with ${(productionProduct?.wasteGenerated || []).length} items. Materials deducted from inventory.`
                 }
               : step
-          ),
-          updatedAt: new Date().toISOString()
-        };
-        
-        // Save updated flow using replaceStorage for consistency
-        const flows = getFromStorage('rajdhani_production_flows') || [];
-        const updatedFlows = flows.map(f => f.id === flow.id ? updatedFlow : f);
-        replaceStorage('rajdhani_production_flows', updatedFlows);
-        
-        // Update local production flow state
-        setProductionFlow(updatedFlow);
-        
-        console.log('Waste tracking completed, updated flow:', updatedFlow);
+          );
+          setProductionSteps(updatedSteps);
+          
+          console.log('Waste tracking step completed');
+        }
       }
-    }
+    });
     
     // Navigate directly to individual details section (Complete page)
       navigate(`/production/complete/${productId}`);
@@ -342,14 +437,14 @@ export default function WasteGeneration() {
           {
             id: "machine_operation",
             name: "Machine Operations",
-            status: productionFlow?.steps?.some((s: any) => s.stepType === 'machine_operation') ? "completed" : "pending",
+            status: productionSteps?.some((s: any) => s.step_type === 'machine_operation') ? "completed" : "pending",
             stepType: "machine_operation"
           },
           {
             id: "wastage_tracking",
             name: "Waste Generation",
-            status: productionFlow?.steps?.find((s: any) => s.stepType === 'wastage_tracking')?.status === 'completed' ? "completed" : 
-                   productionFlow?.steps?.find((s: any) => s.stepType === 'wastage_tracking')?.status === 'in_progress' ? "in_progress" : "pending",
+            status: productionSteps?.find((s: any) => s.step_type === 'wastage_tracking')?.status === 'completed' ? "completed" : 
+                   productionSteps?.find((s: any) => s.step_type === 'wastage_tracking')?.status === 'in_progress' ? "in_progress" : "pending",
             stepType: "wastage_tracking"
           },
           {
@@ -359,7 +454,7 @@ export default function WasteGeneration() {
             stepType: "testing_individual"
           }
         ]}
-        machineSteps={productionFlow?.steps?.filter((s: any) => s.stepType === 'machine_operation') || []}
+        machineSteps={productionSteps?.filter((s: any) => s.step_type === 'machine_operation') || []}
         className="mb-6"
       />
 

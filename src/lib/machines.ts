@@ -1,4 +1,5 @@
-import { generateUniqueId } from './storage';
+import { generateUniqueId } from './storageUtils';
+import { supabase } from './supabase';
 
 export interface Machine {
   id: string;
@@ -53,7 +54,7 @@ const defaultMachines: Machine[] = [
     updatedAt: new Date().toISOString(),
   },
   {
-    id: 'machine-2', 
+    id: 'machine-2',
     name: 'CUTTING MACHINE',
     type: 'cutting',
     status: 'available',
@@ -66,7 +67,7 @@ const defaultMachines: Machine[] = [
     id: 'machine-3',
     name: 'NEEDLE PUNCHING',
     type: 'needle-punching',
-    status: 'available', 
+    status: 'available',
     capacity: 'Needle punching operations',
     description: 'Specialized needle punching machine for carpet fiber processing',
     createdAt: new Date().toISOString(),
@@ -85,88 +86,178 @@ const defaultMachines: Machine[] = [
 ];
 
 // Machine management functions
-export const getMachines = (): Machine[] => {
-  const machines = localStorage.getItem('rajdhani_machines');
-  if (!machines) {
-    // Initialize with default machines
-    localStorage.setItem('rajdhani_machines', JSON.stringify(defaultMachines));
+export const getMachines = async (): Promise<Machine[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('machines')
+      .select('*')
+      .order('createdAt', { ascending: true });
+
+    if (error) throw error;
+
+    // If no machines exist, initialize with defaults
+    if (!data || data.length === 0) {
+      const { data: insertedData, error: insertError } = await supabase
+        .from('machines')
+        .insert(defaultMachines)
+        .select();
+
+      if (insertError) throw insertError;
+      return insertedData || defaultMachines;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Error getting machines:', error);
     return defaultMachines;
   }
-  return JSON.parse(machines);
 };
 
-export const saveMachine = (machine: Omit<Machine, 'id' | 'createdAt' | 'updatedAt'>): Machine => {
-  const machines = getMachines();
+export const saveMachine = async (machine: Omit<Machine, 'id' | 'createdAt' | 'updatedAt'>): Promise<Machine> => {
   const newMachine: Machine = {
     ...machine,
     id: generateUniqueId('MACH'),
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };
-  machines.push(newMachine);
-  localStorage.setItem('rajdhani_machines', JSON.stringify(machines));
-  return newMachine;
+
+  try {
+    const { data, error } = await supabase
+      .from('machines')
+      .insert(newMachine)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error saving machine:', error);
+    throw error;
+  }
 };
 
-export const updateMachine = (id: string, updates: Partial<Machine>): Machine | null => {
-  const machines = getMachines();
-  const index = machines.findIndex(m => m.id === id);
-  if (index === -1) return null;
-  
-  machines[index] = {
-    ...machines[index],
-    ...updates,
-    updatedAt: new Date().toISOString(),
-  };
-  localStorage.setItem('rajdhani_machines', JSON.stringify(machines));
-  return machines[index];
+export const updateMachine = async (id: string, updates: Partial<Machine>): Promise<Machine | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('machines')
+      .update({
+        ...updates,
+        updatedAt: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  } catch (error) {
+    console.error('Error updating machine:', error);
+    return null;
+  }
 };
 
-export const deleteMachine = (id: string): boolean => {
-  const machines = getMachines();
-  const filteredMachines = machines.filter(m => m.id !== id);
-  if (filteredMachines.length === machines.length) return false;
-  
-  localStorage.setItem('rajdhani_machines', JSON.stringify(filteredMachines));
-  return true;
+export const deleteMachine = async (id: string): Promise<boolean> => {
+  try {
+    const { error } = await supabase
+      .from('machines')
+      .delete()
+      .eq('id', id);
+
+    if (error) throw error;
+    return true;
+  } catch (error) {
+    console.error('Error deleting machine:', error);
+    return false;
+  }
 };
 
-export const getAvailableMachines = (): Machine[] => {
-  return getMachines().filter(m => m.status === 'available');
+export const getAvailableMachines = async (): Promise<Machine[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('machines')
+      .select('*')
+      .eq('status', 'available')
+      .order('name');
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error getting available machines:', error);
+    return [];
+  }
 };
 
-export const getMachinesByType = (type: Machine['type']): Machine[] => {
-  return getMachines().filter(m => m.type === type);
+export const getMachinesByType = async (type: Machine['type']): Promise<Machine[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('machines')
+      .select('*')
+      .eq('type', type)
+      .order('name');
+
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error getting machines by type:', error);
+    return [];
+  }
 };
 
 // Production Flow management functions
-export const getProductionFlows = (): ProductionFlow[] => {
-  const flows = localStorage.getItem('rajdhani_production_flows');
-  return flows ? JSON.parse(flows) : [];
-};
+export const getProductionFlows = async (): Promise<ProductionFlow[]> => {
+  try {
+    const { data, error } = await supabase
+      .from('production_flows')
+      .select('*')
+      .order('createdAt', { ascending: false });
 
-export const saveProductionFlow = (flow: ProductionFlow): void => {
-  const flows = getProductionFlows();
-  const existingIndex = flows.findIndex(f => f.id === flow.id);
-  
-  if (existingIndex >= 0) {
-    flows[existingIndex] = { ...flow, updatedAt: new Date().toISOString() };
-  } else {
-    flows.push(flow);
+    if (error) throw error;
+    return data || [];
+  } catch (error) {
+    console.error('Error getting production flows:', error);
+    return [];
   }
-  
-  localStorage.setItem('rajdhani_production_flows', JSON.stringify(flows));
 };
 
-export const getProductionFlow = (productionProductId: string): ProductionFlow | null => {
-  const flows = getProductionFlows();
-  return flows.find(f => f.productionProductId === productionProductId) || null;
+export const saveProductionFlow = async (flow: ProductionFlow): Promise<void> => {
+  try {
+    const { error } = await supabase
+      .from('production_flows')
+      .upsert({
+        ...flow,
+        updatedAt: new Date().toISOString()
+      }, { onConflict: 'id' });
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error saving production flow:', error);
+    throw error;
+  }
 };
 
-export const createDefaultProductionFlow = (productionProductId: string): ProductionFlow => {
-  const machines = getMachines();
+export const getProductionFlow = async (productionProductId: string): Promise<ProductionFlow | null> => {
+  try {
+    const { data, error } = await supabase
+      .from('production_flows')
+      .select('*')
+      .eq('productionProductId', productionProductId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') {
+      throw error;
+    }
+
+    return data || null;
+  } catch (error) {
+    console.error('Error getting production flow:', error);
+    return null;
+  }
+};
+
+export const createDefaultProductionFlow = async (productionProductId: string): Promise<ProductionFlow> => {
+  const machines = await getMachines();
   const testingMachine = machines.find(m => m.type === 'testing');
-  
+
   const defaultSteps: ProductionStep[] = [
     {
       id: generateUniqueId('STEP'),
@@ -235,89 +326,147 @@ export const createDefaultProductionFlow = (productionProductId: string): Produc
   return flow;
 };
 
-export const updateProductionStep = (
-  flowId: string, 
-  stepId: string, 
+export const updateProductionStep = async (
+  flowId: string,
+  stepId: string,
   updates: Partial<ProductionStep>
-): ProductionFlow | null => {
-  const flows = getProductionFlows();
-  const flowIndex = flows.findIndex(f => f.id === flowId);
-  if (flowIndex === -1) return null;
+): Promise<ProductionFlow | null> => {
+  try {
+    const { data: flow, error: fetchError } = await supabase
+      .from('production_flows')
+      .select('*')
+      .eq('id', flowId)
+      .single();
 
-  const stepIndex = flows[flowIndex].steps.findIndex(s => s.id === stepId);
-  if (stepIndex === -1) return null;
+    if (fetchError) throw fetchError;
+    if (!flow) return null;
 
-  flows[flowIndex].steps[stepIndex] = {
-    ...flows[flowIndex].steps[stepIndex],
-    ...updates,
-  };
+    const stepIndex = flow.steps.findIndex((s: ProductionStep) => s.id === stepId);
+    if (stepIndex === -1) return null;
 
-  flows[flowIndex].updatedAt = new Date().toISOString();
-  localStorage.setItem('rajdhani_production_flows', JSON.stringify(flows));
-  return flows[flowIndex];
+    flow.steps[stepIndex] = {
+      ...flow.steps[stepIndex],
+      ...updates,
+    };
+
+    const { data: updatedFlow, error: updateError } = await supabase
+      .from('production_flows')
+      .update({
+        steps: flow.steps,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', flowId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+    return updatedFlow;
+  } catch (error) {
+    console.error('Error updating production step:', error);
+    return null;
+  }
 };
 
-export const addProductionStep = (
-  flowId: string, 
+export const addProductionStep = async (
+  flowId: string,
   stepData: Omit<ProductionStep, 'id' | 'stepNumber' | 'createdAt'>
-): ProductionFlow | null => {
-  const flows = getProductionFlows();
-  const flowIndex = flows.findIndex(f => f.id === flowId);
-  if (flowIndex === -1) return null;
+): Promise<ProductionFlow | null> => {
+  try {
+    const { data: flow, error: fetchError } = await supabase
+      .from('production_flows')
+      .select('*')
+      .eq('id', flowId)
+      .single();
 
-  const newStep: ProductionStep = {
-    ...stepData,
-    id: generateUniqueId('STEP'),
-    stepNumber: flows[flowIndex].steps.length,
-    createdAt: new Date().toISOString(),
-    isFixedStep: false,
-    stepType: 'machine_operation',
-  };
+    if (fetchError) throw fetchError;
+    if (!flow) return null;
 
-  // Find the position to insert - after machine operations but before wastage step
-  const steps = flows[flowIndex].steps;
-  let insertIndex = steps.length;
-  
-  // Find the wastage step (second last fixed step)
-  const wastageStepIndex = steps.findIndex(s => s.stepType === 'wastage_tracking');
-  if (wastageStepIndex !== -1) {
-    insertIndex = wastageStepIndex;
+    const newStep: ProductionStep = {
+      ...stepData,
+      id: generateUniqueId('STEP'),
+      stepNumber: flow.steps.length,
+      createdAt: new Date().toISOString(),
+      isFixedStep: false,
+      stepType: 'machine_operation',
+    };
+
+    // Find the position to insert - after machine operations but before wastage step
+    const steps = flow.steps;
+    let insertIndex = steps.length;
+
+    // Find the wastage step (second last fixed step)
+    const wastageStepIndex = steps.findIndex((s: ProductionStep) => s.stepType === 'wastage_tracking');
+    if (wastageStepIndex !== -1) {
+      insertIndex = wastageStepIndex;
+    }
+
+    // Insert the new step
+    steps.splice(insertIndex, 0, newStep);
+
+    // Renumber all steps
+    steps.forEach((step: ProductionStep, index: number) => {
+      step.stepNumber = index + 1;
+    });
+
+    const { data: updatedFlow, error: updateError } = await supabase
+      .from('production_flows')
+      .update({
+        steps: steps,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', flowId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+    return updatedFlow;
+  } catch (error) {
+    console.error('Error adding production step:', error);
+    return null;
   }
-  
-  // Insert the new step
-  flows[flowIndex].steps.splice(insertIndex, 0, newStep);
-  
-  // Renumber all steps
-  flows[flowIndex].steps.forEach((step, index) => {
-    step.stepNumber = index + 1;
-  });
-
-  flows[flowIndex].updatedAt = new Date().toISOString();
-  localStorage.setItem('rajdhani_production_flows', JSON.stringify(flows));
-  return flows[flowIndex];
 };
 
-export const moveToNextStep = (flowId: string): ProductionFlow | null => {
-  const flows = getProductionFlows();
-  const flowIndex = flows.findIndex(f => f.id === flowId);
-  if (flowIndex === -1) return null;
+export const moveToNextStep = async (flowId: string): Promise<ProductionFlow | null> => {
+  try {
+    const { data: flow, error: fetchError } = await supabase
+      .from('production_flows')
+      .select('*')
+      .eq('id', flowId)
+      .single();
 
-  const flow = flows[flowIndex];
-  if (flow.currentStepIndex < flow.steps.length - 1) {
-    flow.currentStepIndex++;
-    flow.steps[flow.currentStepIndex].status = 'in_progress';
-    flow.steps[flow.currentStepIndex].startTime = new Date().toISOString();
+    if (fetchError) throw fetchError;
+    if (!flow) return null;
+
+    if (flow.currentStepIndex < flow.steps.length - 1) {
+      flow.currentStepIndex++;
+      flow.steps[flow.currentStepIndex].status = 'in_progress';
+      flow.steps[flow.currentStepIndex].startTime = new Date().toISOString();
+    }
+
+    if (flow.currentStepIndex === flow.steps.length - 1) {
+      flow.status = 'completed';
+    } else {
+      flow.status = 'in_progress';
+    }
+
+    const { data: updatedFlow, error: updateError } = await supabase
+      .from('production_flows')
+      .update({
+        currentStepIndex: flow.currentStepIndex,
+        steps: flow.steps,
+        status: flow.status,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', flowId)
+      .select()
+      .single();
+
+    if (updateError) throw updateError;
+    return updatedFlow;
+  } catch (error) {
+    console.error('Error moving to next step:', error);
+    return null;
   }
-
-  if (flow.currentStepIndex === flow.steps.length - 1) {
-    flow.status = 'completed';
-  } else {
-    flow.status = 'in_progress';
-  }
-
-  flow.updatedAt = new Date().toISOString();
-  localStorage.setItem('rajdhani_production_flows', JSON.stringify(flows));
-  return flows[flowIndex];
 };
 
 export const getProgressPercentage = (flow: ProductionFlow): number => {

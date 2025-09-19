@@ -7,10 +7,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, Trash2, AlertTriangle, Factory, Package, X, CheckCircle, Eye, Save, Bell } from "lucide-react";
+import { Plus, Search, Trash2, AlertTriangle, Factory, Package, X, CheckCircle, Eye, Save, Bell, Calculator, Info, QrCode } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Badge } from "@/components/ui/badge";
-import { saveToStorage, getFromStorage, STORAGE_KEYS, generateUniqueId, createNotification, fixNestedArray, replaceStorage } from "@/lib/storage";
+import { generateUniqueId, createNotification } from "@/lib/storageUtils";
+import { supabase } from "@/lib/supabase";
+import { CustomerService } from "@/services/customerService";
+import { NotificationService } from "@/services/notificationService";
+import { OrderService } from "@/services/orderService";
+import { DynamicPricingForm } from "@/components/order/DynamicPricingForm";
+import { EnhancedPricingForm } from "@/components/order/EnhancedPricingForm";
+import { usePricingCalculator } from "@/hooks/usePricingCalculator";
+import { ExtendedOrderItem, OrderFormData } from "@/types/orderTypes";
+import { PricingUnit, ProductDimensions, getSuggestedPricingUnit, getAvailablePricingUnits } from "@/utils/unitConverter";
 import { 
   Dialog,
   DialogContent,
@@ -20,6 +29,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+// Legacy interface for backward compatibility - will be replaced with ExtendedOrderItem
 interface OrderItem {
   id: string;
   productId: string;
@@ -73,9 +83,11 @@ interface IndividualProduct {
 export default function NewOrder() {
   const { toast } = useToast();
   const navigate = useNavigate();
+  const pricingCalculator = usePricingCalculator();
+  
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [orderItems, setOrderItems] = useState<OrderItem[]>([]);
+  const [orderItems, setOrderItems] = useState<ExtendedOrderItem[]>([]);
   const [realProducts, setRealProducts] = useState<any[]>([]);
   const [individualProducts, setIndividualProducts] = useState<any[]>([]);
   const [rawMaterials, setRawMaterials] = useState<any[]>([]);
@@ -101,27 +113,152 @@ export default function NewOrder() {
   const [productionAlertItem, setProductionAlertItem] = useState<OrderItem | null>(null);
   const [showIndividualProductSelection, setShowIndividualProductSelection] = useState(false);
   const [showProductSearch, setShowProductSearch] = useState(false);
-  const [currentOrderItem, setCurrentOrderItem] = useState<OrderItem | null>(null);
+  const [currentOrderItem, setCurrentOrderItem] = useState<ExtendedOrderItem | null>(null);
+  const [showQRCode, setShowQRCode] = useState(false);
+  const [selectedQRProduct, setSelectedQRProduct] = useState<any>(null);
+
 
   // Load customers and products from storage on component mount
   useEffect(() => {
-    const storedCustomers = getFromStorage(STORAGE_KEYS.CUSTOMERS);
-    setCustomers(storedCustomers);
+    const loadCustomers = async () => {
+      try {
+        // Load customers from Supabase
+        const { data: supabaseCustomers, error } = await CustomerService.getCustomers();
+        
+        if (error) {
+          console.error('Error loading customers:', error);
+          toast({
+            title: "Error",
+            description: "Failed to load customers from database",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        if (supabaseCustomers) {
+          // Convert from Supabase format to local format
+          const localCustomers: Customer[] = supabaseCustomers.map(customer => ({
+            id: customer.id,
+            name: customer.name,
+            email: customer.email,
+            phone: customer.phone,
+            address: customer.address || '',
+            city: customer.city || '',
+            state: customer.state || '',
+            pincode: customer.pincode || '',
+            customerType: customer.customer_type,
+            status: customer.status === 'active' ? 'active' : 'inactive',
+            totalOrders: customer.total_orders,
+            totalValue: customer.total_value,
+            lastOrderDate: customer.last_order_date || '',
+            registrationDate: customer.registration_date,
+            gstNumber: customer.gst_number,
+            companyName: customer.company_name
+          }));
+          
+          setCustomers(localCustomers);
+          console.log('✅ Loaded', localCustomers.length, 'customers from Supabase for NewOrder');
+        }
+      } catch (error) {
+        console.error('Error loading customers:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load customers. Please try again.",
+          variant: "destructive",
+        });
+      }
+    };
+
+    loadCustomers();
     
-    const storedProducts = getFromStorage(STORAGE_KEYS.PRODUCTS);
-    const storedIndividualProducts = getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS);
-    const storedRawMaterials = getFromStorage('rajdhani_raw_materials');
-    
-    // Transform stored products to match the expected format and calculate stock
-    const transformedProducts = storedProducts.map((product: any) => {
-      // Only count products that are actually available (not sold or damaged)
-      const availableIndividualProducts = storedIndividualProducts.filter(
-        (item: any) => item.productId === product.id && item.status === "available"
+    // Load products and raw materials from Supabase
+    const loadProductsAndMaterials = async () => {
+      try {
+        // Load products from Supabase
+        const { data: products, error: productsError } = await supabase
+          .from('products')
+          .select('*');
+        
+        if (productsError) {
+          console.error('Error loading products:', productsError);
+        } else {
+          console.log('✅ Loaded', products?.length || 0, 'products from Supabase');
+        }
+
+        // Load raw materials from Supabase
+        const { data: rawMaterials, error: materialsError } = await supabase
+          .from('raw_materials')
+          .select('*');
+        
+        if (materialsError) {
+          console.error('Error loading raw materials:', materialsError);
+        } else {
+          console.log('✅ Loaded', rawMaterials?.length || 0, 'raw materials from Supabase');
+        }
+
+        // Load individual products from Supabase
+        const { data: individualProducts, error: individualError } = await supabase
+          .from('individual_products')
+          .select('*');
+        
+        if (individualError) {
+          console.error('Error loading individual products:', individualError);
+        } else {
+          console.log('✅ Loaded', individualProducts?.length || 0, 'individual products from Supabase');
+        }
+
+        return { products: products || [], rawMaterials: rawMaterials || [], individualProducts: individualProducts || [] };
+      } catch (error) {
+        console.error('Error loading data from Supabase:', error);
+        return { products: [], rawMaterials: [], individualProducts: [] };
+      }
+    };
+
+    // Load all data from Supabase
+    const loadAllData = async () => {
+      try {
+        // Load products from Supabase
+        const { data: productsData, error: productsError } = await supabase
+          .from('products')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (productsError) {
+          console.error('Error loading products:', productsError);
+          throw productsError;
+        }
+
+        // Load individual products from Supabase
+        const { data: individualProductsData, error: individualError } = await supabase
+          .from('individual_products')
+          .select('*');
+
+        if (individualError) {
+          console.error('Error loading individual products:', individualError);
+          throw individualError;
+        }
+
+        // Load raw materials from Supabase
+        const { data: rawMaterialsData, error: rawMaterialsError } = await supabase
+          .from('raw_materials')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (rawMaterialsError) {
+          console.error('Error loading raw materials:', rawMaterialsError);
+          throw rawMaterialsError;
+        }
+
+        // Transform products to match the expected format and calculate stock
+        const transformedProducts = (productsData || []).map((product: any) => {
+          // Only count individual products that are actually available (not sold or damaged)
+          const availableIndividualProducts = (individualProductsData || []).filter(
+            (item: any) => item.product_id === product.id && item.status === "available"
       );
       
       // Count total individual products for debugging
-      const totalIndividualProducts = storedIndividualProducts.filter(
-        (item: any) => item.productId === product.id
+          const totalIndividualProducts = (individualProductsData || []).filter(
+            (item: any) => item.product_id === product.id
       );
       const soldProducts = totalIndividualProducts.filter(item => item.status === "sold");
       const damagedProducts = totalIndividualProducts.filter(item => item.status === "damaged");
@@ -133,11 +270,116 @@ export default function NewOrder() {
         damaged: damagedProducts.length
       });
 
+          // Calculate stock based on individual tracking setting
+          let calculatedStock = 0;
+          if (product.individual_stock_tracking === false) {
+            // For bulk products, use base_quantity
+            calculatedStock = product.base_quantity || 0;
+          } else {
+            // For individual tracking, count available individual products
+            calculatedStock = availableIndividualProducts.length;
+          }
+
+          console.log(`📊 Stock calculation for ${product.name}:`, {
+            individual_tracking: product.individual_stock_tracking,
+            base_quantity: product.base_quantity,
+            available_individual: availableIndividualProducts.length,
+            calculated_stock: calculatedStock
+          });
+
+          return {
+            id: product.id,
+            name: product.name,
+            price: 0, // No fixed pricing - will be set per order
+            stock: calculatedStock,
+            category: product.category,
+            color: product.color,
+            size: product.pattern, // Map pattern to size for compatibility
+            pattern: product.pattern,
+            dimensions: `${product.width} x ${product.height}`,
+            weight: product.weight,
+            imageUrl: product.image_url || "",
+            status: "in-stock", // Default status
+            location: "Warehouse", // Default location
+            unit: product.unit || "units",
+            individualStockTracking: product.individual_stock_tracking,
+            width: product.width,
+            height: product.height,
+            thickness: product.thickness
+          };
+        });
+
+        // Transform raw materials to match the expected format
+        const transformedRawMaterials = (rawMaterialsData || []).map((material: any) => {
+          const stock = material.current_stock || 0;
+          
+          console.log(`🧱 Raw material ${material.name}:`, {
+            current_stock: material.current_stock,
+            calculated_stock: stock,
+            unit: material.unit
+          });
+
+          return {
+            id: material.id,
+            name: material.name,
+            price: material.cost_per_unit || 0,
+            stock: stock,
+            category: material.category,
+            brand: material.brand,
+            unit: material.unit,
+            supplier: material.supplier_name || "Unknown",
+            status: material.status || "in-stock",
+            location: material.location || 'Warehouse'
+          };
+        });
+
+        // Transform individual products
+        const transformedIndividualProducts = (individualProductsData || []).map((product: any) => ({
+          id: product.id,
+          qrCode: product.qr_code,
+          productId: product.product_id,
+          productName: product.product_name,
+          manufacturingDate: product.production_date || product.completion_date || product.added_date,
+          dimensions: product.final_dimensions || product.dimensions || "N/A",
+          weight: product.final_weight || product.weight || "N/A",
+          qualityGrade: product.quality_grade,
+          inspector: product.inspector,
+          status: product.status,
+          location: product.location,
+          finalDimensions: product.final_dimensions,
+          finalWeight: product.final_weight
+        }));
+
+        // Set all data
+        setRealProducts(transformedProducts);
+        setRawMaterials(transformedRawMaterials);
+        setIndividualProducts(transformedIndividualProducts);
+        
+        console.log('✅ Loaded products from Supabase:', transformedProducts.length);
+        console.log('🔍 Loaded individual products from Supabase:', transformedIndividualProducts.length);
+        console.log('🧱 Loaded raw materials from Supabase:', transformedRawMaterials.length);
+        
+        // Debug: Log stock values for first few products
+        transformedProducts.slice(0, 3).forEach(product => {
+          console.log(`📊 Product "${product.name}" stock: ${product.stock}, individual tracking: ${product.individualStockTracking}`);
+        });
+      } catch (error) {
+        console.error('Error loading data from Supabase:', error);
+        // Fallback to empty arrays if Supabase fails
+        const storedProducts = [];
+        const storedIndividualProducts = [];
+        const storedRawMaterials = [];
+        
+        const transformedProducts = storedProducts.map((product: any) => {
+          const availableIndividualProducts = storedIndividualProducts.filter(
+            (item: any) => item.productId === product.id && item.status === "available"
+          );
+
       return {
         id: product.id,
         name: product.name,
         price: product.sellingPrice || product.totalCost || 0,
-        stock: product.individualStockTracking === false ? product.quantity : availableIndividualProducts.length, // Use quantity for bulk products, individual count for tracked products
+            stock: product.individualStockTracking === false ? product.quantity : availableIndividualProducts.length,
         category: product.category,
         color: product.color,
         size: product.size,
@@ -147,17 +389,16 @@ export default function NewOrder() {
         imageUrl: product.imageUrl,
         status: product.status,
         location: product.location,
-        unit: product.unit, // Add unit field
-        individualStockTracking: product.individualStockTracking // Add individualStockTracking field
+            unit: product.unit,
+            individualStockTracking: product.individualStockTracking
       };
     });
     
-    // Transform raw materials to match the expected format
     const transformedRawMaterials = storedRawMaterials.map((material: any) => ({
       id: material.id,
       name: material.name,
       price: material.costPerUnit || 0,
-      stock: material.currentStock || 0, // Use stock field for UI consistency
+          stock: material.currentStock || 0,
       category: material.category,
       brand: material.brand,
       unit: material.unit,
@@ -167,64 +408,82 @@ export default function NewOrder() {
     }));
     
     setRealProducts(transformedProducts);
-    setIndividualProducts(storedIndividualProducts);
     setRawMaterials(transformedRawMaterials);
-    
-    console.log('📦 Loaded products from storage:', transformedProducts.length);
-    console.log('🔍 Loaded individual products from storage:', storedIndividualProducts.length);
-    console.log('🧱 Loaded raw materials from storage:', transformedRawMaterials.length);
-  }, []);
+        setIndividualProducts(storedIndividualProducts);
+        
+        console.log('⚠️ Fallback: Using empty data arrays');
+      }
+    };
+
+    loadAllData();
+  }, [toast]);
 
   const addOrderItem = () => {
-    const newItem: OrderItem = {
+    const newItem: ExtendedOrderItem = {
       id: generateUniqueId('ORDITEM'),
-      productId: "",
-      productName: "",
-      productType: 'product', // Default to product
+      product_id: "",
+      product_name: "",
+      product_type: 'product', // Default to product
       quantity: 1,
-      unitPrice: 0,
-      totalPrice: 0,
-      availableStock: 0,
-      needsProduction: false,
-      selectedIndividualProducts: []
+      unit_price: 0,
+      total_price: 0,
+      pricing_unit: 'piece', // Default pricing unit
+      product_dimensions: {
+        productType: 'carpet'
+      },
+      isEditing: true,
+      isValid: false
     };
     setOrderItems([...orderItems, newItem]);
   };
 
-  const updateOrderItem = (id: string, field: keyof OrderItem, value: any) => {
+  const updateOrderItem = (id: string, field: keyof ExtendedOrderItem, value: any) => {
     setOrderItems(items => items.map(item => {
       if (item.id === id) {
         const updated = { ...item, [field]: value };
-        if (field === 'productId') {
-          // Find product based on productType
-          const product = updated.productType === 'raw_material' 
+        
+        if (field === 'product_id') {
+          // Find product based on product_type
+          const product = updated.product_type === 'raw_material' 
             ? rawMaterials.find(p => p.id === value)
             : realProducts.find(p => p.id === value);
             
           if (product) {
-            updated.productName = product.name;
-            updated.unitPrice = product.price;
-            updated.totalPrice = updated.quantity * product.price;
-            updated.availableStock = product.stock || 0;
-            updated.needsProduction = updated.quantity > (product.stock || 0);
-
-            // Reset selected individual products when product changes
-            updated.selectedIndividualProducts = [];
+            updated.product_name = product.name;
+            updated.unit_price = product.price;
+            
+            // Set suggested pricing unit based on product type and dimensions
+            const productDimensions: ProductDimensions = {
+              productType: updated.product_type === 'raw_material' ? 'raw_material' : 'carpet',
+              width: product.dimensions?.width,
+              height: product.dimensions?.height,
+              weight: product.weight,
+              gsm: product.gsm,
+              denier: product.denier,
+              thread_count: product.thread_count
+            };
+            
+            updated.product_dimensions = productDimensions;
+            updated.pricing_unit = getSuggestedPricingUnit(productDimensions);
+            
+            // Calculate initial pricing
+            const calculation = pricingCalculator.calculateItemPrice(updated);
+            updated.total_price = calculation.totalPrice;
+            updated.unit_value = calculation.unitValue;
+            updated.isValid = calculation.isValid;
+            updated.errorMessage = calculation.errorMessage;
           }
         }
-        if (field === 'quantity') {
-          const product = updated.productType === 'raw_material' 
-            ? rawMaterials.find(p => p.id === updated.productId)
-            : realProducts.find(p => p.id === updated.productId);
-          if (product) {
-            updated.totalPrice = updated.quantity * updated.unitPrice;
-            // Both products and raw materials now use stock field
-            updated.needsProduction = updated.quantity > (product.stock || 0);
-          }
+        
+        if (field === 'quantity' || field === 'unit_price' || field === 'pricing_unit' || field === 'product_dimensions') {
+          // Recalculate pricing when any pricing-related field changes
+          const calculation = pricingCalculator.calculateItemPrice(updated);
+          updated.total_price = calculation.totalPrice;
+          updated.unit_value = calculation.unitValue;
+          updated.isValid = calculation.isValid;
+          updated.errorMessage = calculation.errorMessage;
         }
-        if (field === 'quantity' || field === 'unitPrice') {
-          updated.totalPrice = updated.quantity * updated.unitPrice;
-        }
+        
         return updated;
       }
       return item;
@@ -236,65 +495,61 @@ export default function NewOrder() {
   };
 
   const calculateTotal = () => {
-    return orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    return pricingCalculator.calculateOrderTotal(orderItems);
   };
 
 
 
-  // Handle individual product selection
+  // Individual product selection functions
   const handleIndividualProductSelection = (orderItemId: string, individualProduct: IndividualProduct, isSelected: boolean) => {
-    console.log('handleIndividualProductSelection called:', { orderItemId, individualProductId: individualProduct.id, isSelected });
-    
-    setOrderItems(items => items.map(item => {
+    setOrderItems(items => {
+      const updatedItems = items.map(item => {
       if (item.id === orderItemId) {
-        let updatedSelectedProducts = [...item.selectedIndividualProducts];
+          let updatedSelectedProducts = [...(item.selectedIndividualProducts || [])];
         
         if (isSelected) {
-          // Add to selection if not already selected
           if (!updatedSelectedProducts.find(p => p.id === individualProduct.id)) {
             updatedSelectedProducts.push(individualProduct);
-            console.log('Added product to selection:', individualProduct.id);
           }
         } else {
-          // Remove from selection
           updatedSelectedProducts = updatedSelectedProducts.filter(p => p.id !== individualProduct.id);
-          console.log('Removed product from selection:', individualProduct.id);
         }
         
         const updatedItem = {
           ...item,
           selectedIndividualProducts: updatedSelectedProducts
-          // Don't change the quantity - keep the original required quantity
         };
         
-        console.log('Updated item:', updatedItem);
-        
-        // Update currentOrderItem state immediately if this is the current item
+          // Update currentOrderItem if it's the same item
         if (currentOrderItem && currentOrderItem.id === orderItemId) {
-          console.log('Updating currentOrderItem state');
           setCurrentOrderItem(updatedItem);
         }
         
         return updatedItem;
       }
       return item;
-    }));
+      });
+
+      return updatedItems;
+    });
   };
 
-  // Auto-select oldest pieces when quantity is set
   const autoSelectOldestPieces = (orderItemId: string, quantity: number) => {
-    setOrderItems(items => items.map(item => {
-      if (item.id === orderItemId && item.productId) {
-        const availableProducts = getAvailableIndividualProducts(item.productId);
+    const orderItem = orderItems.find(item => item.id === orderItemId);
+    if (!orderItem || !orderItem.product_id) return;
+
+    const availableProducts = getAvailableIndividualProducts(orderItem.product_id);
         const selectedProducts = availableProducts.slice(0, Math.min(quantity, availableProducts.length));
         
+    setOrderItems(items => {
+      return items.map(item => {
+        if (item.id === orderItemId) {
         const updatedItem = {
           ...item,
           selectedIndividualProducts: selectedProducts
-          // Don't change the quantity - keep the original required quantity
         };
         
-        // Update currentOrderItem state immediately if this is the current item
+          // Update currentOrderItem if it's the same item
         if (currentOrderItem && currentOrderItem.id === orderItemId) {
           setCurrentOrderItem(updatedItem);
         }
@@ -302,10 +557,10 @@ export default function NewOrder() {
         return updatedItem;
       }
       return item;
-    }));
+      });
+    });
   };
 
-  // Check if product has individual stock tracking
   const hasIndividualStock = (productId: string, productType: 'product' | 'raw_material' = 'product') => {
     // Raw materials never have individual stock tracking
     if (productType === 'raw_material') {
@@ -315,7 +570,6 @@ export default function NewOrder() {
     const product = realProducts.find(p => p.id === productId);
     const hasIndividual = product && product.individualStockTracking !== false;
     
-    // Debug logging
     console.log(`🔍 hasIndividualStock check for ${productId}:`, {
       productType,
       product: product?.name,
@@ -326,7 +580,6 @@ export default function NewOrder() {
     return hasIndividual;
   };
 
-  // Get the correct unit for display based on product type
   const getDisplayUnit = (productId: string, productType: 'product' | 'raw_material') => {
     if (productType === 'raw_material') {
       const material = rawMaterials.find(m => m.id === productId);
@@ -337,10 +590,9 @@ export default function NewOrder() {
     }
   };
 
-  // Get available individual products for a product (only available ones for ordering)
   const getAvailableIndividualProducts = (productId: string) => {
     return individualProducts
-      .filter(p => p.productId === productId && p.status === "available") // Only available products
+      .filter(p => p.productId === productId && p.status === "available")
       .map(p => ({
         ...p,
         // Calculate age in days from manufacturing date
@@ -354,50 +606,12 @@ export default function NewOrder() {
       .sort((a, b) => a.age - b.age); // Sort by age (oldest first)
   };
 
-  // Get all products for display (including damaged for information)
-  const getAllIndividualProducts = (productId: string) => {
-    return individualProducts
-      .filter(p => p.productId === productId)
-      .map(p => ({
-        ...p,
-        // Calculate age in days from manufacturing date
-        age: Math.floor((new Date().getTime() - new Date(p.manufacturingDate).getTime()) / (1000 * 60 * 60 * 24)),
-        // Map fields to match expected interface
-        dimensions: p.finalDimensions || p.dimensions || "N/A",
-        weight: p.finalWeight || p.weight || "N/A",
-        productName: realProducts.find(rp => rp.id === productId)?.name || "Unknown Product",
-        location: p.location || "Warehouse",
-        isDamaged: p.status === "damaged",
-        isSold: p.status === "sold"
-      }))
-      .sort((a, b) => {
-        // Sort: available first, then damaged, then sold
-        if (a.status !== b.status) {
-          if (a.status === "available") return -1;
-          if (b.status === "available") return 1;
-          if (a.status === "damaged") return -1;
-          if (b.status === "damaged") return 1;
-        }
-        return a.age - b.age;
-      });
-  };
-
-  const getStockStatus = (item: OrderItem) => {
-    if (item.quantity <= item.availableStock) {
-      return { status: "sufficient", color: "text-green-600", bg: "bg-green-50", border: "border-green-200" };
-    } else if (item.quantity <= item.availableStock + 20) {
-      return { status: "low", color: "text-yellow-600", bg: "bg-yellow-50", border: "border-yellow-200" };
-    } else {
-      return { status: "insufficient", color: "text-red-600", bg: "bg-red-50", border: "border-red-200" };
-    }
-  };
-
   const handleProductionAlert = (item: OrderItem) => {
     setProductionAlertItem(item);
     setShowProductionAlert(true);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedCustomer && !showNewCustomerForm) {
       toast({
         title: "Error",
@@ -417,40 +631,24 @@ export default function NewOrder() {
     }
 
     // Calculate order totals for validation
-    const subtotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+    const subtotal = calculateTotal();
     const gstRate = 18;
     const gstAmount = (subtotal * gstRate) / 100;
     const totalAmount = subtotal + gstAmount;
 
-    // Validate minimum payment requirement
-    if (orderDetails.paidAmount <= 0) {
-      toast({
-        title: "Payment Required",
-        description: "A minimum payment is required to accept the order. Please enter an advance amount.",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    if (orderDetails.paidAmount < totalAmount * 0.1) {
-      toast({
-        title: "Insufficient Advance Payment",
-        description: `Minimum 10% advance payment required (₹${Math.ceil(totalAmount * 0.1).toLocaleString()}). Current: ₹${orderDetails.paidAmount.toLocaleString()}`,
-        variant: "destructive"
-      });
-      return;
-    }
+    // Payment is now optional - no validation required
+    // Orders can be completed with any payment amount (including ₹0)
 
     try {
-      // Calculate order totals
-      const subtotal = orderItems.reduce((sum, item) => sum + item.totalPrice, 0);
+      // Calculate order totals with GST
+      const subtotal = calculateTotal();
       const gstRate = 18; // 18% GST
       const gstAmount = (subtotal * gstRate) / 100;
       const totalAmount = subtotal + gstAmount;
       const paidAmount = orderDetails.paidAmount || 0;
       const outstandingAmount = totalAmount - paidAmount;
 
-      // Create the order
+      // Create the order with new dynamic pricing format
       const newOrder = {
         id: generateUniqueId('ORD'),
         orderNumber: `ORD-${Date.now()}`,
@@ -461,14 +659,17 @@ export default function NewOrder() {
         orderDate: new Date().toISOString().split('T')[0],
         expectedDelivery: orderDetails.expectedDelivery || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         items: orderItems.map(item => ({
-          productId: item.productId,
-          productName: item.productName,
-          productType: item.productType,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          product_type: item.product_type,
           quantity: item.quantity,
-          unitPrice: item.unitPrice,
-          totalPrice: item.totalPrice,
-          selectedProducts: hasIndividualStock(item.productId, item.productType) ? item.selectedIndividualProducts : [],
-          qualityGrade: hasIndividualStock(item.productId, item.productType) && item.selectedIndividualProducts.length > 0 ? item.selectedIndividualProducts[0].qualityGrade : 'A'
+          unit_price: item.unit_price,
+          total_price: item.total_price,
+          pricing_unit: item.pricing_unit,
+          unit_value: item.unit_value,
+          product_dimensions: item.product_dimensions,
+          quality_grade: 'A', // Default quality grade
+          specifications: '' // Default specifications
         })),
         subtotal,
         gstRate,
@@ -477,6 +678,7 @@ export default function NewOrder() {
         totalAmount,
         paidAmount,
         outstandingAmount,
+        gstIncluded: true,
         paymentMethod: paidAmount > 0 ? "cash" : "credit",
         paymentTerms: paidAmount > 0 ? "Paid in full" : "30 days",
         dueDate: paidAmount > 0 ? undefined : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
@@ -486,17 +688,43 @@ export default function NewOrder() {
         notes: orderDetails.notes || ""
       };
 
-      // Save order to localStorage
-      const existingOrders = getFromStorage(STORAGE_KEYS.ORDERS) || [];
+      // Save order to Supabase
+      const orderData = {
+        customer_id: selectedCustomer?.id,
+        customer_name: newOrder.customerName,
+        customer_email: newOrder.customerEmail,
+        customer_phone: newOrder.customerPhone,
+        expected_delivery: newOrder.expectedDelivery,
+        items: orderItems.map(item => ({
+          product_id: item.product_id,
+          product_name: item.product_name,
+          product_type: item.product_type,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          quality_grade: item.quality_grade || 'A',
+          specifications: item.specifications || '',
+          selected_individual_products: (item as any).selectedIndividualProducts?.map((p: any) => p.id) || []
+        })),
+        gst_rate: newOrder.gstRate,
+        discount_amount: newOrder.discountAmount,
+        paid_amount: orderDetails.paidAmount,
+        priority: 'medium' as const,
+        special_instructions: newOrder.notes
+      };
+
+      const { data: createdOrder, error: orderError } = await OrderService.createOrder(orderData);
       
-      // Ensure existingOrders is a flat array (fix nested array issue)
-      const flatExistingOrders = fixNestedArray(existingOrders);
-      if (flatExistingOrders !== existingOrders) {
-        console.log('🔧 Fixed nested orders array before adding new order');
+      if (orderError) {
+        console.error('Error creating order:', orderError);
+        toast({
+          title: "❌ Order Creation Failed",
+          description: "Failed to create order in database. Please try again.",
+          variant: "destructive"
+        });
+        return;
       }
-      
-      const updatedOrders = [...flatExistingOrders, newOrder];
-      replaceStorage(STORAGE_KEYS.ORDERS, updatedOrders);
+
+      // Order saved to Supabase via OrderService
 
       // Note: Stock will be deducted only when order is dispatched, not when accepted
       // This allows orders to be accepted even with low stock, and production can be planned
@@ -514,57 +742,139 @@ export default function NewOrder() {
           }
           return customer;
         });
-        replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
+        // Customer data will be updated by CustomerService
     }
 
-    // Check if any items need production
-    const itemsNeedingProduction = orderItems.filter(item => item.needsProduction);
+    // Check if any items need production based on stock availability (for notifications only)
+    const itemsNeedingProduction = orderItems.filter(item => {
+      if (item.product_type !== 'product') return false;
+      
+      // Find the product to check stock
+      const product = realProducts.find(p => p.id === item.product_id);
+      if (!product) return false;
+      
+      // Check if order quantity exceeds available stock
+      const availableStock = product.stock || 0;
+      const shortfall = Math.max(0, item.quantity - availableStock);
+      
+      return shortfall > 0; // Needs production if there's a shortfall
+    });
+
+    // Check if any raw materials need restocking based on stock availability
+    const rawMaterialsNeedingRestock = orderItems.filter(item => {
+      if (item.product_type !== 'raw_material') return false;
+      
+      // Find the raw material to check stock
+      const material = rawMaterials.find(m => m.id === item.product_id);
+      if (!material) return false;
+      
+      // Check if order quantity exceeds available stock
+      const availableStock = material.stock || 0;
+      const shortfall = Math.max(0, item.quantity - availableStock);
+      
+      return shortfall > 0; // Needs restocking if there's a shortfall
+    });
     
-    // Always send notifications to products section for items needing production
+    // Always create the order (no blocking based on stock)
+    // Send notifications to products section for items needing production
     if (itemsNeedingProduction.length > 0) {
       // Send notifications to products section for each item needing production
-      itemsNeedingProduction.forEach(item => {
+      for (const item of itemsNeedingProduction) {
+        const product = realProducts.find(p => p.id === item.product_id);
+        const availableStock = product?.stock || 0;
+        const shortfall = Math.max(0, item.quantity - availableStock);
+        
         // Check if notification already exists to prevent duplicates
-        const existingNotifications = getFromStorage('rajdhani_notifications') || [];
-        const flattenedNotifications = existingNotifications.flat(Infinity);
-        const hasExistingNotification = flattenedNotifications.some(n => 
-          n && n.type === 'production_request' && 
-          n.relatedId === item.productId && 
-          n.status === 'unread'
+        const { exists: hasExistingNotification } = await NotificationService.notificationExists(
+          'production_request',
+          item.product_id,
+          'unread'
         );
         
         if (!hasExistingNotification) {
-          createNotification({
+          await createNotification({
             type: 'production_request',
-            title: `Product Stock Alert - ${item.productName}`,
-            message: `Order ${newOrder.orderNumber} requires ${item.quantity} ${getDisplayUnit(item.productId, item.productType)} of ${item.productName}. Current stock: ${item.availableStock} ${getDisplayUnit(item.productId, item.productType)}. Need to produce: ${item.quantity - item.availableStock} more ${getDisplayUnit(item.productId, item.productType)}.`,
+            title: `Product Stock Alert - ${item.product_name}`,
+            message: `Order ${newOrder.orderNumber} requires ${item.quantity} units of ${item.product_name}. Current stock: ${availableStock} units. Need to produce ${shortfall} more units.`,
             priority: 'high',
             status: 'unread',
             module: 'products',
-            relatedId: item.productId,
+            relatedId: item.product_id,
             relatedData: {
-              productId: item.productId,
-              productName: item.productName,
+              productId: item.product_id,
+              productName: item.product_name,
               requiredQuantity: item.quantity,
-              availableStock: item.availableStock,
-              shortfall: item.quantity - item.availableStock,
+              availableStock: availableStock,
+              shortfall: shortfall,
               orderId: newOrder.id,
               orderNumber: newOrder.orderNumber
             },
             createdBy: 'system'
           });
         }
-      });
-      
+      }
+    }
+
+    // Send notifications to materials section for raw materials needing restocking
+    if (rawMaterialsNeedingRestock.length > 0) {
+      // Send notifications to materials section for each raw material needing restocking
+      for (const item of rawMaterialsNeedingRestock) {
+        const material = rawMaterials.find(m => m.id === item.product_id);
+        const availableStock = material?.stock || 0;
+        const shortfall = Math.max(0, item.quantity - availableStock);
+        
+        // Check if notification already exists to prevent duplicates
+        const { exists: hasExistingNotification } = await NotificationService.notificationExists(
+          'restock_request',
+          item.product_id,
+          'unread'
+        );
+        
+        if (!hasExistingNotification) {
+          await createNotification({
+            type: 'restock_request',
+            title: `Raw Material Stock Alert - ${item.product_name}`,
+            message: `Order ${newOrder.orderNumber} requires ${item.quantity} units of ${item.product_name}. Current stock: ${availableStock} units. Need to restock ${shortfall} more units.`,
+            priority: 'high',
+            status: 'unread',
+            module: 'materials',
+            relatedId: item.product_id,
+            relatedData: {
+              materialId: item.product_id,
+              materialName: item.product_name,
+              requiredQuantity: item.quantity,
+              availableStock: availableStock,
+              shortfall: shortfall,
+              orderId: newOrder.id,
+              orderNumber: newOrder.orderNumber
+            },
+            createdBy: 'system'
+          });
+        }
+      }
+    }
+    
+    // Show appropriate success message based on what needs attention
+    if (itemsNeedingProduction.length > 0 && rawMaterialsNeedingRestock.length > 0) {
       toast({
-          title: "✅ Order Created - Stock Alert Sent",
-          description: `Order ${newOrder.orderNumber} created! ${itemsNeedingProduction.length} items need production. Products section has been notified.`,
+          title: "✅ Order Created Successfully",
+          description: `Order ${newOrder.orderNumber} created! Total: ₹${totalAmount.toLocaleString()} (GST included). Outstanding: ₹${outstandingAmount.toLocaleString()}. ${itemsNeedingProduction.length} products need production & ${rawMaterialsNeedingRestock.length} materials need restocking - Notifications sent.`,
+      });
+    } else if (itemsNeedingProduction.length > 0) {
+      toast({
+          title: "✅ Order Created Successfully",
+          description: `Order ${newOrder.orderNumber} created! Total: ₹${totalAmount.toLocaleString()} (GST included). Outstanding: ₹${outstandingAmount.toLocaleString()}. ${itemsNeedingProduction.length} items need production - Products section notified.`,
+      });
+    } else if (rawMaterialsNeedingRestock.length > 0) {
+      toast({
+          title: "✅ Order Created Successfully",
+          description: `Order ${newOrder.orderNumber} created! Total: ₹${totalAmount.toLocaleString()} (GST included). Outstanding: ₹${outstandingAmount.toLocaleString()}. ${rawMaterialsNeedingRestock.length} materials need restocking - Materials section notified.`,
       });
     } else {
       // All items have sufficient stock
     toast({
           title: "✅ Order Created Successfully",
-          description: `Order ${newOrder.orderNumber} created! All items have sufficient stock.`,
+          description: `Order ${newOrder.orderNumber} created! Total: ₹${totalAmount.toLocaleString()} (GST included). Outstanding: ₹${outstandingAmount.toLocaleString()}`,
         });
       }
 
@@ -791,7 +1101,7 @@ export default function NewOrder() {
                   Cancel
                 </Button>
                 <Button 
-                  onClick={() => {
+                  onClick={async () => {
                     // Basic validation
                     if (!newCustomer.name.trim() || !newCustomer.email.trim() || !newCustomer.phone.trim()) {
                       toast({
@@ -802,33 +1112,59 @@ export default function NewOrder() {
                       return;
                     }
 
-                    // Create new customer and save to localStorage
-                    const newCustomerData: Customer = {
-                      id: generateUniqueId('ORDITEM'),
+                    try {
+                      // Create new customer using CustomerService
+                      const customerData = {
                       name: newCustomer.name.trim(),
                       email: newCustomer.email.trim(),
                       phone: newCustomer.phone.trim(),
-                      address: newCustomer.address.trim(),
-                      city: newCustomer.city.trim(),
-                      state: newCustomer.state.trim(),
-                      pincode: newCustomer.pincode.trim(),
-                      customerType: newCustomer.customerType,
-                      status: "active",
-                      totalOrders: 0,
-                      totalValue: 0,
-                      lastOrderDate: "",
-                      registrationDate: new Date().toISOString().split('T')[0],
-                      gstNumber: newCustomer.gstNumber.trim() || undefined,
-                      companyName: newCustomer.companyName.trim() || undefined
-                    };
+                        address: newCustomer.address.trim() || undefined,
+                        city: newCustomer.city.trim() || undefined,
+                        state: newCustomer.state.trim() || undefined,
+                        pincode: newCustomer.pincode.trim() || undefined,
+                        customer_type: newCustomer.customerType,
+                        gst_number: newCustomer.gstNumber.trim() || undefined,
+                        company_name: newCustomer.companyName.trim() || undefined
+                      };
 
-                    // Add to customers array and save to localStorage
-                    const updatedCustomers = [...customers, newCustomerData];
+                      const { data: newCustomerData, error } = await CustomerService.createCustomer(customerData);
+                      
+                      if (error) {
+                        toast({
+                          title: "Error",
+                          description: error,
+                          variant: "destructive"
+                        });
+                        return;
+                      }
+
+                      if (newCustomerData) {
+                        // Convert from Supabase format to local format
+                        const localCustomer: Customer = {
+                          id: newCustomerData.id,
+                          name: newCustomerData.name,
+                          email: newCustomerData.email,
+                          phone: newCustomerData.phone,
+                          address: newCustomerData.address || '',
+                          city: newCustomerData.city || '',
+                          state: newCustomerData.state || '',
+                          pincode: newCustomerData.pincode || '',
+                          customerType: newCustomerData.customer_type,
+                          status: newCustomerData.status === 'active' ? 'active' : 'inactive',
+                          totalOrders: newCustomerData.total_orders,
+                          totalValue: newCustomerData.total_value,
+                          lastOrderDate: newCustomerData.last_order_date || '',
+                          registrationDate: newCustomerData.registration_date,
+                          gstNumber: newCustomerData.gst_number,
+                          companyName: newCustomerData.company_name
+                        };
+
+                        // Add to customers array
+                        const updatedCustomers = [...customers, localCustomer];
                     setCustomers(updatedCustomers);
-                    replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
                     
                     // Select the newly created customer
-                    setSelectedCustomer(newCustomerData);
+                        setSelectedCustomer(localCustomer);
                     
                     // Reset form and hide form
                     setNewCustomer({
@@ -847,8 +1183,17 @@ export default function NewOrder() {
                     
                     toast({
                       title: "Success",
-                      description: `Customer "${newCustomerData.name}" added successfully and selected for this order!`,
-                    });
+                          description: `Customer "${localCustomer.name}" added successfully and selected for this order!`,
+                        });
+                      }
+                    } catch (error) {
+                      console.error('Error creating customer:', error);
+                      toast({
+                        title: "Error",
+                        description: "Failed to create customer. Please try again.",
+                        variant: "destructive"
+                      });
+                    }
                   }}
                   disabled={!newCustomer.name.trim() || !newCustomer.email.trim() || !newCustomer.phone.trim()}
                 >
@@ -872,237 +1217,48 @@ export default function NewOrder() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {orderItems.map((item) => {
-              const stockStatus = getStockStatus(item);
-              return (
-                <div key={item.id} className={`p-4 border rounded-lg ${stockStatus.bg} ${stockStatus.border}`}>
-                  {/* Stock Warning Header */}
-                  {item.needsProduction && (
-                    <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-                      <div className="flex items-center gap-2 text-red-800">
-                        <AlertTriangle className="w-4 h-4" />
-                        <span className="font-medium">Production Required!</span>
-                      </div>
-                      <div className="text-sm text-red-700 mt-1">
-                        Available: {item.availableStock} • Required: {item.quantity} • 
-                        Need to produce: {item.quantity - item.availableStock} more pieces
+            {orderItems.map((item) => (
+              <div key={item.id} className="p-4 border rounded-lg">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <Calculator className="w-5 h-5 text-blue-600" />
+                    <h3 className="font-medium text-lg">Order Item #{orderItems.indexOf(item) + 1}</h3>
+                    {item.product_name && (
+                      <Badge variant="secondary" className="ml-2">
+                        {item.product_name}
+                      </Badge>
+                    )}
                       </div>
                       <Button 
                         variant="outline" 
                         size="sm" 
-                        className="mt-2 text-orange-600 border-orange-300 hover:bg-orange-100"
-                        onClick={() => handleProductionAlert(item)}
+                    onClick={() => removeOrderItem(item.id)}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
-                        <AlertTriangle className="w-4 h-4 mr-2" />
-                        Stock Low - Notify
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Remove
                       </Button>
                     </div>
-                  )}
-
-                                     {/* Product Selection */}
-                   <div className="space-y-4">
-                     {/* Product Type Selection */}
-                     <div className="mb-4">
-                       <Label className="text-sm font-medium text-gray-700 mb-2 block">Item Type</Label>
-                       <div className="flex gap-4">
-                         <label className="flex items-center space-x-2">
-                           <input
-                             type="radio"
-                             name={`productType-${item.id}`}
-                             value="product"
-                             checked={item.productType === 'product'}
-                             onChange={() => {
-                               updateOrderItem(item.id, 'productType', 'product');
-                               updateOrderItem(item.id, 'productId', ''); // Clear selection when type changes
-                             }}
-                             className="text-blue-600"
-                           />
-                           <span className="text-sm">Finished Product</span>
-                         </label>
-                         <label className="flex items-center space-x-2">
-                           <input
-                             type="radio"
-                             name={`productType-${item.id}`}
-                             value="raw_material"
-                             checked={item.productType === 'raw_material'}
-                             onChange={() => {
-                               updateOrderItem(item.id, 'productType', 'raw_material');
-                               updateOrderItem(item.id, 'productId', ''); // Clear selection when type changes
-                             }}
-                             className="text-blue-600"
-                           />
-                           <span className="text-sm">Raw Material</span>
-                         </label>
-                       </div>
-                     </div>
-
-                     {/* Product Row */}
-                     <div className="flex items-center gap-6">
-                       {/* Product Selection */}
-                       <div className="flex-1">
-                         <Label className="text-sm font-medium text-gray-700 mb-2 block">Product</Label>
-                         <div className="flex gap-2">
-                           <div className="flex-1">
-                             {item.productId ? (
-                               <div className="h-12 px-4 border rounded-lg flex items-center justify-between bg-gray-50">
-                                 <div className="flex items-center gap-3">
-                                   <div className="w-8 h-8 bg-blue-100 rounded flex items-center justify-center">
-                                     <Package className="w-4 h-4 text-blue-600" />
-                </div>
-                <div>
-                                     <div className="font-medium">
-                                       {item.productType === 'raw_material' 
-                                         ? rawMaterials.find(p => p.id === item.productId)?.name
-                                         : realProducts.find(p => p.id === item.productId)?.name}
-                                     </div>
-                                     <div className="text-sm text-muted-foreground">
-                                       {item.productType === 'raw_material' 
-                                         ? `${rawMaterials.find(p => p.id === item.productId)?.category} • ${rawMaterials.find(p => p.id === item.productId)?.brand} • ${rawMaterials.find(p => p.id === item.productId)?.unit}`
-                                         : `${realProducts.find(p => p.id === item.productId)?.category} • ${realProducts.find(p => p.id === item.productId)?.color} • ${realProducts.find(p => p.id === item.productId)?.size}`}
-                                     </div>
-                                   </div>
-                                 </div>
-                                 <Button 
-                                   variant="ghost" 
-                                   size="sm" 
-                                   onClick={() => updateOrderItem(item.id, 'productId', '')}
-                                   className="text-red-600 hover:text-red-700"
-                                 >
-                                   <X className="w-4 h-4" />
-                                 </Button>
-                               </div>
-                             ) : (
-                               <Button 
-                                 variant="outline" 
-                                 className="w-full h-12 justify-start text-muted-foreground"
-                                 onClick={() => {
-                                   setCurrentOrderItem(item);
+                
+                <EnhancedPricingForm
+                  item={item}
+                  onUpdate={(updatedItem) => {
+                    setOrderItems(items => items.map(i => i.id === item.id ? updatedItem : i));
+                  }}
+                  products={realProducts}
+                  rawMaterials={rawMaterials}
+                  individualProducts={individualProducts}
+                  onProductSearch={(item) => {
+                    setCurrentOrderItem(item as any);
                                    setShowProductSearch(true);
                                  }}
-                               >
-                                 <Search className="w-4 h-4 mr-2" />
-                                 Search and select {item.productType === 'raw_material' ? 'raw material' : 'product'}...
-                               </Button>
-                             )}
-                           </div>
-                         </div>
-                       </div>
-
-                       {/* Quantity */}
-                       <div className="w-32">
-                         <Label className="text-sm font-medium text-gray-700 mb-2 block">Quantity</Label>
-                  <Input 
-                    type="number"
-                    value={item.quantity}
-                           onChange={(e) => {
-                             const newQuantity = parseInt(e.target.value) || 0;
-                             updateOrderItem(item.id, 'quantity', newQuantity);
-                             // Auto-select oldest pieces when quantity changes
-                             if (newQuantity > 0 && item.productId) {
-                               setTimeout(() => autoSelectOldestPieces(item.id, newQuantity), 100);
-                             }
-                           }}
-                           className={`h-12 text-center text-lg font-semibold ${item.needsProduction ? "border-red-300 bg-red-50" : ""}`}
+                  onIndividualProductSelection={(item) => {
+                    setCurrentOrderItem(item as any);
+                    setShowIndividualProductSelection(true);
+                  }}
                   />
                 </div>
-
-                       {/* Unit Price */}
-                       <div className="w-32">
-                         <Label className="text-sm font-medium text-gray-700 mb-2 block">Unit Price</Label>
-                  <Input 
-                    type="number"
-                    value={item.unitPrice}
-                    onChange={(e) => updateOrderItem(item.id, 'unitPrice', parseFloat(e.target.value) || 0)}
-                           className="h-12 text-center text-lg font-semibold"
-                         />
-                       </div>
-
-                       {/* Total */}
-                       <div className="w-40">
-                         <Label className="text-sm font-medium text-gray-700 mb-2 block">Total</Label>
-                         <Input 
-                           value={`₹${item.totalPrice.toLocaleString()}`} 
-                           disabled 
-                           className="h-12 text-center text-lg font-semibold bg-gray-50"
-                  />
-                </div>
-
-                       {/* Stock Status */}
-                       <div className="w-40">
-                         <Label className="text-sm font-medium text-gray-700 mb-2 block">Stock Status</Label>
-                         <div className={`h-12 px-4 rounded-lg text-sm font-medium flex items-center justify-center ${stockStatus.color} ${stockStatus.bg}`}>
-                           {stockStatus.status === "sufficient" ? "✅ Sufficient" :
-                            stockStatus.status === "low" ? "⚠️ Low Stock" : "❌ Insufficient"}
-                         </div>
-                </div>
-
-                       {/* Delete Button */}
-                       <div className="w-12">
-                  <Button 
-                    variant="outline" 
-                    size="icon"
-                    onClick={() => removeOrderItem(item.id)}
-                           className="h-12 w-12 text-red-600 hover:text-red-700 hover:bg-red-50"
-                         >
-                           <Trash2 className="w-5 h-5" />
-                         </Button>
-                       </div>
-                     </div>
-
-                     {/* Stock Info and Piece Selection Row */}
-                     {item.productId && (
-                       <div className="flex items-center justify-between bg-gray-50 p-4 rounded-lg">
-                         <div className="flex items-center gap-6">
-                           {/* Available Stock */}
-                           <div className="flex items-center gap-2">
-                             <div className={`w-3 h-3 rounded-full ${stockStatus.status === "sufficient" ? "bg-green-500" : stockStatus.status === "low" ? "bg-yellow-500" : "bg-red-500"}`}></div>
-                             <span className="text-sm font-medium text-gray-700">
-                               Available: {item.availableStock} {getDisplayUnit(item.productId, item.productType)}
-                             </span>
-                           </div>
-
-                           {/* Selected Pieces Summary */}
-                           {item.selectedIndividualProducts.length > 0 && (
-                             <div className="flex items-center gap-2">
-                               <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                               <span className="text-sm font-medium text-blue-700">
-                                 {item.selectedIndividualProducts.length} pieces selected
-                               </span>
-                               <span className="text-xs text-gray-500">
-                                 ({item.selectedIndividualProducts.slice(0, 3).map(p => p.id).join(", ")}
-                                 {item.selectedIndividualProducts.length > 3 && ` +${item.selectedIndividualProducts.length - 3} more`})
-                               </span>
-                             </div>
-                           )}
-                         </div>
-
-                         {/* Action Buttons */}
-                         <div className="flex items-center gap-3">
-                           {hasIndividualStock(item.productId, item.productType) && (
-                           <Button 
-                             type="button"
-                             variant="outline" 
-                             size="sm" 
-                             onClick={() => {
-                               setCurrentOrderItem(item);
-                               setShowIndividualProductSelection(true);
-                             }}
-                             className="bg-white hover:bg-gray-50 border-gray-300"
-                           >
-                             <Package className="w-4 h-4 mr-2" />
-                             {item.selectedIndividualProducts.length > 0 
-                               ? `Manage Selection (${item.selectedIndividualProducts.length})`
-                               : "Select Specific Pieces"
-                             }
-                  </Button>
-                           )}
-                </div>
-              </div>
-                     )}
-                   </div>
-                </div>
-              );
-            })}
+            ))}
           </div>
         </CardContent>
       </Card>
@@ -1123,17 +1279,16 @@ export default function NewOrder() {
             />
           </div>
           <div>
-            <Label htmlFor="paidAmount">Advance Payment (Required)</Label>
+            <Label htmlFor="paidAmount">Advance Payment (Optional)</Label>
             <Input 
               id="paidAmount"
               type="number"
               value={orderDetails.paidAmount}
               onChange={(e) => setOrderDetails(prev => ({ ...prev, paidAmount: parseFloat(e.target.value) || 0 }))}
-              placeholder={`Min: ₹${Math.ceil(calculateTotal() * 0.1).toLocaleString()}`}
-              className={orderDetails.paidAmount < calculateTotal() * 0.1 ? 'border-red-300' : ''}
+              placeholder="Enter advance payment amount (₹0 if no advance)"
             />
             <p className="text-xs text-muted-foreground mt-1">
-              Minimum 10% advance required (₹{Math.ceil(calculateTotal() * 0.1).toLocaleString()})
+              Payment is optional. Outstanding amount will be tracked for future collection.
             </p>
           </div>
           <div className="col-span-2">
@@ -1156,33 +1311,41 @@ export default function NewOrder() {
           <CardTitle>Order Summary</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-2">
+          <div className="space-y-3">
             <div className="flex justify-between">
               <span>Subtotal:</span>
               <span>₹{calculateTotal().toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span>Paid Amount:</span>
-              <span className="text-success">₹{orderDetails.paidAmount.toLocaleString()}</span>
+              <span>GST (18%):</span>
+              <span>₹{((calculateTotal() * 18) / 100).toLocaleString()}</span>
             </div>
             <div className="flex justify-between font-medium text-lg border-t pt-2">
-              <span>Outstanding:</span>
-              <span className="text-destructive">₹{(calculateTotal() - orderDetails.paidAmount).toLocaleString()}</span>
+              <span>Total Amount:</span>
+              <span className="text-primary">₹{(calculateTotal() + (calculateTotal() * 18) / 100).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span>Paid Amount:</span>
+              <span className="text-green-600">₹{orderDetails.paidAmount.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between font-medium text-lg border-t pt-2">
+              <span>Outstanding Amount:</span>
+              <span className="text-orange-600">₹{((calculateTotal() + (calculateTotal() * 18) / 100) - orderDetails.paidAmount).toLocaleString()}</span>
             </div>
           </div>
           
-          {/* Production Status */}
-          {orderItems.some(item => item.needsProduction) && (
-            <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
-              <div className="flex items-center gap-2 text-yellow-800">
-                <AlertTriangle className="w-4 h-4" />
-                <span className="font-medium">Production Required</span>
+          {/* Order Status Info */}
+          {orderItems.some(item => item.product_type === 'product') && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+              <div className="flex items-center gap-2 text-blue-800">
+                <Info className="w-4 h-4" />
+                <span className="font-medium">Order Processing</span>
               </div>
-              <div className="text-sm text-yellow-700 mt-1">
-                This order will require production planning. Delivery timeline may be extended.
+              <div className="text-sm text-blue-700 mt-1">
+                This order will be accepted immediately. Individual product selection and stock allocation will happen in the next workflow stage.
               </div>
-              <div className="mt-2 text-xs text-yellow-600">
-                <strong>Note:</strong> Order will be accepted and production will be planned automatically.
+              <div className="mt-2 text-xs text-blue-600">
+                <strong>Note:</strong> Orders are accepted regardless of current stock levels. Production notifications are sent automatically if needed.
               </div>
             </div>
           )}
@@ -1194,10 +1357,7 @@ export default function NewOrder() {
                className="flex-1"
                disabled={orderItems.length === 0}
              >
-               {orderItems.some(item => item.needsProduction) 
-                 ? "Accept Order (Plan Production)" 
-                 : "Accept Order"
-               }
+               Accept Order
              </Button>
            </div>
 
@@ -1269,14 +1429,12 @@ export default function NewOrder() {
                   Close
                 </Button>
                 <Button
-                  onClick={() => {
+                  onClick={async () => {
                     // Check if notification already exists to prevent duplicates
-                    const existingNotifications = getFromStorage('rajdhani_notifications') || [];
-                    const flattenedNotifications = existingNotifications.flat(Infinity);
-                    const hasExistingNotification = flattenedNotifications.some(n => 
-                      n && n.type === 'production_request' && 
-                      n.relatedId === productionAlertItem.productId && 
-                      n.status === 'unread'
+                    const { exists: hasExistingNotification } = await NotificationService.notificationExists(
+                      'production_request',
+                      productionAlertItem.productId,
+                      'unread'
                     );
                     
                     if (!hasExistingNotification) {
@@ -1323,13 +1481,13 @@ export default function NewOrder() {
         </DialogContent>
       </Dialog>
 
-      {/* Individual Product Selection Dialog */}
+      {/* Individual Product Selection Dialog - Excel-like UI */}
       <Dialog open={showIndividualProductSelection} onOpenChange={setShowIndividualProductSelection}>
-        <DialogContent className="max-w-6xl max-h-[90vh] flex flex-col">
+        <DialogContent className="max-w-7xl max-h-[90vh] flex flex-col">
           <DialogHeader className="flex-shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Package className="w-5 h-5" />
-              Select Specific Pieces - {currentOrderItem?.productName}
+              Select Specific Pieces - {currentOrderItem?.product_name}
             </DialogTitle>
             <DialogDescription>
               Choose which specific pieces to include in this order. Oldest stock is shown first.
@@ -1341,234 +1499,183 @@ export default function NewOrder() {
               {/* Summary */}
               <div className="flex-shrink-0 flex items-center justify-between p-3 bg-blue-50 rounded-lg">
                 <div className="text-sm">
-                  <span className="font-medium">Selected: {currentOrderItem.selectedIndividualProducts.length}</span>
-                  <span className="text-muted-foreground ml-2">out of {currentOrderItem.quantity} required</span>
-                  {currentOrderItem.selectedIndividualProducts.length < currentOrderItem.quantity && (
+                  {(() => {
+                    const latestOrderItem = orderItems.find(item => item.id === currentOrderItem.id);
+                    const selectedCount = latestOrderItem?.selectedIndividualProducts?.length || currentOrderItem.selectedIndividualProducts?.length || 0;
+                    const required = currentOrderItem.quantity;
+                    const needed = Math.max(0, required - selectedCount);
+
+                    return (
+                      <>
+                        <span className="font-medium">Selected: {selectedCount}</span>
+                        <span className="text-muted-foreground ml-2">out of {required} required</span>
+                        {needed > 0 && (
                     <span className="text-orange-600 ml-2 font-medium">
-                      (Need {currentOrderItem.quantity - currentOrderItem.selectedIndividualProducts.length} more)
+                            (Need {needed} more)
                     </span>
                   )}
+                      </>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="text-sm text-muted-foreground">
-                    Available: {getAvailableIndividualProducts(currentOrderItem.productId).length} {getDisplayUnit(currentOrderItem.productId, currentOrderItem.productType)}
+                    Available: {getAvailableIndividualProducts(currentOrderItem.product_id || '').length} pieces
                   </div>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => {
+                      if (currentOrderItem) {
+                        console.log('🗑️ Clear All button clicked for:', currentOrderItem.id);
+
+                        // Update order items state
                       setOrderItems(items => items.map(item => {
                         if (item.id === currentOrderItem.id) {
                           return { ...item, selectedIndividualProducts: [] };
                         }
                         return item;
                       }));
-                      // Update currentOrderItem state to reflect changes
+
+                        // Immediately update currentOrderItem
                       setCurrentOrderItem(prev => prev ? { ...prev, selectedIndividualProducts: [] } : null);
+                      }
                     }}
                     className="text-xs"
+                    disabled={!currentOrderItem || (() => {
+                      const latestOrderItem = orderItems.find(item => item.id === currentOrderItem.id);
+                      const selectedCount = latestOrderItem?.selectedIndividualProducts?.length || currentOrderItem.selectedIndividualProducts?.length || 0;
+                      return selectedCount === 0;
+                    })()}
                   >
-                    Clear All
+                    Clear All ({(() => {
+                      const latestOrderItem = orderItems.find(item => item.id === currentOrderItem.id);
+                      return latestOrderItem?.selectedIndividualProducts?.length || currentOrderItem.selectedIndividualProducts?.length || 0;
+                    })()})
                   </Button>
                   <Button
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      if (currentOrderItem.quantity > 0) {
+                      if (currentOrderItem && currentOrderItem.quantity > 0) {
                         autoSelectOldestPieces(currentOrderItem.id, currentOrderItem.quantity);
-                        // Update currentOrderItem state to reflect changes
-                        setTimeout(() => {
-                          const updatedItem = orderItems.find(item => item.id === currentOrderItem.id);
-                          if (updatedItem) {
-                            setCurrentOrderItem(updatedItem);
-                          }
-                        }, 100);
                       }
                     }}
                     className="text-xs"
+                    disabled={!currentOrderItem || currentOrderItem.quantity <= 0 || getAvailableIndividualProducts(currentOrderItem?.product_id || '').length === 0}
                   >
-                    Auto-Select Oldest
+                    Auto-Select Oldest ({Math.min(currentOrderItem?.quantity || 0, getAvailableIndividualProducts(currentOrderItem?.product_id || '').length)})
                   </Button>
                 </div>
               </div>
 
-              {/* Individual Products Grid */}
-              <div className="flex-1 overflow-y-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 border border-gray-200 rounded p-2">
-                {getAvailableIndividualProducts(currentOrderItem.productId).length === 0 ? (
-                  <div className="col-span-full text-center py-12 text-muted-foreground">
-                    <Package className="w-12 h-12 mx-auto mb-4 opacity-50" />
+              {/* Excel-like Table */}
+              <div className="flex-1 overflow-auto">
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b">
+                      <tr>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-r">Select</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-r">ID</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-r">QR Code</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-r">Manufactured</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-r">Weight</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-r">Quality</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700 border-r">Location</th>
+                        <th className="px-3 py-2 text-left font-medium text-gray-700">Inspector</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {getAvailableIndividualProducts(currentOrderItem.product_id || '').length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-3 py-8 text-center text-muted-foreground">
+                            <Package className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p>No individual products available</p>
-                    <p className="text-sm mt-2">Individual pieces will appear here when available in inventory</p>
-                  </div>
-                ) : (
-                  getAvailableIndividualProducts(currentOrderItem.productId).map((product) => {
-                  const isSelected = currentOrderItem.selectedIndividualProducts.some(p => p.id === product.id);
-                  const isDisabled = !isSelected && currentOrderItem.selectedIndividualProducts.length >= currentOrderItem.quantity;
+                            <p className="text-xs mt-1">Individual pieces will appear here when available in inventory</p>
+                          </td>
+                        </tr>
+                      ) : (
+                        getAvailableIndividualProducts(currentOrderItem.product_id || '').map((product) => {
+                          // Get the most up-to-date order item from the main state
+                          const latestOrderItem = orderItems.find(item => item.id === currentOrderItem.id);
+                          const selectedProducts = latestOrderItem?.selectedIndividualProducts || currentOrderItem.selectedIndividualProducts || [];
+
+                          const isSelected = selectedProducts.some(p => p.id === product.id);
+                          const isDisabled = !isSelected && selectedProducts.length >= currentOrderItem.quantity;
+
                   
                   return (
-                    <Card 
+                            <tr
                       key={product.id} 
-                      className={`relative cursor-pointer transition-all duration-200 hover:shadow-lg ${
-                        isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : 'hover:bg-gray-50'
-                      } ${isDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      onClick={() => {
+                              className={`hover:bg-gray-50 transition-colors ${
+                                isSelected ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                              } ${isDisabled ? 'opacity-50' : ''}`}
+                            >
+                              <td className="px-3 py-2 border-r">
+                                <input
+                                  key={`${product.id}-${isSelected}-${selectedProducts.length}`}
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={(e) => {
+                                    e.stopPropagation();
                         if (!isDisabled) {
-                          // Toggle selection: if selected, deselect; if not selected, select
-                          console.log('Clicking product:', product.id, 'Current selection:', isSelected, 'Will select:', !isSelected);
+                                      console.log('🎯 Checkbox clicked:', {
+                                        productId: product.id,
+                                        currentChecked: isSelected,
+                                        newState: !isSelected,
+                                        selectedProducts: selectedProducts.map(p => p.id)
+                                      });
                           handleIndividualProductSelection(currentOrderItem.id, product, !isSelected);
                         }
                       }}
-                    >
-                      {/* Selection Status Indicator */}
-                      <div className={`absolute top-2 right-2 w-4 h-4 rounded-full border-2 ${
-                        isSelected 
-                          ? 'bg-blue-500 border-blue-600' 
-                          : 'bg-white border-gray-300'
-                      }`}>
-                        {isSelected && (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <div className="w-2 h-2 bg-white rounded-full"></div>
-                          </div>
-                        )}
-                      </div>
-                      {/* Age Indicator */}
-                      <div className={`absolute top-0 left-0 right-0 h-1 ${
-                        product.age > 60 ? "bg-red-500" :
-                        product.age > 30 ? "bg-yellow-500" :
-                        "bg-green-500"
-                      }`} />
-                      
-                      <CardContent className="p-3">
-                        <div className="flex items-start justify-between mb-2">
-                          <div className="flex-1">
-                            <div className="font-medium text-sm">{product.id}</div>
-                            <div className="text-xs text-muted-foreground font-mono">{product.qrCode}</div>
-                          </div>
-                          <div className="flex items-center gap-1">
-                            {isSelected && (
-                              <Badge className="bg-blue-100 text-blue-800 text-xs">
-                                Selected
-                              </Badge>
-                            )}
+                                  disabled={isDisabled}
+                                  className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                                />
+                              </td>
+                              <td className="px-3 py-2 border-r font-mono text-xs">{product.id}</td>
+                              <td className="px-3 py-2 border-r">
+                                {product.qrCode ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setSelectedQRProduct(product);
+                                      setShowQRCode(true);
+                                    }}
+                                    className="text-xs h-6 px-2"
+                                    title={`QR Code: ${product.qrCode}`}
+                                  >
+                                    <QrCode className="w-3 h-3 mr-1" />
+                                    QR
+                                  </Button>
+                                ) : (
+                                  <div className="text-xs font-mono text-gray-400">
+                                    No QR Code
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-3 py-2 border-r">{(product.manufacturingDate) && product.manufacturingDate !== 'null' ? new Date(product.manufacturingDate).toLocaleDateString() : (product.productionDate) && product.productionDate !== 'null' ? new Date(product.productionDate).toLocaleDateString() : (product.completionDate) && product.completionDate !== 'null' ? new Date(product.completionDate).toLocaleDateString() : 'N/A'}</td>
+                              <td className="px-3 py-2 border-r">{product.weight}</td>
+                              <td className="px-3 py-2 border-r">
                             <Badge className={
                               product.qualityGrade === "A+" ? "bg-green-100 text-green-800" :
                               product.qualityGrade === "A" ? "bg-blue-100 text-blue-800" :
                               product.qualityGrade === "B" ? "bg-yellow-100 text-yellow-800" :
-                              "bg-red-100 text-red-800"
+                                  "bg-white text-gray-800 border border-gray-300"
                             }>
                               {product.qualityGrade}
                             </Badge>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1 text-xs text-muted-foreground">
-                          <div className="flex justify-between">
-                            <span>Manufactured:</span>
-                            <span>{new Date(product.manufacturingDate).toLocaleDateString()}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Age:</span>
-                            <span className={`font-medium ${
-                              product.age > 60 ? "text-red-600" :
-                              product.age > 30 ? "text-yellow-600" :
-                              "text-green-600"
-                            }`}>
-                              {product.age} days
-                            </span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Dimensions:</span>
-                            <span>{product.dimensions}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Weight:</span>
-                            <span>{product.weight}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Location:</span>
-                            <span className="truncate">{product.location || "Warehouse"}</span>
-                          </div>
-                          {product.inspector && (
-                            <div className="flex justify-between">
-                              <span>Inspector:</span>
-                              <span>{product.inspector}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        {product.notes && (
-                          <div className="mt-2 p-2 bg-gray-100 rounded text-xs text-gray-700">
-                            <div className="font-medium">Notes:</div>
-                            <div>{product.notes}</div>
-                          </div>
-                        )}
-
-                        {isSelected && (
-                          <div className="mt-2 p-2 bg-blue-100 rounded text-xs text-blue-800">
-                            <div className="font-medium">Selected for Order</div>
-                            <div>This piece will be included in the shipment</div>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
+                              </td>
+                              <td className="px-3 py-2 border-r">{product.location}</td>
+                              <td className="px-3 py-2">{product.inspector || 'N/A'}</td>
+                            </tr>
                   );
                 })
                 )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
-
-              {/* Selection Summary - Compact Version */}
-              {currentOrderItem.selectedIndividualProducts.length > 0 && (
-                <div className="flex-shrink-0 border border-blue-200 bg-blue-50 rounded-lg p-3">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium text-blue-900">Selected Pieces ({currentOrderItem.selectedIndividualProducts.length})</h4>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => {
-                        setOrderItems(items => items.map(item => {
-                          if (item.id === currentOrderItem.id) {
-                            return { ...item, selectedIndividualProducts: [] };
-                          }
-                          return item;
-                        }));
-                        setCurrentOrderItem(prev => prev ? { ...prev, selectedIndividualProducts: [] } : null);
-                      }}
-                      className="text-xs h-6 px-2"
-                    >
-                      Clear All
-                    </Button>
-                  </div>
-                  <div className="max-h-32 overflow-y-auto space-y-1">
-                    <div className="grid grid-cols-2 gap-1 text-xs">
-                      {currentOrderItem.selectedIndividualProducts.map((product) => (
-                        <div key={product.id} className="flex items-center justify-between p-1 bg-white rounded border">
-                          <div className="flex items-center gap-1">
-                            <div className={`w-1.5 h-1.5 rounded-full ${
-                              product.age > 60 ? "bg-red-500" :
-                              product.age > 30 ? "bg-yellow-500" :
-                              "bg-green-500"
-                            }`} />
-                            <span className="font-medium text-xs">{product.id}</span>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleIndividualProductSelection(currentOrderItem.id, product, false);
-                              }}
-                            className="h-4 w-4 p-0 text-red-600 hover:text-red-700 hover:bg-red-50 text-xs"
-                            >
-                              ×
-                            </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -1578,9 +1685,18 @@ export default function NewOrder() {
             </Button>
             <Button 
               onClick={() => setShowIndividualProductSelection(false)}
-              disabled={currentOrderItem?.selectedIndividualProducts.length !== currentOrderItem?.quantity}
+              disabled={(() => {
+                if (!currentOrderItem) return true;
+                const latestOrderItem = orderItems.find(item => item.id === currentOrderItem.id);
+                const selectedCount = latestOrderItem?.selectedIndividualProducts?.length || currentOrderItem.selectedIndividualProducts?.length || 0;
+                return selectedCount !== currentOrderItem.quantity;
+              })()}
             >
-              Confirm Selection ({currentOrderItem?.selectedIndividualProducts.length || 0} pieces)
+              Confirm Selection ({(() => {
+                if (!currentOrderItem) return 0;
+                const latestOrderItem = orderItems.find(item => item.id === currentOrderItem.id);
+                return latestOrderItem?.selectedIndividualProducts?.length || currentOrderItem.selectedIndividualProducts?.length || 0;
+              })()} pieces)
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1592,10 +1708,10 @@ export default function NewOrder() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Search className="w-5 h-5" />
-              Search and Select {currentOrderItem?.productType === 'raw_material' ? 'Raw Material' : 'Product'}
+              Search and Select {currentOrderItem?.product_type === 'raw_material' ? 'Raw Material' : 'Product'}
             </DialogTitle>
             <DialogDescription>
-              Find the perfect {currentOrderItem?.productType === 'raw_material' ? 'raw material' : 'product'} for your order. Use search, filters, and browse by category.
+              Find the perfect {currentOrderItem?.product_type === 'raw_material' ? 'raw material' : 'product'} for your order. Use search, filters, and browse by category.
             </DialogDescription>
           </DialogHeader>
 
@@ -1604,7 +1720,7 @@ export default function NewOrder() {
             <div className="flex gap-4">
               <div className="flex-1">
                 <Input
-                  placeholder={`Search ${currentOrderItem?.productType === 'raw_material' ? 'raw materials by name, category, brand, or unit' : 'products by name, category, color, or size'}...`}
+                  placeholder={`Search ${currentOrderItem?.product_type === 'raw_material' ? 'raw materials by name, category, brand, or unit' : 'products by name, category, color, or size'}...`}
                   className="h-10"
                   onChange={(e) => {
                     // Filter products based on search
@@ -1651,24 +1767,41 @@ export default function NewOrder() {
 
             {/* Product Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-96 overflow-y-auto">
-              {(currentOrderItem?.productType === 'raw_material' ? rawMaterials : realProducts).map((product) => (
+              {(currentOrderItem?.product_type === 'raw_material' ? rawMaterials : realProducts).map((product) => (
                 <div
                   key={product.id}
                   className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${
-                    currentOrderItem?.productId === product.id 
+                    currentOrderItem?.product_id === product.id 
                       ? 'border-blue-500 bg-blue-50' 
                       : 'border-gray-200 hover:border-gray-300'
                   }`}
                   onClick={() => {
-                    // Update both productId and unitPrice in a single operation
+                    // Update the order item with new product selection
                     setOrderItems(items => items.map(item => {
                       if (item.id === currentOrderItem!.id) {
-                        const updated = { ...item, productId: product.id, unitPrice: product.price };
-                        updated.productName = product.name;
-                        updated.totalPrice = updated.quantity * product.price;
-                        updated.availableStock = product.stock || 0;
-                        updated.needsProduction = updated.quantity > (product.stock || 0);
-                        updated.selectedIndividualProducts = []; // Reset selected individual products
+                        const updated = { ...item, product_id: product.id, product_name: product.name, unit_price: product.price };
+                        
+                        // Set suggested pricing unit based on product type and dimensions
+                        const productDimensions: ProductDimensions = {
+                          productType: updated.product_type === 'raw_material' ? 'raw_material' : 'carpet',
+                          width: product.dimensions?.width,
+                          height: product.dimensions?.height,
+                          weight: product.weight,
+                          gsm: product.gsm,
+                          denier: product.denier,
+                          thread_count: product.thread_count
+                        };
+                        
+                        updated.product_dimensions = productDimensions;
+                        updated.pricing_unit = getSuggestedPricingUnit(productDimensions);
+                        
+                        // Calculate initial pricing
+                        const calculation = pricingCalculator.calculateItemPrice(updated);
+                        updated.total_price = calculation.totalPrice;
+                        updated.unit_value = calculation.unitValue;
+                        updated.isValid = calculation.isValid;
+                        updated.errorMessage = calculation.errorMessage;
+                        
                         return updated;
                       }
                       return item;
@@ -1693,11 +1826,11 @@ export default function NewOrder() {
                   <div className="space-y-2">
                     <h3 className="font-semibold text-sm line-clamp-2">{product.name}</h3>
                     <div className="text-xs text-muted-foreground">
-                      {currentOrderItem?.productType === 'raw_material' 
+                      {currentOrderItem?.product_type === 'raw_material' 
                         ? `${product.category} • ${product.brand} • ${product.unit}`
                         : `${product.category} • ${product.color} • ${product.size}`}
                     </div>
-                    {currentOrderItem?.productType === 'raw_material' ? (
+                    {currentOrderItem?.product_type === 'raw_material' ? (
                       product.supplier && (
                         <div className="text-xs text-muted-foreground">
                           Supplier: {product.supplier}
@@ -1724,7 +1857,7 @@ export default function NewOrder() {
                       >
                         Stock: {product.stock}
                       </Badge>
-                                        <div className="text-sm font-semibold text-green-600">
+                                        <div className="text-sm font-semibold text-white">
                     ₹{product.price.toLocaleString()}
                   </div>
                     </div>
@@ -1736,8 +1869,8 @@ export default function NewOrder() {
                         className="flex-1"
                         onClick={(e) => {
                           e.stopPropagation();
-                          updateOrderItem(currentOrderItem!.id, 'productId', product.id);
-                          updateOrderItem(currentOrderItem!.id, 'unitPrice', product.price);
+                          updateOrderItem(currentOrderItem!.id, 'product_id', product.id);
+                          updateOrderItem(currentOrderItem!.id, 'unit_price', product.price);
                           setShowProductSearch(false);
                         }}
                       >
@@ -1782,6 +1915,64 @@ export default function NewOrder() {
               Cancel
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* QR Code Display Dialog */}
+      <Dialog open={showQRCode} onOpenChange={setShowQRCode}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Individual Product QR Code
+            </DialogTitle>
+            <DialogDescription>
+              Scan this QR code to view individual product details and specifications
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedQRProduct && (
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                <p><strong>Product:</strong> {selectedQRProduct.productName || selectedQRProduct.product_name}</p>
+                <p><strong>QR Code:</strong> {selectedQRProduct.qrCode || selectedQRProduct.qr_code}</p>
+                <p><strong>Quality Grade:</strong> {selectedQRProduct.qualityGrade || selectedQRProduct.quality_grade}</p>
+                <p><strong>Manufacturing Date:</strong> {(selectedQRProduct.manufacturingDate) && selectedQRProduct.manufacturingDate !== 'null' ? new Date(selectedQRProduct.manufacturingDate).toLocaleDateString() : (selectedQRProduct.productionDate) && selectedQRProduct.productionDate !== 'null' ? new Date(selectedQRProduct.productionDate).toLocaleDateString() : (selectedQRProduct.completionDate) && selectedQRProduct.completionDate !== 'null' ? new Date(selectedQRProduct.completionDate).toLocaleDateString() : 'N/A'}</p>
+              </div>
+              
+              <div className="bg-gradient-to-br from-slate-50 to-slate-100 rounded-xl p-8 text-center">
+                <div className="flex items-center justify-center gap-2 mb-6">
+                  <QrCode className="w-6 h-6 text-primary" />
+                  <h4 className="font-semibold text-slate-900">Product QR Code</h4>
+                </div>
+                
+                <div className="flex justify-center mb-6">
+                  <div className="bg-white p-6 rounded-xl shadow-lg border-2 border-slate-200">
+                    <img 
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(`${window.location.origin}/qr-result?data=${encodeURIComponent(JSON.stringify({
+                        type: 'individual',
+                        productId: selectedQRProduct.productId || selectedQRProduct.product_id,
+                        individualProductId: selectedQRProduct.id
+                      }))}`)}`}
+                      alt={`QR Code for ${selectedQRProduct.productName || selectedQRProduct.product_name}`}
+                      className="w-48 h-48"
+                    />
+                  </div>
+                </div>
+                
+                <div className="font-mono text-sm bg-white p-4 rounded-lg border max-w-md mx-auto shadow-sm">
+                  {JSON.stringify({
+                    type: 'individual',
+                    productId: selectedQRProduct.productId || selectedQRProduct.product_id,
+                    individualProductId: selectedQRProduct.id
+                  }, null, 2)}
+                </div>
+                
+                <p className="text-slate-600 mt-4">
+                  Scan this QR code to access detailed product information
+                </p>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

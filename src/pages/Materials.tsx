@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { 
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -23,9 +23,13 @@ import {
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Search, TrendingDown, Package, AlertTriangle, Recycle, ShoppingCart, History, Upload, Image, X, Download, FileSpreadsheet, CheckCircle, AlertCircle, Clock, RotateCcw } from "lucide-react";
+import { Plus, Search, TrendingDown, Package, AlertTriangle, Recycle, ShoppingCart, History, Upload, Image, X, Download, FileSpreadsheet, CheckCircle, AlertCircle, Clock, RotateCcw, Trash2, Bell } from "lucide-react";
 import { useNavigate, useLocation } from "react-router-dom";
-import { rawMaterialsStorage, materialOrdersStorage, suppliersStorage } from "@/utils/localStorage";
+import { supabase } from "@/lib/supabase";
+import { RawMaterialService } from "@/services/rawMaterialService";
+import { NotificationService } from "@/services/notificationService";
+import { useToast } from "@/hooks/use-toast";
+import { getFromStorage, fixNestedArray, markNotificationAsRead, resolveNotification } from "@/lib/storageUtils";
 
 // Generate unique ID function
 const generateUniqueId = (prefix: string): string => {
@@ -33,28 +37,27 @@ const generateUniqueId = (prefix: string): string => {
   const randomStr = Math.random().toString(36).substr(2, 5);
   return `${prefix}_${timestamp}_${randomStr}`;
 };
-import { useToast } from "@/hooks/use-toast";
 
 /*
  * MATERIAL HANDLING LOGIC:
- * 
+ *
  * 1. "Create Material Order" (Materials page):
  *    - ALWAYS creates NEW materials
  *    - Even if name is same, different supplier/price/quality = NEW material
  *    - Order goes to Manage Stock page
  *    - When delivered, checks for EXACT matches in existing inventory
- * 
+ *
  * 2. "Add to Inventory" (Materials page):
  *    - ALWAYS creates NEW materials
  *    - For adding materials directly to inventory
  *    - No merging with existing materials
- * 
+ *
  * 3. "Restock" (Manage Stock page):
  *    - Only when order is delivered
  *    - Checks ALL fields: name, brand, category, supplier, price, quality, unit
  *    - If EXACT match found = RESTOCK (update existing)
  *    - If ANY field different = NEW MATERIAL (create new entry)
- * 
+ *
  * This ensures materials with same name but different specifications
  * are treated as separate products, maintaining inventory accuracy.
  */
@@ -100,6 +103,9 @@ interface MaterialPurchase {
   id: string;
   materialId: string;
   materialName: string;
+  materialBrand?: string;
+  materialCategory?: string;
+  materialBatchNumber?: string;
   supplierId: string;
   supplierName: string;
   quantity: number;
@@ -112,6 +118,10 @@ interface MaterialPurchase {
   inspector: string;
   inspectionDate: string;
   notes: string;
+  minThreshold?: number;
+  maxCapacity?: number;
+  qualityGrade?: string;
+  isRestock?: boolean;
 }
 
 interface StockAlert {
@@ -127,7 +137,443 @@ interface StockAlert {
   status: "active" | "acknowledged" | "resolved";
 }
 
-// Raw materials will be loaded from localStorage
+interface WasteItem {
+  id: string;
+  productionId: string;
+  productName: string;
+  wasteType: string;
+  quantity: number;
+  unit: string;
+  generatedAt: string;
+  status: 'available_for_reuse' | 'added_to_inventory';
+  addedAt?: string;
+}
+
+interface Settings {
+  customCategories: string[];
+  customUnits: string[];
+  lastStockUpdate: {
+    timestamp: string;
+    user: string;
+  } | null;
+}
+
+// Supabase utility functions to replace rawMaterialsStorage
+const supabaseStorage = {
+  // Raw Materials functions
+  async getAll(): Promise<RawMaterial[]> {
+    try {
+      const { data, error } = await supabase
+        .from('raw_materials')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      // Map database field names to UI interface field names
+      const mappedData = (data || []).map((item: any) => ({
+        id: item.id,
+        name: item.name,
+        brand: item.brand || '',
+        category: item.category,
+        currentStock: parseFloat(item.current_stock) || 0,
+        unit: item.unit,
+        minThreshold: parseFloat(item.min_threshold) || 0,
+        maxCapacity: parseFloat(item.max_capacity) || 0,
+        reorderPoint: parseFloat(item.reorder_point) || 0,
+        lastRestocked: item.last_restocked || new Date().toISOString().split('T')[0],
+        dailyUsage: parseFloat(item.daily_usage) || 0,
+        status: item.status as "in-stock" | "low-stock" | "out-of-stock" | "overstock" | "in-transit",
+        supplier: item.supplier_name || '',
+        supplierId: item.supplier_id || '',
+        costPerUnit: parseFloat(item.cost_per_unit) || 0,
+        totalValue: parseFloat(item.total_value) || 0,
+        batchNumber: item.batch_number || '',
+        qualityGrade: item.quality_grade,
+        imageUrl: item.image_url,
+        materialsUsed: [],
+        supplierPerformance: parseFloat(item.supplier_performance) || 0
+      }));
+      
+      return mappedData;
+    } catch (error) {
+      console.error('Error fetching raw materials:', error);
+      return [];
+    }
+  },
+
+  async add(material: Omit<RawMaterial, 'id'>): Promise<RawMaterial> {
+    try {
+      // Map UI field names to database field names
+      const dbMaterial = {
+        name: material.name,
+        brand: material.brand,
+        category: material.category,
+        current_stock: material.currentStock,
+        unit: material.unit,
+        min_threshold: material.minThreshold,
+        max_capacity: material.maxCapacity,
+        reorder_point: material.reorderPoint,
+        last_restocked: material.lastRestocked,
+        daily_usage: material.dailyUsage,
+        status: material.status,
+        supplier_name: material.supplier,
+        supplier_id: material.supplierId,
+        cost_per_unit: material.costPerUnit,
+        total_value: material.totalValue,
+        batch_number: material.batchNumber,
+        quality_grade: material.qualityGrade,
+        image_url: material.imageUrl,
+        supplier_performance: material.supplierPerformance,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      };
+
+      const { data, error } = await supabase
+        .from('raw_materials')
+        .insert(dbMaterial)
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Map the returned data back to UI format
+      return {
+        id: data.id,
+        name: data.name,
+        brand: data.brand || '',
+        category: data.category,
+        currentStock: parseFloat(data.current_stock) || 0,
+        unit: data.unit,
+        minThreshold: parseFloat(data.min_threshold) || 0,
+        maxCapacity: parseFloat(data.max_capacity) || 0,
+        reorderPoint: parseFloat(data.reorder_point) || 0,
+        lastRestocked: data.last_restocked || new Date().toISOString().split('T')[0],
+        dailyUsage: parseFloat(data.daily_usage) || 0,
+        status: data.status as "in-stock" | "low-stock" | "out-of-stock" | "overstock" | "in-transit",
+        supplier: data.supplier_name || '',
+        supplierId: data.supplier_id || '',
+        costPerUnit: parseFloat(data.cost_per_unit) || 0,
+        totalValue: parseFloat(data.total_value) || 0,
+        batchNumber: data.batch_number || '',
+        qualityGrade: data.quality_grade,
+        imageUrl: data.image_url,
+        materialsUsed: [],
+        supplierPerformance: parseFloat(data.supplier_performance) || 0
+      };
+    } catch (error) {
+      console.error('Error adding raw material:', error);
+      throw error;
+    }
+  },
+
+  async update(id: string, updates: Partial<RawMaterial>): Promise<RawMaterial> {
+    try {
+      // Map UI field names to database field names
+      const dbUpdates: any = {
+        updated_at: new Date().toISOString()
+      };
+      
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.brand !== undefined) dbUpdates.brand = updates.brand;
+      if (updates.category !== undefined) dbUpdates.category = updates.category;
+      if (updates.currentStock !== undefined) dbUpdates.current_stock = updates.currentStock;
+      if (updates.unit !== undefined) dbUpdates.unit = updates.unit;
+      if (updates.minThreshold !== undefined) dbUpdates.min_threshold = updates.minThreshold;
+      if (updates.maxCapacity !== undefined) dbUpdates.max_capacity = updates.maxCapacity;
+      if (updates.reorderPoint !== undefined) dbUpdates.reorder_point = updates.reorderPoint;
+      if (updates.lastRestocked !== undefined) dbUpdates.last_restocked = updates.lastRestocked;
+      if (updates.dailyUsage !== undefined) dbUpdates.daily_usage = updates.dailyUsage;
+      if (updates.status !== undefined) dbUpdates.status = updates.status;
+      if (updates.supplier !== undefined) dbUpdates.supplier_name = updates.supplier;
+      if (updates.supplierId !== undefined) dbUpdates.supplier_id = updates.supplierId;
+      if (updates.costPerUnit !== undefined) dbUpdates.cost_per_unit = updates.costPerUnit;
+      if (updates.totalValue !== undefined) dbUpdates.total_value = updates.totalValue;
+      if (updates.batchNumber !== undefined) dbUpdates.batch_number = updates.batchNumber;
+      if (updates.qualityGrade !== undefined) dbUpdates.quality_grade = updates.qualityGrade;
+      if (updates.imageUrl !== undefined) dbUpdates.image_url = updates.imageUrl;
+      if (updates.supplierPerformance !== undefined) dbUpdates.supplier_performance = updates.supplierPerformance;
+
+      const { data, error } = await supabase
+        .from('raw_materials')
+        .update(dbUpdates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Map the returned data back to UI format
+      return {
+        id: data.id,
+        name: data.name,
+        brand: data.brand || '',
+        category: data.category,
+        currentStock: parseFloat(data.current_stock) || 0,
+        unit: data.unit,
+        minThreshold: parseFloat(data.min_threshold) || 0,
+        maxCapacity: parseFloat(data.max_capacity) || 0,
+        reorderPoint: parseFloat(data.reorder_point) || 0,
+        lastRestocked: data.last_restocked || new Date().toISOString().split('T')[0],
+        dailyUsage: parseFloat(data.daily_usage) || 0,
+        status: data.status as "in-stock" | "low-stock" | "out-of-stock" | "overstock" | "in-transit",
+        supplier: data.supplier_name || '',
+        supplierId: data.supplier_id || '',
+        costPerUnit: parseFloat(data.cost_per_unit) || 0,
+        totalValue: parseFloat(data.total_value) || 0,
+        batchNumber: data.batch_number || '',
+        qualityGrade: data.quality_grade,
+        imageUrl: data.image_url,
+        materialsUsed: [],
+        supplierPerformance: parseFloat(data.supplier_performance) || 0
+      };
+    } catch (error) {
+      console.error('Error updating raw material:', error);
+      throw error;
+    }
+  },
+
+  async delete(id: string): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('raw_materials')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error deleting raw material:', error);
+      throw error;
+    }
+  },
+
+  async needsInitialization(): Promise<boolean> {
+    try {
+      const { count, error } = await supabase
+        .from('raw_materials')
+        .select('*', { count: 'exact', head: true });
+
+      if (error) throw error;
+      return count === 0;
+    } catch (error) {
+      console.error('Error checking initialization:', error);
+      return true;
+    }
+  },
+
+  // Purchase Orders functions
+  async getPurchaseOrders(): Promise<MaterialPurchase[]> {
+    try {
+      const { data, error } = await supabase
+        .from('purchase_orders')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching purchase orders:', error);
+      return [];
+    }
+  },
+
+  async addPurchaseOrder(order: Omit<MaterialPurchase, 'id'>): Promise<MaterialPurchase> {
+    try {
+      // Store material details in notes as JSON, but keep user notes separate
+      const materialDetails = {
+        materialName: order.materialName,
+        materialBrand: order.materialBrand || 'Unknown',
+        materialCategory: order.materialCategory || 'Other',
+        materialBatchNumber: order.materialBatchNumber || `BATCH-${Date.now()}`,
+        quantity: order.quantity,
+        unit: order.unit,
+        costPerUnit: order.costPerUnit,
+        minThreshold: order.minThreshold || 100,
+        maxCapacity: order.maxCapacity || 1000,
+        qualityGrade: order.qualityGrade || 'A',
+        isRestock: order.isRestock || false,
+        userNotes: order.notes || '' // Store user notes separately
+      };
+
+      // Map interface fields to database schema fields
+      const dbOrder = {
+        id: generateUniqueId('PO'),
+        order_number: `PO-${Date.now()}`,
+        supplier_id: null, // Set to null since we're not managing suppliers properly
+        supplier_name: order.supplierName,
+        order_date: order.purchaseDate.split('T')[0], // Convert to date format
+        expected_delivery: order.expectedDelivery,
+        status: order.status === 'ordered' ? 'pending' : order.status,
+        total_amount: order.totalCost,
+        notes: JSON.stringify(materialDetails)
+      };
+
+      const { data, error } = await supabase
+        .from('purchase_orders')
+        .insert(dbOrder)
+        .select()
+        .single();
+
+      if (error) throw error;
+      
+      // Map database response back to interface format
+      return {
+        id: data.id,
+        materialId: order.materialId,
+        materialName: order.materialName,
+        supplierId: data.supplier_id,
+        supplierName: data.supplier_name,
+        quantity: order.quantity,
+        unit: order.unit,
+        costPerUnit: order.costPerUnit,
+        totalCost: data.total_amount,
+        purchaseDate: data.order_date,
+        expectedDelivery: data.expected_delivery,
+        status: data.status,
+        inspector: order.inspector,
+        inspectionDate: order.inspectionDate,
+        notes: data.notes
+      };
+    } catch (error) {
+      console.error('Error adding purchase order:', error);
+      throw error;
+    }
+  },
+
+  // Suppliers functions
+  async getSuppliers(): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select('*')
+        .order('name');
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+      return [];
+    }
+  },
+
+  // Notifications functions
+  async getNotifications(): Promise<any[]> {
+    try {
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('module', 'materials')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching notifications:', error);
+      return [];
+    }
+  },
+
+  async addNotification(notification: any): Promise<void> {
+    try {
+      const newNotification = {
+        ...notification,
+        id: generateUniqueId('NOTIF'),
+        created_at: new Date().toISOString()
+      };
+
+      const { error } = await supabase
+        .from('notifications')
+        .insert(newNotification);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Error adding notification:', error);
+    }
+  },
+
+  // Waste Management functions - DISABLED (table doesn't exist)
+  // async getWasteManagement(): Promise<WasteItem[]> {
+  //   try {
+  //     const { data, error } = await supabase
+  //       .from('waste_management')
+  //       .select('*')
+  //       .order('generated_at', { ascending: false });
+
+  //     if (error) throw error;
+  //     return data || [];
+  //   } catch (error) {
+  //     console.error('Error fetching waste management:', error);
+  //     return [];
+  //   }
+  // },
+
+  // async updateWasteManagement(wasteData: WasteItem[]): Promise<void> {
+  //   try {
+  //     // Delete existing data and insert new data
+  //     await supabase.from('waste_management').delete().neq('id', '');
+
+  //     if (wasteData.length > 0) {
+  //       const { error } = await supabase
+  //         .from('waste_management')
+  //         .insert(wasteData);
+
+  //       if (error) throw error;
+  //     }
+  //   } catch (error) {
+  //     console.error('Error updating waste management:', error);
+  //   }
+  // },
+
+  // Settings functions
+  async getSettings(): Promise<Settings> {
+    try {
+      const { data, error } = await supabase
+        .from('app_settings')
+        .select('*')
+        .eq('key', 'materials_settings')
+        .single();
+
+      if (error && error.code !== 'PGRST116' && error.code !== 'PGRST205') {
+        console.warn('Settings table not found, using defaults:', error);
+      }
+
+      if (data?.value) {
+        return JSON.parse(data.value);
+      }
+
+      return {
+        customCategories: [],
+        customUnits: [],
+        lastStockUpdate: null
+      };
+    } catch (error) {
+      console.warn('Error fetching settings, using defaults:', error);
+      return {
+        customCategories: [],
+        customUnits: [],
+        lastStockUpdate: null
+      };
+    }
+  },
+
+  async updateSettings(settings: Settings): Promise<void> {
+    try {
+      const { error } = await supabase
+        .from('app_settings')
+        .upsert({
+          key: 'materials_settings',
+          value: JSON.stringify(settings),
+          updated_at: new Date().toISOString()
+        });
+
+      if (error && error.code !== 'PGRST205') {
+        console.warn('Settings table not found, settings not saved:', error);
+      }
+    } catch (error) {
+      console.warn('Error updating settings:', error);
+    }
+  }
+};
 
 const statusStyles = {
   "in-stock": "bg-success text-success-foreground",
@@ -141,22 +587,28 @@ export default function Materials() {
   const navigate = useNavigate();
   const location = useLocation();
   const { toast } = useToast();
+
+  // State management
   const [rawMaterials, setRawMaterials] = useState<RawMaterial[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [isAddMaterialOpen, setIsAddMaterialOpen] = useState(false);
   const [isAddToInventoryOpen, setIsAddToInventoryOpen] = useState(false);
-  const [isImportInventoryOpen, setIsImportInventoryOpen] = useState(false); // New state for import
+  const [isImportInventoryOpen, setIsImportInventoryOpen] = useState(false);
   const [isOrderDialogOpen, setIsOrderDialogOpen] = useState(false);
-  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false); // New state for details
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
   const [selectedMaterial, setSelectedMaterial] = useState<RawMaterial | null>(null);
-  const [wasteRecoveryRefresh, setWasteRecoveryRefresh] = useState(0); // For refreshing waste recovery count
+  const [wasteRecoveryRefresh, setWasteRecoveryRefresh] = useState(0);
+  const [inventoryImagePreview, setInventoryImagePreview] = useState<string>("");
+  const [imagePreview, setImagePreview] = useState<string>("");
+
   const [newMaterial, setNewMaterial] = useState({
     name: "",
     brand: "",
     category: "",
-    batchNumber: "",
     currentStock: "",
     unit: "",
     minThreshold: "",
@@ -166,11 +618,11 @@ export default function Materials() {
     expectedDelivery: "",
     imageUrl: ""
   });
+
   const [newInventoryMaterial, setNewInventoryMaterial] = useState({
     name: "",
     brand: "",
     category: "",
-    batchNumber: "",
     currentStock: "",
     unit: "",
     minThreshold: "",
@@ -179,7 +631,7 @@ export default function Materials() {
     costPerUnit: "",
     imageUrl: ""
   });
-  
+
   // Dynamic dropdown states
   const [customCategories, setCustomCategories] = useState<string[]>([]);
   const [customUnits, setCustomUnits] = useState<string[]>([]);
@@ -187,6 +639,12 @@ export default function Materials() {
   const [showAddUnit, setShowAddUnit] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newUnitName, setNewUnitName] = useState("");
+  const [settings, setSettings] = useState<Settings>({
+    customCategories: [],
+    customUnits: [],
+    lastStockUpdate: null
+  });
+
   const [orderDetails, setOrderDetails] = useState({
     quantity: "",
     unit: "",
@@ -196,172 +654,6 @@ export default function Materials() {
     notes: ""
   });
 
-  // Remove materials with duplicate batch numbers
-  const removeDuplicateBatchNumbers = (materials: RawMaterial[]) => {
-    const seen = new Set<string>();
-    const uniqueMaterials = materials.filter(material => {
-      if (seen.has(material.batchNumber)) {
-        console.log(`Removing duplicate batch number: ${material.batchNumber} for material: ${material.name}`);
-        return false;
-      }
-      seen.add(material.batchNumber);
-      return true;
-    });
-    
-    if (uniqueMaterials.length !== materials.length) {
-      console.log(`Removed ${materials.length - uniqueMaterials.length} materials with duplicate batch numbers`);
-      // Update localStorage with unique materials
-      localStorage.setItem('rajdhani_raw_materials', JSON.stringify(uniqueMaterials));
-    }
-    
-    return uniqueMaterials;
-  };
-
-  // Initialize localStorage and load raw materials
-  useEffect(() => {
-    // Only initialize if localStorage is empty (first time)
-    if (rawMaterialsStorage.needsInitialization()) {
-      rawMaterialsStorage.initialize();
-    }
-    
-    // Load raw materials from localStorage
-    const materials = rawMaterialsStorage.getAll();
-    
-    // Remove any materials with duplicate batch numbers
-    const uniqueMaterials = removeDuplicateBatchNumbers(materials);
-    setRawMaterials(uniqueMaterials);
-    
-    // Process any pre-filled order data from navigation
-    if (location.state?.prefillOrder) {
-      const { materialName, supplier, quantity, unit, costPerUnit } = location.state.prefillOrder;
-      setOrderDetails({
-        quantity: quantity?.toString() || "",
-        unit: unit || "",
-        supplier: supplier || "",
-        costPerUnit: costPerUnit?.toString() || "",
-        expectedDelivery: "",
-        notes: ""
-      });
-      setIsOrderDialogOpen(true);
-    }
-  }, [location.state]);
-
-  // Refresh raw materials when returning from other pages (like ManageStock)
-  useEffect(() => {
-    const handleFocus = () => {
-      console.log('🔄 Refreshing materials data on page focus');
-      const materials = rawMaterialsStorage.getAll();
-      const uniqueMaterials = removeDuplicateBatchNumbers(materials);
-      setRawMaterials(uniqueMaterials);
-    };
-
-    // Listen for page focus to refresh data
-    window.addEventListener('focus', handleFocus);
-    
-    // Also refresh when component becomes visible
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        console.log('🔄 Refreshing materials data on visibility change');
-        handleFocus();
-      }
-    };
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
-    return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, []);
-
-  // Get waste recovery count for the dashboard
-  const getWasteRecoveryCount = () => {
-    try {
-      const wasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
-      const flatWasteData = Array.isArray(wasteData) && wasteData.length > 0 && Array.isArray(wasteData[0]) 
-        ? wasteData.flat() 
-        : wasteData;
-      const count = flatWasteData.filter((waste: any) => waste.status === 'added_to_inventory').length;
-      // Use the refresh state to trigger re-renders
-      wasteRecoveryRefresh; // This ensures the component re-renders when this value changes
-      return count;
-    } catch (error) {
-      console.error('Error getting waste recovery count:', error);
-      return 0;
-    }
-  };
-
-  // Load custom categories and units from localStorage
-  useEffect(() => {
-    const savedCategories = localStorage.getItem('rajdhani_custom_categories');
-    const savedUnits = localStorage.getItem('rajdhani_custom_units');
-    
-    if (savedCategories) {
-      try {
-        setCustomCategories(JSON.parse(savedCategories));
-      } catch (error) {
-        console.error('Error loading custom categories:', error);
-      }
-    }
-    
-    if (savedUnits) {
-      try {
-        setCustomUnits(JSON.parse(savedUnits));
-      } catch (error) {
-        console.error('Error loading custom units:', error);
-      }
-    }
-  }, []);
-  
-  // Show stock update notifications when page loads
-  useEffect(() => {
-    // Check if there are any recent stock updates from localStorage
-    const lastStockUpdate = localStorage.getItem('last_stock_update');
-    if (lastStockUpdate) {
-      try {
-        const updateInfo = JSON.parse(lastStockUpdate);
-        const timeDiff = Date.now() - updateInfo.timestamp;
-        
-        // Show notification if update was within last 5 minutes
-        if (timeDiff < 5 * 60 * 1000) {
-          let title = "📊 Stock Recently Updated";
-          let description = `${updateInfo.materialName} stock updated to ${updateInfo.newStock} ${updateInfo.unit}`;
-          
-          // Customize notification based on action type
-          if (updateInfo.action === 'added_to_inventory') {
-            title = "🆕 New Material Added";
-            description = `${updateInfo.materialName} added to inventory with ${updateInfo.newStock} ${updateInfo.unit}`;
-          } else if (updateInfo.action === 'imported_inventory') {
-            title = "📥 Inventory Imported";
-            description = `${updateInfo.newStock} materials imported to inventory`;
-          } else if (updateInfo.action === 'order_delivered') {
-            title = "📦 Stock Restocked";
-            description = `${updateInfo.materialName} stock increased by ${updateInfo.quantity} ${updateInfo.unit} (${updateInfo.oldStock} → ${updateInfo.newStock})`;
-          } else if (updateInfo.action === 'new_material_added') {
-            title = "🆕 New Material Added";
-            description = `${updateInfo.materialName} (${updateInfo.supplier}) added as new material with ${updateInfo.quantity} ${updateInfo.unit}`;
-          }
-          
-          toast({
-            title: title,
-            description: description,
-            variant: "default",
-          });
-        }
-        
-        // Clear the notification after showing
-        localStorage.removeItem('last_stock_update');
-      } catch (error) {
-        console.error('Error parsing stock update info:', error);
-      }
-    }
-  }, [toast]);
-  
-  const [selectedImage, setSelectedImage] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string>("");
-  const [selectedInventoryImage, setSelectedInventoryImage] = useState<File | null>(null);
-  const [inventoryImagePreview, setInventoryImagePreview] = useState<string>("");
-  
   // Restock functionality states
   const [isRestockDialogOpen, setIsRestockDialogOpen] = useState(false);
   const [selectedRestockMaterial, setSelectedRestockMaterial] = useState<RawMaterial | null>(null);
@@ -373,69 +665,266 @@ export default function Materials() {
     expectedDelivery: "",
     notes: ""
   });
-  
-  // Import related states
-  const [importFile, setImportFile] = useState<File | null>(null);
-  const [importPreview, setImportPreview] = useState<any[]>([]);
-  const [importStatus, setImportStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
-  const [importErrors, setImportErrors] = useState<string[]>([]);
 
-  // Handle purchase material from production
-  useEffect(() => {
-    if (location.state?.purchaseMaterial) {
-      const { materialId, materialName, supplier, unit, cost } = location.state.purchaseMaterial;
+  // Remove materials with duplicate batch numbers (only for materials that actually have batch numbers)
+  const removeDuplicateBatchNumbers = (materials: RawMaterial[]) => {
+    const seen = new Set<string>();
+    const uniqueMaterials = materials.filter(material => {
+      // Only check for duplicates if the material actually has a batch number
+      if (!material.batchNumber) {
+        return true; // Keep materials without batch numbers
+      }
       
-      // Pre-fill the order dialog with the material details
-      setSelectedMaterial({
-        id: materialId,
-        name: materialName,
-        brand: "Unknown",
-        category: "Unknown",
-        currentStock: 0,
-        unit: unit,
-        minThreshold: 0,
-        maxCapacity: 0,
-        reorderPoint: 0,
-        lastRestocked: new Date().toISOString().split('T')[0],
-        dailyUsage: 0,
-        status: "out-of-stock",
-        supplier: supplier,
-        supplierId: "unknown",
-        costPerUnit: cost,
-        totalValue: 0,
-        batchNumber: "BATCH-UNKNOWN",
-        materialsUsed: [],
-        supplierPerformance: 0
-      });
-      
-      setOrderDetails({
-        quantity: "1",
-        unit: unit,
-        supplier: supplier,
-        costPerUnit: cost.toString(),
-        expectedDelivery: "",
-        notes: `Purchase request from production for ${materialName}`
-      });
-      
-      setIsOrderDialogOpen(true);
-      
-      // Clear the state to prevent re-triggering
-      navigate(location.pathname, { replace: true });
+      if (seen.has(material.batchNumber)) {
+        console.log(`Removing duplicate batch number: ${material.batchNumber} for material: ${material.name}`);
+        return false;
+      }
+      seen.add(material.batchNumber);
+      return true;
+    });
+
+    if (uniqueMaterials.length !== materials.length) {
+      console.log(`Removed ${materials.length - uniqueMaterials.length} materials with duplicate batch numbers`);
     }
-  }, [location.state, navigate]);
 
-  // Get available suppliers for the selected material
-  const getAvailableSuppliers = (materialName: string) => {
-    const suppliers = rawMaterials
-      .filter(m => m.name.toLowerCase() === materialName.toLowerCase())
-      .map(m => ({
-        name: m.supplier,
-        brand: m.brand,
-        costPerUnit: m.costPerUnit,
-        currentStock: m.currentStock,
-        unit: m.unit
-      }));
-    return suppliers;
+    return uniqueMaterials;
+  };
+
+  // Handle notification actions
+  const handleMarkAsRead = async (notificationId: string) => {
+    try {
+      await markNotificationAsRead(notificationId);
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      toast({
+        title: "Notification marked as read",
+        description: "The notification has been marked as read.",
+      });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      toast({
+        title: "Error",
+        description: "Failed to mark notification as read.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleResolveNotification = async (notificationId: string) => {
+    try {
+      await resolveNotification(notificationId);
+      setNotifications(prev => prev.filter(n => n.id !== notificationId));
+      toast({
+        title: "Notification resolved",
+        description: "The notification has been resolved and removed.",
+      });
+    } catch (error) {
+      console.error('Error resolving notification:', error);
+      toast({
+        title: "Error",
+        description: "Failed to resolve notification.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleMarkAllAsRead = async () => {
+    try {
+      await Promise.all(notifications.map(n => markNotificationAsRead(n.id)));
+      setNotifications([]);
+      toast({
+        title: "All notifications marked as read",
+        description: "All material notifications have been marked as read.",
+      });
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+      toast({
+        title: "Error",
+        description: "Failed to mark all notifications as read.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Initialize and load data from Supabase
+  useEffect(() => {
+    const loadInitialData = async () => {
+      setLoading(true);
+      try {
+        // Load raw materials
+        const materials = await supabaseStorage.getAll();
+        const uniqueMaterials = removeDuplicateBatchNumbers(materials);
+        setRawMaterials(uniqueMaterials);
+
+        // Load notifications for materials module
+        const { data: materialNotifications, error: notificationError } = await NotificationService.getNotificationsByModule('materials');
+        if (notificationError) {
+          console.error('Error loading material notifications:', notificationError);
+        } else {
+          const unreadNotifications = materialNotifications?.filter(n => n.status === 'unread') || [];
+          setNotifications(unreadNotifications);
+          console.log('📢 Loaded material notifications:', unreadNotifications.length);
+        }
+
+        // Load settings (custom categories, units, etc.)
+        const settingsData = await supabaseStorage.getSettings();
+        setSettings(settingsData);
+        setCustomCategories(settingsData.customCategories || []);
+        setCustomUnits(settingsData.customUnits || []);
+
+        // Process any pre-filled order data from navigation
+        if (location.state?.prefillOrder) {
+          const { materialName, supplier, quantity, unit, costPerUnit } = location.state.prefillOrder;
+          setOrderDetails({
+            quantity: quantity?.toString() || "",
+            unit: unit || "",
+            supplier: supplier || "",
+            costPerUnit: costPerUnit?.toString() || "",
+            expectedDelivery: "",
+            notes: ""
+          });
+          setIsOrderDialogOpen(true);
+        }
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load materials data",
+          variant: "destructive",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    loadInitialData();
+  }, [location.state, toast]);
+
+  // Refresh data when component becomes visible
+  useEffect(() => {
+    const handleFocus = async () => {
+      console.log('🔄 Refreshing materials data on page focus');
+      try {
+        const materials = await supabaseStorage.getAll();
+        const uniqueMaterials = removeDuplicateBatchNumbers(materials);
+        setRawMaterials(uniqueMaterials);
+      } catch (error) {
+        console.error('Error refreshing materials data:', error);
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('🔄 Refreshing materials data on visibility change');
+        handleFocus();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
+
+  // Get waste recovery count for the dashboard
+  const getWasteRecoveryCount = async () => {
+    try {
+      // TODO: Implement when waste_management table is created
+      return 0;
+    } catch (error) {
+      console.error('Error getting waste recovery count:', error);
+      return 0;
+    }
+  };
+
+  // Update settings in Supabase
+  const updateCustomCategories = async (newCategories: string[]) => {
+    try {
+      const updatedSettings = { ...settings, customCategories: newCategories };
+      await supabaseStorage.updateSettings(updatedSettings);
+      setSettings(updatedSettings);
+      setCustomCategories(newCategories);
+    } catch (error) {
+      console.error('Error updating custom categories:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update custom categories",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const updateCustomUnits = async (newUnits: string[]) => {
+    try {
+      const updatedSettings = { ...settings, customUnits: newUnits };
+      await supabaseStorage.updateSettings(updatedSettings);
+      setSettings(updatedSettings);
+      setCustomUnits(newUnits);
+    } catch (error) {
+      console.error('Error updating custom units:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update custom units",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const updateLastStockUpdate = async (timestamp: string, user: string = 'admin') => {
+    try {
+      const updatedSettings = {
+        ...settings,
+        lastStockUpdate: { timestamp, user }
+      };
+      await supabaseStorage.updateSettings(updatedSettings);
+      setSettings(updatedSettings);
+    } catch (error) {
+      console.error('Error updating last stock update:', error);
+    }
+  };
+
+  // Calculate material status
+  const calculateMaterialStatus = (material: RawMaterial): RawMaterial['status'] => {
+    if (material.currentStock <= 0) return "out-of-stock";
+    if (material.currentStock <= material.minThreshold) return "low-stock";
+    if (material.currentStock >= material.maxCapacity) return "overstock";
+    return "in-stock";
+  };
+
+  // Get filtered materials
+  const filteredMaterials = rawMaterials.filter(material => {
+    const matchesSearch = material.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         material.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         material.supplier.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesCategory = categoryFilter === "all" || material.category === categoryFilter;
+    const matchesStatus = statusFilter === "all" || material.status === statusFilter;
+    return matchesSearch && matchesCategory && matchesStatus;
+  });
+
+  // Get stock statistics
+  const stockStats = {
+    inStock: rawMaterials.filter(m => m.status === "in-stock").length,
+    lowStock: rawMaterials.filter(m => m.status === "low-stock").length,
+    outOfStock: rawMaterials.filter(m => m.status === "out-of-stock").length,
+    overstock: rawMaterials.filter(m => m.status === "overstock").length
+  };
+
+  // Get unique categories and units for filters
+  const categories = [...new Set(rawMaterials.map(m => m.category))];
+  const units = [...new Set(rawMaterials.map(m => m.unit))];
+
+  // Get all available categories (default + custom)
+  const getAllCategories = () => {
+    const defaultCategories = ["Yarn", "Dye", "Chemical", "Fabric", "Other"];
+    return [...defaultCategories, ...customCategories];
+  };
+
+  // Get all available units (default + custom)
+  const getAllUnits = () => {
+    const defaultUnits = ["rolls", "liters", "kg", "sqm", "pieces"];
+    return [...defaultUnits, ...customUnits];
   };
 
   // Get available suppliers for restocking based on material category
@@ -450,11 +939,11 @@ export default function Materials() {
         unit: m.unit,
         materialName: m.name
       }))
-      .filter((supplier, index, self) => 
+      .filter((supplier, index, self) =>
         // Remove duplicate suppliers, keep unique ones
         index === self.findIndex(s => s.name === supplier.name)
       );
-    
+
     // Also include suppliers from exact material name matches
     const exactSuppliers = rawMaterials
       .filter(m => m.name.toLowerCase() === materialName.toLowerCase())
@@ -465,52 +954,20 @@ export default function Materials() {
         unit: m.unit,
         materialName: m.name
       }));
-    
+
     // Combine and remove duplicates
     const allSuppliers = [...categorySuppliers, ...exactSuppliers];
-    const uniqueSuppliers = allSuppliers.filter((supplier, index, self) => 
+    const uniqueSuppliers = allSuppliers.filter((supplier, index, self) =>
       index === self.findIndex(s => s.name === supplier.name)
     );
-    
+
     return uniqueSuppliers;
-  };
-
-  // Generate unique batch number
-  const generateUniqueBatchNumber = () => {
-    const year = new Date().getFullYear();
-    const existingBatchNumbers = rawMaterials.map(m => m.batchNumber);
-    
-    // Find the highest batch number for this year
-    let maxNumber = 0;
-    existingBatchNumbers.forEach(batch => {
-      const match = batch.match(new RegExp(`BATCH-${year}-(\\d+)`));
-      if (match) {
-        const num = parseInt(match[1]);
-        if (num > maxNumber) maxNumber = num;
-      }
-    });
-    
-    // Generate next unique batch number
-    const nextNumber = maxNumber + 1;
-    return `BATCH-${year}-${nextNumber.toString().padStart(3, '0')}`;
-  };
-
-  // Get priority score for sorting (lower stock = higher priority)
-  const getPriorityScore = (material: RawMaterial) => {
-    switch (material.status) {
-      case "out-of-stock": return 0;
-      case "low-stock": return 1;
-      case "in-stock": return 2;
-      case "overstock": return 3;
-      default: return 4;
-    }
   };
 
   // Handle image upload
   const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      setSelectedImage(file);
       const reader = new FileReader();
       reader.onload = (e) => {
         setImagePreview(e.target?.result as string);
@@ -521,9 +978,26 @@ export default function Materials() {
 
   // Remove selected image
   const removeImage = () => {
-    setSelectedImage(null);
     setImagePreview("");
     setNewMaterial({ ...newMaterial, imageUrl: "" });
+  };
+
+  // Handle inventory image upload
+  const handleInventoryImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setInventoryImagePreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Remove selected inventory image
+  const removeInventoryImage = () => {
+    setInventoryImagePreview("");
+    setNewInventoryMaterial({ ...newInventoryMaterial, imageUrl: "" });
   };
 
   // Handle adding new category
@@ -532,10 +1006,6 @@ export default function Materials() {
       const updatedCategories = [...customCategories, newCategoryName.trim()];
       setCustomCategories(updatedCategories);
       setNewInventoryMaterial({...newInventoryMaterial, category: newCategoryName.trim()});
-      
-      // Save to localStorage
-      localStorage.setItem('rajdhani_custom_categories', JSON.stringify(updatedCategories));
-      
       setNewCategoryName("");
       setShowAddCategory(false);
     }
@@ -547,71 +1017,483 @@ export default function Materials() {
       const updatedUnits = [...customUnits, newUnitName.trim()];
       setCustomUnits(updatedUnits);
       setNewInventoryMaterial({...newInventoryMaterial, unit: newUnitName.trim()});
-      
-      // Save to localStorage
-      localStorage.setItem('rajdhani_custom_units', JSON.stringify(updatedUnits));
-      
       setNewUnitName("");
       setShowAddUnit(false);
     }
   };
 
-  // Get all available categories (default + custom)
-  const getAllCategories = () => {
-    const defaultCategories = ["Yarn", "Dye", "Chemical", "Fabric", "Other"];
-    return [...defaultCategories, ...customCategories];
+  // Handle creating material order
+  const handleCreateOrder = async () => {
+    try {
+      // Create new material first
+      const materialData = {
+        name: newMaterial.name,
+        brand: newMaterial.brand,
+        category: newMaterial.category,
+        batchNumber: generateUniqueId('BATCH'), // Auto-generate batch number
+        currentStock: 0, // Orders start with 0 stock
+        unit: newMaterial.unit,
+        minThreshold: parseFloat(newMaterial.minThreshold) || 10,
+        maxCapacity: parseFloat(newMaterial.maxCapacity) || 1000,
+        reorderPoint: parseFloat(newMaterial.minThreshold) || 10,
+        lastRestocked: new Date().toISOString(),
+        dailyUsage: 0,
+        status: "in-transit" as const,
+        supplier: newMaterial.supplier,
+        supplierId: generateUniqueId('SUP'),
+        costPerUnit: parseFloat(newMaterial.costPerUnit) || 0,
+        totalValue: 0,
+        qualityGrade: "A",
+        imageUrl: newMaterial.imageUrl,
+        materialsUsed: [],
+        supplierPerformance: 85
+      };
+
+      // Add to Supabase using RawMaterialService
+      const result = await RawMaterialService.createRawMaterial({
+        name: newMaterial.name,
+        brand: newMaterial.brand,
+        category: newMaterial.category,
+        current_stock: 0, // Orders start with 0 stock
+        unit: newMaterial.unit,
+        min_threshold: parseFloat(newMaterial.minThreshold) || 10,
+        max_capacity: parseFloat(newMaterial.maxCapacity) || 1000,
+        reorder_point: parseFloat(newMaterial.minThreshold) || 10,
+        daily_usage: 0,
+        supplier_name: newMaterial.supplier,
+        cost_per_unit: parseFloat(newMaterial.costPerUnit) || 0,
+        batch_number: generateUniqueId('BATCH'), // Auto-generate batch number
+        image_url: newMaterial.imageUrl
+      });
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      const addedMaterial = result.data;
+
+      // Create purchase order
+      const orderData: Omit<MaterialPurchase, 'id'> = {
+        materialId: addedMaterial.id,
+        materialName: newMaterial.name,
+        supplierId: addedMaterial.supplier_id,
+        supplierName: newMaterial.supplier,
+        quantity: parseFloat(orderDetails.quantity) || 0,
+        unit: orderDetails.unit || newMaterial.unit,
+        costPerUnit: parseFloat(orderDetails.costPerUnit) || parseFloat(newMaterial.costPerUnit) || 0,
+        totalCost: (parseFloat(orderDetails.quantity) || 0) * (parseFloat(orderDetails.costPerUnit) || 0),
+        purchaseDate: new Date().toISOString(),
+        expectedDelivery: orderDetails.expectedDelivery || newMaterial.expectedDelivery,
+        status: "ordered",
+        inspector: "",
+        inspectionDate: "",
+        notes: orderDetails.notes
+      };
+
+      // Add to material orders storage
+      await supabaseStorage.addPurchaseOrder(orderData);
+
+      // Update last stock update
+      await updateLastStockUpdate(new Date().toISOString());
+
+      // Refresh materials list
+      const updatedMaterials = await supabaseStorage.getAll();
+      setRawMaterials(removeDuplicateBatchNumbers(updatedMaterials));
+
+      // Reset forms and close dialog
+      setNewMaterial({
+        name: "", brand: "", category: "", currentStock: "",
+        unit: "", minThreshold: "", maxCapacity: "", supplier: "", costPerUnit: "",
+        expectedDelivery: "", imageUrl: ""
+      });
+      setOrderDetails({
+        quantity: "", unit: "", supplier: "", costPerUnit: "", expectedDelivery: "", notes: ""
+      });
+      setIsOrderDialogOpen(false);
+
+      toast({
+        title: "Material Order Created",
+        description: `Order for ${newMaterial.name} has been created and sent to Manage Stock.`,
+      });
+
+    } catch (error) {
+      console.error('Error creating material order:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create material order",
+        variant: "destructive",
+      });
+    }
   };
 
-  // Get all available units (default + custom)
-  const getAllUnits = () => {
-    const defaultUnits = ["rolls", "liters", "kg", "sqm", "pieces"];
-    return [...defaultUnits, ...customUnits];
+  // Handle adding material to inventory directly
+  const handleAddToInventory = async () => {
+    try {
+      const inventoryData = {
+        name: newInventoryMaterial.name,
+        brand: newInventoryMaterial.brand,
+        category: newInventoryMaterial.category,
+        batchNumber: generateUniqueId('BATCH'), // Auto-generate batch number
+        currentStock: parseFloat(newInventoryMaterial.currentStock) || 0,
+        unit: newInventoryMaterial.unit,
+        minThreshold: parseFloat(newInventoryMaterial.minThreshold) || 10,
+        maxCapacity: parseFloat(newInventoryMaterial.maxCapacity) || 1000,
+        reorderPoint: parseFloat(newInventoryMaterial.minThreshold) || 10,
+        lastRestocked: new Date().toISOString(),
+        dailyUsage: 0,
+        status: "in-stock",
+        supplier: newInventoryMaterial.supplier,
+        supplierId: generateUniqueId('SUP'),
+        costPerUnit: parseFloat(newInventoryMaterial.costPerUnit) || 0,
+        totalValue: (parseFloat(newInventoryMaterial.currentStock) || 0) * (parseFloat(newInventoryMaterial.costPerUnit) || 0),
+        qualityGrade: "A",
+        imageUrl: newInventoryMaterial.imageUrl,
+        materialsUsed: [],
+        supplierPerformance: 85
+      };
+
+      // Calculate status based on stock levels
+      inventoryData.status = calculateMaterialStatus(inventoryData as RawMaterial) as RawMaterial['status'];
+
+      // Add to Supabase using RawMaterialService
+      const result = await RawMaterialService.createRawMaterial({
+        name: newInventoryMaterial.name,
+        brand: newInventoryMaterial.brand,
+        category: newInventoryMaterial.category,
+        current_stock: parseFloat(newInventoryMaterial.currentStock) || 0,
+        unit: newInventoryMaterial.unit,
+        min_threshold: parseFloat(newInventoryMaterial.minThreshold) || 10,
+        max_capacity: parseFloat(newInventoryMaterial.maxCapacity) || 1000,
+        reorder_point: parseFloat(newInventoryMaterial.minThreshold) || 10,
+        daily_usage: 0,
+        supplier_name: newInventoryMaterial.supplier,
+        cost_per_unit: parseFloat(newInventoryMaterial.costPerUnit) || 0,
+        batch_number: generateUniqueId('BATCH'), // Auto-generate batch number
+        image_url: newInventoryMaterial.imageUrl
+      });
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      const addedMaterial = result.data;
+
+      // Update last stock update
+      await updateLastStockUpdate(new Date().toISOString());
+
+      // Refresh materials list
+      const updatedMaterials = await supabaseStorage.getAll();
+      setRawMaterials(removeDuplicateBatchNumbers(updatedMaterials));
+
+      // Reset form and close dialog
+      setNewInventoryMaterial({
+        name: "", brand: "", category: "", currentStock: "",
+        unit: "", minThreshold: "", maxCapacity: "", supplier: "", costPerUnit: "", imageUrl: ""
+      });
+      setIsAddToInventoryOpen(false);
+
+      toast({
+        title: "Material Added",
+        description: `${newInventoryMaterial.name} has been added to inventory.`,
+      });
+
+    } catch (error) {
+      console.error('Error adding material to inventory:', error);
+      toast({
+        title: "Error",
+        description: "Failed to add material to inventory",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle importing inventory from CSV
+  const handleImportInventory = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const lines = text.split('\n').filter(line => line.trim());
+      const headers = lines[0].split(',').map(h => h.trim());
+
+      const materials = lines.slice(1).map(line => {
+        const values = line.split(',').map(v => v.trim());
+        const material: any = {};
+        headers.forEach((header, index) => {
+          material[header] = values[index] || '';
+        });
+        return material;
+      });
+
+      // Validate and process materials
+      const validMaterials = materials.filter(material =>
+        material.name && material.brand && material.category
+      ).map(material => ({
+        name: material.name,
+        brand: material.brand,
+        category: material.category,
+        batchNumber: generateUniqueId('BATCH'), // Auto-generate batch number
+        currentStock: parseFloat(material.currentStock) || 0,
+        unit: material.unit || 'kg',
+        minThreshold: parseFloat(material.minThreshold) || 10,
+        maxCapacity: parseFloat(material.maxCapacity) || 1000,
+        reorderPoint: parseFloat(material.minThreshold) || 10,
+        lastRestocked: new Date().toISOString(),
+        dailyUsage: 0,
+        status: "in-stock" as RawMaterial['status'],
+        supplier: material.supplier || 'Unknown',
+        supplierId: generateUniqueId('SUP'),
+        costPerUnit: parseFloat(material.costPerUnit) || 0,
+        totalValue: (parseFloat(material.currentStock) || 0) * (parseFloat(material.costPerUnit) || 0),
+        qualityGrade: material.qualityGrade || "A",
+        imageUrl: material.imageUrl || "",
+        materialsUsed: [],
+        supplierPerformance: 85
+      }));
+
+      // Add materials to Supabase using RawMaterialService
+      for (const material of validMaterials) {
+        const result = await RawMaterialService.createRawMaterial({
+          name: material.name,
+          brand: material.brand,
+          category: material.category,
+          current_stock: material.currentStock,
+          unit: material.unit,
+          min_threshold: material.minThreshold,
+          max_capacity: material.maxCapacity,
+          reorder_point: material.reorderPoint,
+          daily_usage: material.dailyUsage,
+          supplier_name: material.supplier,
+          cost_per_unit: material.costPerUnit,
+          batch_number: material.batchNumber,
+          image_url: material.imageUrl
+        });
+
+        if (result.error) {
+          console.error(`Error adding material ${material.name}:`, result.error);
+        }
+      }
+
+      // Update last stock update
+      await updateLastStockUpdate(new Date().toISOString());
+
+      // Refresh materials list
+      const updatedMaterials = await supabaseStorage.getAll();
+      setRawMaterials(removeDuplicateBatchNumbers(updatedMaterials));
+
+      setIsImportInventoryOpen(false);
+      toast({
+        title: "Import Successful",
+        description: `Imported ${validMaterials.length} materials from CSV.`,
+      });
+
+    } catch (error) {
+      console.error('Error importing inventory:', error);
+      toast({
+        title: "Import Failed",
+        description: "Failed to import inventory from CSV file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Handle adding custom category
+  const handleAddCustomCategory = async () => {
+    if (!newCategoryName.trim()) return;
+
+    const updatedCategories = [...customCategories, newCategoryName.trim()];
+    await updateCustomCategories(updatedCategories);
+    setNewCategoryName("");
+    setShowAddCategory(false);
+
+    toast({
+      title: "Category Added",
+      description: `"${newCategoryName}" has been added to custom categories.`,
+    });
+  };
+
+  // Handle adding custom unit
+  const handleAddCustomUnit = async () => {
+    if (!newUnitName.trim()) return;
+
+    const updatedUnits = [...customUnits, newUnitName.trim()];
+    await updateCustomUnits(updatedUnits);
+    setNewUnitName("");
+    setShowAddUnit(false);
+
+    toast({
+      title: "Unit Added",
+      description: `"${newUnitName}" has been added to custom units.`,
+    });
+  };
+
+  // Delete functions for dropdown options
+  const deleteCategory = async (category: string) => {
+    if (confirm(`Are you sure you want to delete the category "${category}"? This will affect all materials using this category.`)) {
+      const updatedCategories = customCategories.filter(c => c !== category);
+      await updateCustomCategories(updatedCategories);
+      
+      // Reset category if it was selected in any form
+      if (newMaterial.category === category) {
+        setNewMaterial({...newMaterial, category: ""});
+      }
+      if (newInventoryMaterial.category === category) {
+        setNewInventoryMaterial({...newInventoryMaterial, category: ""});
+      }
+      
+      toast({
+        title: "Category Deleted",
+        description: `"${category}" has been removed from categories.`,
+      });
+    }
+  };
+
+  const deleteUnit = async (unit: string) => {
+    if (confirm(`Are you sure you want to delete the unit "${unit}"? This will affect all materials using this unit.`)) {
+      const updatedUnits = customUnits.filter(u => u !== unit);
+      await updateCustomUnits(updatedUnits);
+      
+      // Reset unit if it was selected in any form
+      if (newMaterial.unit === unit) {
+        setNewMaterial({...newMaterial, unit: ""});
+      }
+      if (newInventoryMaterial.unit === unit) {
+        setNewInventoryMaterial({...newInventoryMaterial, unit: ""});
+      }
+      
+      toast({
+        title: "Unit Deleted",
+        description: `"${unit}" has been removed from units.`,
+      });
+    }
+  };
+
+  // Handle waste management operations
+  const handleReturnToInventory = async (waste: WasteItem) => {
+    try {
+      // TODO: Implement when waste_management table is created
+      // For now, just add the material to inventory
+
+      // Find existing material with same name or create new one
+      const existingMaterial = rawMaterials.find(m =>
+        m.name.toLowerCase() === waste.productName.toLowerCase()
+      );
+
+      if (existingMaterial) {
+        // Update existing material stock
+        const updatedMaterial = {
+          ...existingMaterial,
+          currentStock: existingMaterial.currentStock + waste.quantity,
+          lastRestocked: new Date().toISOString()
+        };
+        updatedMaterial.status = calculateMaterialStatus(updatedMaterial);
+        updatedMaterial.totalValue = updatedMaterial.currentStock * updatedMaterial.costPerUnit;
+
+        await supabaseStorage.update(existingMaterial.id, updatedMaterial);
+      } else {
+        // Create new material from waste
+        const newMaterial = {
+          name: waste.productName,
+          brand: "Recovered",
+          category: "Waste Recovery",
+          batchNumber: generateUniqueId('RECOVERED'),
+          currentStock: waste.quantity,
+          unit: waste.unit,
+          minThreshold: 10,
+          maxCapacity: 1000,
+          reorderPoint: 10,
+          lastRestocked: new Date().toISOString(),
+          dailyUsage: 0,
+          status: "in-stock" as RawMaterial['status'],
+          supplier: "Waste Recovery",
+          supplierId: generateUniqueId('SUP'),
+          costPerUnit: 0,
+          totalValue: 0,
+          qualityGrade: "B",
+          imageUrl: "",
+          materialsUsed: [],
+          supplierPerformance: 75
+        };
+
+        newMaterial.status = calculateMaterialStatus(newMaterial as RawMaterial) as RawMaterial['status'];
+        await supabaseStorage.add(newMaterial as Omit<RawMaterial, 'id'>);
+      }
+
+      // Refresh materials and waste data
+      const updatedMaterials = await supabaseStorage.getAll();
+      setRawMaterials(removeDuplicateBatchNumbers(updatedMaterials));
+      setWasteRecoveryRefresh(prev => prev + 1);
+
+      toast({
+        title: "Waste Recovered",
+        description: `${waste.quantity} ${waste.unit} of ${waste.productName} returned to inventory.`,
+      });
+
+    } catch (error) {
+      console.error('Error returning waste to inventory:', error);
+      toast({
+        title: "Error",
+        description: "Failed to return waste to inventory",
+        variant: "destructive",
+      });
+    }
   };
 
   // Handle opening restock dialog
   const handleOpenRestockDialog = (material: RawMaterial) => {
     setSelectedRestockMaterial(material);
-    
+
     // Get available suppliers for this material
     const availableSuppliers = getAvailableSuppliersForRestock(material.category, material.name);
-    
-          // Pre-fill with first available supplier if any
-      if (availableSuppliers.length > 0) {
-        const firstSupplier = availableSuppliers[0];
-        const materialIsOutOfStock = material.status === "out-of-stock";
-        setRestockForm({
-          supplier: firstSupplier.name,
-          brand: firstSupplier.brand,
-          quantity: "",
-          costPerUnit: firstSupplier.costPerUnit.toString(),
-          expectedDelivery: "",
-          notes: `${materialIsOutOfStock ? 'Order' : 'Restock'} for ${material.name}`
-        });
-      } else {
-        // Reset form if no suppliers available
-        const materialIsOutOfStock = material.status === "out-of-stock";
-        setRestockForm({
-          supplier: "",
-          brand: "",
-          quantity: "",
-          costPerUnit: "",
-          expectedDelivery: "",
-          notes: `${materialIsOutOfStock ? 'Order' : 'Restock'} for ${material.name}`
-        });
-      }
-    
+
+    // Pre-fill with first available supplier if any
+    if (availableSuppliers.length > 0) {
+      const firstSupplier = availableSuppliers[0];
+      const materialIsOutOfStock = material.status === "out-of-stock";
+      setRestockForm({
+        supplier: firstSupplier.name,
+        brand: firstSupplier.brand,
+        quantity: "",
+        costPerUnit: firstSupplier.costPerUnit.toString(),
+        expectedDelivery: "",
+        notes: `${materialIsOutOfStock ? 'Order' : 'Restock'} for ${material.name}`
+      });
+    } else {
+      // Reset form if no suppliers available
+      const materialIsOutOfStock = material.status === "out-of-stock";
+      setRestockForm({
+        supplier: "",
+        brand: "",
+        quantity: "",
+        costPerUnit: "",
+        expectedDelivery: "",
+        notes: `${materialIsOutOfStock ? 'Order' : 'Restock'} for ${material.name}`
+      });
+    }
+
     setIsRestockDialogOpen(true);
   };
 
   // Handle supplier change in restock form
   const handleRestockSupplierChange = (supplierName: string) => {
+    if (supplierName === "new_supplier") {
+      setRestockForm(prev => ({
+        ...prev,
+        supplier: "new_supplier",
+        brand: "",
+        costPerUnit: ""
+      }));
+      return;
+    }
+
     const availableSuppliers = getAvailableSuppliersForRestock(
-      selectedRestockMaterial?.category || "", 
+      selectedRestockMaterial?.category || "",
       selectedRestockMaterial?.name || ""
     );
-    
+
     const selectedSupplier = availableSuppliers.find(s => s.name === supplierName);
-    
+
     if (selectedSupplier) {
       setRestockForm(prev => ({
         ...prev,
@@ -619,11 +1501,18 @@ export default function Materials() {
         brand: selectedSupplier.brand,
         costPerUnit: selectedSupplier.costPerUnit.toString()
       }));
+    } else {
+      setRestockForm(prev => ({
+        ...prev,
+        supplier: supplierName,
+        brand: "",
+        costPerUnit: ""
+      }));
     }
   };
 
   // Handle restock submission
-  const handleRestockSubmit = () => {
+  const handleRestockSubmit = async () => {
     if (!selectedRestockMaterial || !restockForm.supplier || !restockForm.quantity || !restockForm.costPerUnit) {
       toast({
         title: "⚠️ Missing Required Fields",
@@ -636,30 +1525,33 @@ export default function Materials() {
     try {
       // Create order (restock or new order based on material status)
       const orderIsOutOfStock = selectedRestockMaterial.status === "out-of-stock";
-      const orderData = {
-        id: generateUniqueId('ORD'),
+      const orderData: Omit<MaterialPurchase, 'id'> = {
+        materialId: selectedRestockMaterial.id,
         materialName: selectedRestockMaterial.name,
-        materialBrand: restockForm.brand || selectedRestockMaterial.brand,
+        materialBrand: restockForm.brand,
         materialCategory: selectedRestockMaterial.category,
-        materialBatchNumber: generateUniqueBatchNumber(),
-        supplier: restockForm.supplier,
+        materialBatchNumber: generateUniqueId('BATCH'),
+        supplierId: generateUniqueId('SUP'),
+        supplierName: restockForm.supplier === "new_supplier" ? restockForm.supplier : restockForm.supplier,
         quantity: parseInt(restockForm.quantity),
         unit: selectedRestockMaterial.unit,
         costPerUnit: parseFloat(restockForm.costPerUnit),
         totalCost: parseInt(restockForm.quantity) * parseFloat(restockForm.costPerUnit),
-        orderDate: new Date().toISOString().split('T')[0],
+        purchaseDate: new Date().toISOString().split('T')[0],
         expectedDelivery: restockForm.expectedDelivery || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        status: "ordered",
-        notes: restockForm.notes,
+        status: "ordered" as const,
+        inspector: "",
+        inspectionDate: "",
+        notes: restockForm.notes || "",
         minThreshold: selectedRestockMaterial.minThreshold,
         maxCapacity: selectedRestockMaterial.maxCapacity,
-        qualityGrade: selectedRestockMaterial.qualityGrade || "A", // Add missing quality grade
-        isRestock: !orderIsOutOfStock // Mark as restock order only if not out of stock
+        qualityGrade: "A",
+        isRestock: !orderIsOutOfStock
       };
 
       // Add to material orders storage
-      materialOrdersStorage.add(orderData);
-      
+      await supabaseStorage.addPurchaseOrder(orderData);
+
       // Close dialog and reset form
       setIsRestockDialogOpen(false);
       setRestockForm({
@@ -670,15 +1562,15 @@ export default function Materials() {
         expectedDelivery: "",
         notes: ""
       });
-      
+
       // Navigate to Manage Stock with the order details
-      navigate("/manage-stock", { 
-        state: { 
+      navigate("/manage-stock", {
+        state: {
           prefillOrder: {
             materialName: selectedRestockMaterial.name,
             materialBrand: restockForm.brand,
             materialCategory: selectedRestockMaterial.category,
-            materialBatchNumber: generateUniqueBatchNumber(),
+            materialBatchNumber: generateUniqueId('BATCH'),
             supplier: restockForm.supplier,
             quantity: restockForm.quantity,
             unit: selectedRestockMaterial.unit,
@@ -690,7 +1582,7 @@ export default function Materials() {
           }
         }
       });
-      
+
       // Show success message
       toast({
         title: orderIsOutOfStock ? "✅ Material Order Created!" : "✅ Restock Order Created!",
@@ -707,535 +1599,756 @@ export default function Materials() {
     }
   };
 
-  // Handle inventory image upload
-  const handleInventoryImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setSelectedInventoryImage(file);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setInventoryImagePreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  // Remove selected inventory image
-  const removeInventoryImage = () => {
-    setSelectedInventoryImage(null);
-    setInventoryImagePreview("");
-    setNewInventoryMaterial({ ...newInventoryMaterial, imageUrl: "" });
-  };
-
-  // Handle file import
-  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) {
-      setImportFile(file);
-      setImportStatus('idle');
-      setImportErrors([]);
-      
-      // Read and preview the file
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result as string;
-        const lines = text.split('\n');
-        const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-        const data = lines.slice(1).filter(line => line.trim()).map(line => {
-          const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-          const row: any = {};
-          headers.forEach((header, index) => {
-            row[header] = values[index] || '';
-          });
-          return row;
-        });
-        setImportPreview(data.slice(0, 5)); // Show first 5 rows as preview
-      };
-      reader.readAsText(file);
-    }
-  };
-
-  // Download sample template
-  const downloadTemplate = () => {
-    const template = `Material Name,Brand,Category,Batch Number,Current Stock,Unit,Min Threshold,Max Capacity,Supplier,Cost Per Unit
-Cotton Yarn (Premium),TextilePro,Yarn,BATCH-2025-001,100,rolls,50,500,Gujarat Textiles Ltd,450
-Red Dye (Industrial),ColorMax,Dye,BATCH-2025-002,85,liters,25,200,Chemical Works India,180
-Latex Solution,FlexiChem,Chemical,BATCH-2025-003,75,liters,30,150,Industrial Chemicals Co,320
-Backing Cloth,SupportFabric,Fabric,BATCH-2025-004,150,sqm,80,1000,Fabric Solutions Ltd,25
-Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Works India,190`;
-    
-    const blob = new Blob([template], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'inventory_template.csv';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    window.URL.revokeObjectURL(url);
-  };
-
-  // Process import
-  const processImport = () => {
-    if (!importFile) return;
-    
-    setImportStatus('processing');
-    setImportErrors([]);
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const lines = text.split('\n');
-      const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
-      const data = lines.slice(1).filter(line => line.trim());
-      
-      const errors: string[] = [];
-      const validMaterials: RawMaterial[] = [];
-      
-      data.forEach((line, index) => {
-        const values = line.split(',').map(v => v.trim().replace(/"/g, ''));
-        const row: any = {};
-        headers.forEach((header, headerIndex) => {
-          row[header] = values[headerIndex] || '';
-        });
-        
-        // Validate required fields
-        if (!row['Material Name']) {
-          errors.push(`Row ${index + 2}: Material Name is required`);
-          return;
-        }
-        if (!row['Brand']) {
-          errors.push(`Row ${index + 2}: Brand is required`);
-          return;
-        }
-        if (!row['Category']) {
-          errors.push(`Row ${index + 2}: Category is required`);
-          return;
-        }
-        if (!row['Batch Number']) {
-          errors.push(`Row ${index + 2}: Batch Number is required`);
-          return;
-        }
-        if (!row['Current Stock'] || isNaN(Number(row['Current Stock']))) {
-          errors.push(`Row ${index + 2}: Current Stock must be a valid number`);
-          return;
-        }
-        if (!row['Unit']) {
-          errors.push(`Row ${index + 2}: Unit is required`);
-          return;
-        }
-        if (!row['Min Threshold'] || isNaN(Number(row['Min Threshold']))) {
-          errors.push(`Row ${index + 2}: Min Threshold must be a valid number`);
-          return;
-        }
-        if (!row['Max Capacity'] || isNaN(Number(row['Max Capacity']))) {
-          errors.push(`Row ${index + 2}: Max Capacity must be a valid number`);
-          return;
-        }
-        if (!row['Supplier']) {
-          errors.push(`Row ${index + 2}: Supplier is required`);
-          return;
-        }
-        if (!row['Cost Per Unit'] || isNaN(Number(row['Cost Per Unit']))) {
-          errors.push(`Row ${index + 2}: Cost Per Unit must be a valid number`);
-          return;
-        }
-        
-        // Create material object
-        const material: RawMaterial = {
-          id: generateUniqueId('MAT'),
-          name: row['Material Name'],
-          brand: row['Brand'],
-          category: row['Category'],
-          batchNumber: row['Batch Number'],
-          currentStock: parseInt(row['Current Stock']),
-          unit: row['Unit'],
-          minThreshold: parseInt(row['Min Threshold']),
-          maxCapacity: parseInt(row['Max Capacity']),
-          reorderPoint: parseInt(row['Min Threshold']),
-          lastRestocked: new Date().toISOString().split('T')[0],
-          dailyUsage: 0,
-          status: "in-stock",
-          supplier: row['Supplier'],
-          costPerUnit: parseFloat(row['Cost Per Unit']),
-          supplierId: `supplier_${Date.now()}_${index}`,
-          totalValue: parseInt(row['Current Stock']) * parseFloat(row['Cost Per Unit']),
-          materialsUsed: [],
-          supplierPerformance: 0,
-          imageUrl: ""
-        };
-        
-        validMaterials.push(material);
-      });
-      
-      if (errors.length > 0) {
-        setImportErrors(errors);
-        setImportStatus('error');
-        return;
-      }
-      
-      // Add materials to localStorage
-      try {
-        validMaterials.forEach(material => {
-          rawMaterialsStorage.add(material);
-        });
-        
-        // Update local state
-        setRawMaterials(prev => [...prev, ...validMaterials]);
-        
-        setImportStatus('success');
-        
-        // Store stock update info for notification
-        localStorage.setItem('last_stock_update', JSON.stringify({
-          materialName: `${validMaterials.length} materials`,
-          oldStock: 0,
-          newStock: validMaterials.length,
-          quantity: validMaterials.length,
-          unit: 'items',
-          timestamp: Date.now(),
-          action: 'imported_inventory'
-        }));
-        
-        // Reset form after successful import
-        setTimeout(() => {
-          setIsImportInventoryOpen(false);
-          setImportFile(null);
-          setImportPreview([]);
-          setImportStatus('idle');
-          setImportErrors([]);
-          toast({
-            title: "✅ Import Successful!",
-            description: `Successfully imported ${validMaterials.length} materials to inventory.`,
-            variant: "default",
-          });
-        }, 2000);
-      } catch (error) {
-        console.error('Error importing materials:', error);
-        setImportErrors(['Error saving materials to storage. Please try again.']);
-        setImportStatus('error');
-      }
-    };
-    reader.readAsText(importFile);
-  };
-
-  // Filter and sort materials based on search, category, and status
-  const filteredMaterials = rawMaterials
-    .filter(material => {
-      const matchesSearch = material.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           material.brand.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           material.supplier.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory = categoryFilter === "all" || material.category === categoryFilter;
-      
-      let matchesStatus = true;
-          if (statusFilter === "low-stock") {
-      matchesStatus = material.status === "low-stock";
-    } else if (statusFilter === "in-stock") {
-      matchesStatus = material.status === "in-stock";
-    } else if (statusFilter === "out-of-stock") {
-      matchesStatus = material.status === "out-of-stock";
-    } else if (statusFilter === "overstock") {
-      matchesStatus = material.status === "overstock";
-    } else if (statusFilter === "in-transit") {
-      matchesStatus = material.status === "in-transit";
-    }
-      
-      return matchesSearch && matchesCategory && matchesStatus;
-    })
-    .sort((a, b) => {
-      const priorityDiff = getPriorityScore(a) - getPriorityScore(b);
-      if (priorityDiff !== 0) return priorityDiff;
-      return a.name.localeCompare(b.name);
-    });
-
-  const categories = [...new Set(rawMaterials.map(m => m.category))];
-
-  const handleOrderMaterial = (material: RawMaterial) => {
-    setSelectedMaterial(material);
-    setOrderDetails({
-      quantity: (material.maxCapacity - material.currentStock).toString(),
-      unit: material.unit,
-      supplier: material.supplier,
-      costPerUnit: material.costPerUnit.toString(),
-      expectedDelivery: "",
-      notes: `Restocking ${material.name} - Current stock: ${material.currentStock} ${material.unit}`
-    });
-    setIsOrderDialogOpen(true);
-  };
-
-  const handleAddMaterial = () => {
-    // Validate required fields
-        if (!newMaterial.name || !newMaterial.brand || !newMaterial.category || !newMaterial.batchNumber || !newMaterial.unit ||
-        !newMaterial.minThreshold || !newMaterial.maxCapacity || !newMaterial.supplier || !newMaterial.costPerUnit) {
-      toast({
-        title: "⚠️ Missing Required Fields",
-        description: "Please fill in all required fields before submitting.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      // Store the values before resetting the form
-      const materialName = newMaterial.name;
-      const orderQuantity = parseInt(newMaterial.currentStock) || 0;
-      
-      // Step 1: Add material to inventory with 0 quantity
-      const newInventoryMaterialData = {
-        name: newMaterial.name,
-        brand: newMaterial.brand,
-        category: newMaterial.category,
-        batchNumber: newMaterial.batchNumber,
-        currentStock: 0, // Always start with 0 quantity
-        unit: newMaterial.unit,
-        minThreshold: parseInt(newMaterial.minThreshold) || 0,
-        maxCapacity: parseInt(newMaterial.maxCapacity) || 0,
-        supplier: newMaterial.supplier,
-        costPerUnit: parseFloat(newMaterial.costPerUnit) || 0,
-        imageUrl: imagePreview || newMaterial.imageUrl || "",
-        status: "out-of-stock",
-        lastRestocked: new Date().toISOString().split('T')[0],
-        dailyUsage: 0,
-        qualityGrade: "A",
-        manufacturingDate: new Date().toISOString().split('T')[0],
-        expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-      };
-      
-      // Add to localStorage using the utility function
-      const addedMaterial = rawMaterialsStorage.add(newInventoryMaterialData);
-      console.log('Added new material to inventory with 0 stock:', addedMaterial);
-      
-      // Update local state with the new material
-      const updatedMaterials = rawMaterialsStorage.getAll();
-      const uniqueMaterials = removeDuplicateBatchNumbers(updatedMaterials);
-      setRawMaterials(uniqueMaterials);
-      
-      // Step 2: Create material order for the quantity requested
-      const materialOrder = {
-        materialName: newMaterial.name,
-        materialBrand: newMaterial.brand,
-        materialCategory: newMaterial.category,
-        materialBatchNumber: newMaterial.batchNumber,
-        supplier: newMaterial.supplier,
-        quantity: orderQuantity,
-        unit: newMaterial.unit,
-        costPerUnit: parseFloat(newMaterial.costPerUnit) || 0,
-        expectedDelivery: newMaterial.expectedDelivery || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-        minThreshold: parseInt(newMaterial.minThreshold) || 0,
-        maxCapacity: parseInt(newMaterial.maxCapacity) || 0
-      };
-
-      // Reset form
-      setIsAddMaterialOpen(false);
-      setNewMaterial({
-        name: "",
-        brand: "",
-        category: "",
-        batchNumber: "",
-        currentStock: "",
-        unit: "",
-        minThreshold: "",
-        maxCapacity: "",
-        supplier: "",
-        costPerUnit: "",
-        expectedDelivery: "",
-        imageUrl: ""
-      });
-      setSelectedImage(null);
-      setImagePreview("");
-      
-      // Navigate to Manage Stock with the order details
-      // The order will be created in Manage Stock, not here
-      navigate("/manage-stock", { 
-        state: { 
-          prefillOrder: {
-            materialName: materialName,
-            materialBrand: newMaterial.brand,
-            materialCategory: newMaterial.category,
-            materialBatchNumber: newMaterial.batchNumber,
-            supplier: newMaterial.supplier,
-            quantity: newMaterial.currentStock,
-            unit: newMaterial.unit,
-            costPerUnit: newMaterial.costPerUnit,
-            expectedDelivery: newMaterial.expectedDelivery,
-            minThreshold: newMaterial.minThreshold,
-            maxCapacity: newMaterial.maxCapacity,
-            isRestock: true // Mark as restock order so status gets updated to "in-transit"
-          }
-        }
-      });
-      
-      // Show success message
-      toast({
-        title: "✅ Material Order Data Prepared!",
-        description: `${materialName} order details have been sent to Manage Stock.`,
-        variant: "default",
-      });
-    } catch (error) {
-      console.error("Error creating material order:", error);
-      toast({
-        title: "❌ Error Creating Order",
-        description: "There was an error creating the material order. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleAddToInventory = () => {
-    // Validate required fields
-    if (!newInventoryMaterial.name || !newInventoryMaterial.brand || !newInventoryMaterial.category || !newInventoryMaterial.batchNumber || !newInventoryMaterial.unit ||
-        !newInventoryMaterial.minThreshold || !newInventoryMaterial.maxCapacity || !newInventoryMaterial.supplier || !newInventoryMaterial.costPerUnit) {
-      toast({
-        title: "⚠️ Missing Required Fields",
-        description: "Please fill in all required fields before submitting.",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // IMPORTANT: "Add to Inventory" is for adding NEW materials to inventory
-    // This is different from "Restock" - it always creates new material entries
-    // Even if name is same, different supplier/price/quality = NEW material
-    // Only when order is delivered in Manage Stock will it check for exact matches
-    const newInventoryMaterialData: RawMaterial = {
-      id: Date.now().toString(),
-      name: newInventoryMaterial.name,
-      brand: newInventoryMaterial.brand,
-      category: newInventoryMaterial.category,
-      currentStock: parseInt(newInventoryMaterial.currentStock) || 0,
-      unit: newInventoryMaterial.unit,
-      minThreshold: parseInt(newInventoryMaterial.minThreshold) || 0,
-      maxCapacity: parseInt(newInventoryMaterial.maxCapacity) || 0,
-      reorderPoint: parseInt(newInventoryMaterial.minThreshold) || 0,
-      lastRestocked: new Date().toISOString().split('T')[0],
-      dailyUsage: 0, // Will be calculated based on usage over time
-      status: "in-stock", // Default status
-      supplier: newInventoryMaterial.supplier,
-      costPerUnit: parseFloat(newInventoryMaterial.costPerUnit) || 0,
-      supplierId: `supplier_${Date.now()}`,
-      totalValue: (parseInt(newInventoryMaterial.currentStock) || 0) * (parseFloat(newInventoryMaterial.costPerUnit) || 0),
-      batchNumber: generateUniqueBatchNumber(),
-      materialsUsed: [],
-      supplierPerformance: 0,
-      imageUrl: inventoryImagePreview || newInventoryMaterial.imageUrl
-    };
-
-    try {
-      // Store the name before resetting the form
-      const materialName = newInventoryMaterial.name;
-      
-      // Add to localStorage using the utility function
-      const addedMaterial = rawMaterialsStorage.add(newInventoryMaterialData);
-      console.log('Added inventory material to localStorage:', addedMaterial);
-      
-      // Update local state with the new material
-      setRawMaterials(prev => {
-        const newState = [...prev, addedMaterial];
-        console.log('Updated rawMaterials state:', newState);
-        return newState;
-      });
-      
-      // Reset form
-      setIsAddToInventoryOpen(false);
-      setNewInventoryMaterial({
-        name: "",
-        brand: "",
-        category: "",
-        batchNumber: "",
-        currentStock: "",
-        unit: "",
-        minThreshold: "",
-        maxCapacity: "",
-        supplier: "",
-        costPerUnit: "",
-        imageUrl: ""
-      });
-      setSelectedInventoryImage(null);
-      setInventoryImagePreview("");
-      
-      // Show success message
-              toast({
-          title: "✅ Material Added to Inventory!",
-          description: `${materialName} has been successfully added to your inventory.`,
-          variant: "default",
-        });
-        
-        // Store stock update info for notification
-        localStorage.setItem('last_stock_update', JSON.stringify({
-          materialName: materialName,
-          oldStock: 0,
-          newStock: parseInt(newInventoryMaterial.currentStock) || 0,
-          quantity: parseInt(newInventoryMaterial.currentStock) || 0,
-          unit: newInventoryMaterial.unit,
-          timestamp: Date.now(),
-          action: 'added_to_inventory'
-        }));
-    } catch (error) {
-      console.error("Error adding material to inventory:", error);
-      toast({
-        title: "❌ Error Adding to Inventory",
-        description: "There was an error adding the material to inventory. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handlePlaceOrder = () => {
-    if (selectedMaterial) {
-      navigate("/manage-stock", { 
-        state: { 
-          prefillOrder: {
-            materialName: selectedMaterial.name,
-            materialBrand: selectedMaterial.brand,
-            materialCategory: selectedMaterial.category,
-            materialBatchNumber: selectedMaterial.batchNumber,
-            supplier: orderDetails.supplier,
-            quantity: orderDetails.quantity,
-            unit: orderDetails.unit,
-            costPerUnit: orderDetails.costPerUnit,
-            expectedDelivery: orderDetails.expectedDelivery,
-            minThreshold: selectedMaterial.minThreshold,
-            maxCapacity: selectedMaterial.maxCapacity,
-            qualityGrade: selectedMaterial.qualityGrade || "A",
-            notes: orderDetails.notes,
-            isRestock: true // This is a restock order, so status should be updated to "in-transit"
-          }
-        }
-      });
-    }
-    setIsOrderDialogOpen(false);
-  };
-
-  const lowStockCount = rawMaterials.filter(m => m.status === "low-stock" || m.status === "out-of-stock").length;
-  const totalMaterials = rawMaterials.length;
-  const totalStockValue = rawMaterials.reduce((sum, m) => sum + (m.currentStock * m.costPerUnit), 0);
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background p-6">
+        <Header title="Raw Materials" />
+        <div className="max-w-7xl mx-auto mt-8">
+          <div className="flex items-center justify-center h-64">
+            <div className="text-lg">Loading materials...</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex-1 space-y-6 p-6">
-      <Header 
-        title="Raw Materials Management" 
-        subtitle="Track material consumption, manage inventory and optimize procurement"
-      />
+    <div className="min-h-screen bg-background p-6">
+      <Header title="Raw Materials" />
 
-      <Tabs defaultValue="inventory" className="space-y-6">
-        <div className="flex flex-col gap-4">
-          <TabsList className="w-fit">
-            <TabsTrigger value="inventory">Material Inventory</TabsTrigger>
-            <TabsTrigger value="consumption">Usage Analytics</TabsTrigger>
-            <TabsTrigger value="notifications">Production Notifications</TabsTrigger>
-            <TabsTrigger value="waste">Waste Management</TabsTrigger>
-          </TabsList>
-          
-          <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-            <div className="flex flex-col sm:flex-row gap-4 flex-1 min-w-0">
-              <div className="relative flex-1 min-w-0">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
-                <Input 
-                  placeholder="Search materials..." 
-                  className="pl-10" 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+      <div className="max-w-7xl mx-auto mt-8">
+        <div className="flex items-center justify-between mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-foreground mb-2">Raw Materials</h1>
+            <p className="text-muted-foreground">
+              Manage your raw material inventory, orders, and suppliers
+            </p>
+          </div>
+
+          <div className="flex gap-3">
+            <Dialog open={isImportInventoryOpen} onOpenChange={setIsImportInventoryOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Upload className="w-4 h-4 mr-2" />
+                  Import CSV
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>Import Inventory from CSV</DialogTitle>
+                  <DialogDescription>
+                    Upload a CSV file with material data. Required columns: name, brand, category, currentStock, unit, costPerUnit
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <Input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleImportInventory}
+                  />
+                </div>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={isAddToInventoryOpen} onOpenChange={setIsAddToInventoryOpen}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Package className="w-4 h-4 mr-2" />
+                  Add to Inventory
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Add Material to Inventory</DialogTitle>
+                  <DialogDescription>
+                    Add a new raw material directly to your inventory system. This is for adding materials that you already have in stock.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {/* Image Upload Section */}
+                    <div>
+                    <Label>Material Image (Optional)</Label>
+                    <div className="mt-2">
+                      {inventoryImagePreview ? (
+                        <div className="relative">
+                          <img
+                            src={inventoryImagePreview}
+                            alt="Preview"
+                            className="w-32 h-32 object-cover rounded-lg border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                            onClick={removeInventoryImage}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
+                          <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground mb-2">Click to upload image</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => document.getElementById('inventory-image-upload')?.click()}
+                          >
+                            <Image className="w-4 h-4 mr-2" />
+                            Upload Image
+                          </Button>
+                          <input
+                            id="inventory-image-upload"
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleInventoryImageUpload}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="inventoryMaterialName">Material Name *</Label>
+                      <Input
+                      id="inventoryMaterialName"
+                        value={newInventoryMaterial.name}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, name: e.target.value})}
+                      placeholder="e.g., Cotton Yarn (Premium)"
+                      required
+                      />
+                    </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="inventorySupplier">Supplier Name *</Label>
+                      <Input
+                        id="inventorySupplier"
+                        value={newInventoryMaterial.supplier}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, supplier: e.target.value})}
+                        placeholder="e.g., ABC Textiles Ltd."
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="inventoryCategory">Category *</Label>
+                      <div className="space-y-2">
+                        <Select value={newInventoryMaterial.category} onValueChange={(value) => {
+                          if (value === "add_new") {
+                            setShowAddCategory(true);
+                          } else {
+                            setNewInventoryMaterial({...newInventoryMaterial, category: value});
+                          }
+                        }}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getAllCategories().map(category => (
+                              <div key={category} className="flex items-center justify-between px-2 py-1.5 hover:bg-accent rounded-sm">
+                                <SelectItem value={category} className="flex-1 p-0 h-auto">
+                                  {category}
+                                </SelectItem>
+                        <Button
+                                  variant="ghost"
+                          size="sm"
+                                  className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteCategory(category);
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                            ))}
+                            <SelectItem value="add_new" className="text-blue-600 font-medium">
+                              <div className="flex items-center gap-2">
+                                <Plus className="w-4 h-4" />
+                                Add New Category
+                    </div>
+                            </SelectItem>
+                          </SelectContent>
+                        </Select>
+                        {showAddCategory && (
+                      <div className="flex gap-2">
+                            <Input
+                              value={newCategoryName}
+                              onChange={(e) => setNewCategoryName(e.target.value)}
+                              placeholder="Enter new category"
+                              className="flex-1"
+                            />
+                            <Button type="button" size="sm" onClick={handleAddCategory}>Add</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddCategory(false); setNewCategoryName("");}}>Cancel</Button>
+                      </div>
+                        )}
+                    </div>
+                    </div>
+                  </div>
+
+                    <div>
+                    <Label htmlFor="inventoryBrand">Brand Name *</Label>
+                    <Input
+                      id="inventoryBrand"
+                      value={newInventoryMaterial.brand}
+                      onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, brand: e.target.value})}
+                      placeholder="e.g., TextilePro"
+                      required
+                    />
+                  </div>
+
+                    <div>
+                      <Label htmlFor="inventoryUnit">Unit *</Label>
+                    <div className="space-y-2">
+                      <Select value={newInventoryMaterial.unit} onValueChange={(value) => {
+                        if (value === "add_new") {
+                          setShowAddUnit(true);
+                        } else {
+                          setNewInventoryMaterial({...newInventoryMaterial, unit: value});
+                        }
+                      }}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Select unit" />
+                          </SelectTrigger>
+                          <SelectContent>
+                          {getAllUnits().map(unit => (
+                            <div key={unit} className="flex items-center justify-between px-2 py-1.5 hover:bg-accent rounded-sm">
+                              <SelectItem value={unit} className="flex-1 p-0 h-auto">
+                                {unit.charAt(0).toUpperCase() + unit.slice(1)}
+                              </SelectItem>
+                        <Button
+                                variant="ghost"
+                          size="sm"
+                                className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteUnit(unit);
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                          ))}
+                          <SelectItem value="add_new" className="text-blue-600 font-medium">
+                            <div className="flex items-center gap-2">
+                              <Plus className="w-4 h-4" />
+                              Add New Unit
+                    </div>
+                          </SelectItem>
+                          </SelectContent>
+                        </Select>
+                      {showAddUnit && (
+                        <div className="flex gap-2">
+                      <Input
+                            value={newUnitName}
+                            onChange={(e) => setNewUnitName(e.target.value)}
+                            placeholder="Enter new unit"
+                            className="flex-1"
+                          />
+                          <Button type="button" size="sm" onClick={handleAddUnit}>Add</Button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddUnit(false); setNewUnitName("");}}>Cancel</Button>
+                  </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <Label htmlFor="inventoryCurrentStock">Current Stock *</Label>
+                      <Input
+                        id="inventoryCurrentStock"
+                        type="number"
+                        value={newInventoryMaterial.currentStock}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, currentStock: e.target.value})}
+                        placeholder="100"
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Current quantity in stock</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="inventoryMinThreshold">Min Threshold *</Label>
+                      <Input
+                        id="inventoryMinThreshold"
+                        type="number"
+                        value={newInventoryMaterial.minThreshold}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, minThreshold: e.target.value})}
+                        placeholder="50"
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Reorder point</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="inventoryMaxCapacity">Max Capacity *</Label>
+                      <Input
+                        id="inventoryMaxCapacity"
+                        type="number"
+                        value={newInventoryMaterial.maxCapacity}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, maxCapacity: e.target.value})}
+                        placeholder="500"
+                        required
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Maximum storage capacity</p>
+                    </div>
+                  </div>
+                    <div>
+                    <Label htmlFor="inventoryCostPerUnit">Cost/Unit (₹) *</Label>
+                      <Input
+                      id="inventoryCostPerUnit"
+                        type="number"
+                        value={newInventoryMaterial.costPerUnit}
+                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, costPerUnit: e.target.value})}
+                      placeholder="450"
+                      required
+                      />
+                    <p className="text-xs text-muted-foreground mt-1">Cost per unit</p>
+                  </div>
+
+                  <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                    <p className="text-sm text-blue-800">
+                      <strong>Note:</strong> This material will be added directly to your inventory.
+                      Use "Order Now" or "Restock" buttons to create purchase orders when stock is low.
+                    </p>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsAddToInventoryOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleAddToInventory}>
+                    Add to Inventory
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+
+            <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Create Material Order
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>Create Material Procurement Order</DialogTitle>
+                  <DialogDescription>
+                    Create a new material order that will be sent to Manage Stock for procurement. The material will be added with 0 quantity first, then orders will manage stock levels.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="space-y-4">
+                  {/* Image Upload Section */}
+                      <div>
+                    <Label>Material Image (Optional)</Label>
+                    <div className="mt-2">
+                      {imagePreview ? (
+                        <div className="relative">
+                          <img
+                            src={imagePreview}
+                            alt="Preview"
+                            className="w-32 h-32 object-cover rounded-lg border"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="sm"
+                            className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
+                            onClick={removeImage}
+                          >
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
+                          <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
+                          <p className="text-sm text-muted-foreground mb-2">Click to upload image</p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => document.getElementById('image-upload')?.click()}
+                          >
+                            <Image className="w-4 h-4 mr-2" />
+                            Upload Image
+                          </Button>
+                          <input
+                            id="image-upload"
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={handleImageUpload}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <Label htmlFor="materialName">Material Name</Label>
+                        <Input
+                      id="materialName"
+                          value={newMaterial.name}
+                          onChange={(e) => setNewMaterial({...newMaterial, name: e.target.value})}
+                      placeholder="e.g., Cotton Yarn (Premium)"
+                        />
+                      </div>
+                  <div className="grid grid-cols-2 gap-4">
+                      <div>
+                      <Label htmlFor="supplier">Supplier Name *</Label>
+                        <Input
+                        id="supplier"
+                        value={newMaterial.supplier}
+                        onChange={(e) => setNewMaterial({...newMaterial, supplier: e.target.value})}
+                        placeholder="e.g., ABC Textiles Ltd."
+                        />
+                      </div>
+                      <div>
+                      <Label htmlFor="category">Category *</Label>
+                      <div className="space-y-2">
+                        <Select value={newMaterial.category} onValueChange={(value) => {
+                          if (value === "add_new") {
+                            setShowAddCategory(true);
+                          } else {
+                            setNewMaterial({...newMaterial, category: value});
+                          }
+                        }}>
+                        <SelectTrigger>
+                              <SelectValue placeholder="Select category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                            {getAllCategories().map(category => (
+                              <div key={category} className="flex items-center justify-between px-2 py-1.5 hover:bg-accent rounded-sm">
+                                <SelectItem value={category} className="flex-1 p-0 h-auto">
+                                  {category}
+                                </SelectItem>
+                          <Button
+                                  variant="ghost"
+                            size="sm"
+                                  className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteCategory(category);
+                                  }}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                            ))}
+                            <SelectItem value="add_new" className="text-blue-600 font-medium">
+                              <div className="flex items-center gap-2">
+                                <Plus className="w-4 h-4" />
+                                Add New Category
+                      </div>
+                            </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        {showAddCategory && (
+                        <div className="flex gap-2">
+                            <Input
+                              value={newCategoryName}
+                              onChange={(e) => setNewCategoryName(e.target.value)}
+                              placeholder="Enter new category"
+                              className="flex-1"
+                            />
+                            <Button type="button" size="sm" onClick={async () => {
+                              if (newCategoryName.trim() && !customCategories.includes(newCategoryName.trim())) {
+                                const updatedCategories = [...customCategories, newCategoryName.trim()];
+                                setCustomCategories(updatedCategories);
+                                setNewMaterial({...newMaterial, category: newCategoryName.trim()});
+                                
+                                // Save to Supabase settings
+                                const updatedSettings = { ...settings, customCategories: updatedCategories };
+                                await supabaseStorage.updateSettings(updatedSettings);
+                                setSettings(updatedSettings);
+                                
+                                setNewCategoryName("");
+                                setShowAddCategory(false);
+                              }
+                            }}>Add</Button>
+                            <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddCategory(false); setNewCategoryName("");}}>Cancel</Button>
+                        </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                      <div>
+                    <Label htmlFor="brand">Brand Name *</Label>
+                    <Input
+                      id="brand"
+                      value={newMaterial.brand}
+                      onChange={(e) => setNewMaterial({...newMaterial, brand: e.target.value})}
+                      placeholder="e.g., TextilePro"
+                    />
+                  </div>
+
+                    <div>
+                    <Label htmlFor="unit">Unit *</Label>
+                    <div className="space-y-2">
+                          <Select value={newMaterial.unit} onValueChange={(value) => {
+                        if (value === "add_new") {
+                          setShowAddUnit(true);
+                        } else {
+                            setNewMaterial({...newMaterial, unit: value});
+                        }
+                          }}>
+                        <SelectTrigger>
+                              <SelectValue placeholder="Select unit" />
+                            </SelectTrigger>
+                            <SelectContent>
+                          {getAllUnits().map(unit => (
+                            <div key={unit} className="flex items-center justify-between px-2 py-1.5 hover:bg-accent rounded-sm">
+                              <SelectItem value={unit} className="flex-1 p-0 h-auto">
+                                {unit.charAt(0).toUpperCase() + unit.slice(1)}
+                              </SelectItem>
+                          <Button
+                                variant="ghost"
+                            size="sm"
+                                className="h-6 w-6 p-0 text-red-500 hover:text-red-700 hover:bg-red-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteUnit(unit);
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                          </Button>
+                        </div>
+                          ))}
+                          <SelectItem value="add_new" className="text-blue-600 font-medium">
+                            <div className="flex items-center gap-2">
+                              <Plus className="w-4 h-4" />
+                              Add New Unit
+                      </div>
+                          </SelectItem>
+                            </SelectContent>
+                          </Select>
+                      {showAddUnit && (
+                        <div className="flex gap-2">
+                      <Input
+                            value={newUnitName}
+                            onChange={(e) => setNewUnitName(e.target.value)}
+                            placeholder="Enter new unit"
+                            className="flex-1"
+                          />
+                          <Button type="button" size="sm" onClick={async () => {
+                            if (newUnitName.trim() && !customUnits.includes(newUnitName.trim())) {
+                              const updatedUnits = [...customUnits, newUnitName.trim()];
+                              setCustomUnits(updatedUnits);
+                              setNewMaterial({...newMaterial, unit: newUnitName.trim()});
+                              
+                              // Save to Supabase settings
+                              const updatedSettings = { ...settings, customUnits: updatedUnits };
+                              await supabaseStorage.updateSettings(updatedSettings);
+                              setSettings(updatedSettings);
+                              
+                              setNewUnitName("");
+                              setShowAddUnit(false);
+                            }
+                          }}>Add</Button>
+                          <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddUnit(false); setNewUnitName("");}}>Cancel</Button>
+                        </div>
+                      )}
+                      </div>
+                    </div>
+                  <div className="grid grid-cols-3 gap-4">
+                      <div>
+                      <Label htmlFor="orderStock">Order Stock</Label>
+                        <Input
+                        id="orderStock"
+                        type="number"
+                        value={newMaterial.currentStock || ""}
+                        onChange={(e) => setNewMaterial({...newMaterial, currentStock: e.target.value})}
+                        placeholder="100"
+                      />
+                      <p className="text-xs text-muted-foreground mt-1">Quantity to order for this material</p>
+                    </div>
+                    <div>
+                      <Label htmlFor="minThreshold">Min Threshold</Label>
+                      <Input
+                        id="minThreshold"
+                          type="number"
+                          value={newMaterial.minThreshold}
+                          onChange={(e) => setNewMaterial({...newMaterial, minThreshold: e.target.value})}
+                        placeholder="100"
+                        />
+                      </div>
+                      <div>
+                      <Label htmlFor="maxCapacity">Max Capacity</Label>
+                        <Input
+                        id="maxCapacity"
+                          type="number"
+                          value={newMaterial.maxCapacity}
+                          onChange={(e) => setNewMaterial({...newMaterial, maxCapacity: e.target.value})}
+                        placeholder="500"
+                        />
+                      </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                      <div>
+                      <Label htmlFor="costPerUnit">Cost/Unit (₹)</Label>
+                        <Input
+                        id="costPerUnit"
+                          type="number"
+                          value={newMaterial.costPerUnit}
+                        onChange={(e) => setNewMaterial({...newMaterial, costPerUnit: e.target.value})}
+                        placeholder="450"
+                        />
+                      </div>
+                    </div>
+
+                      <div>
+                    <Label htmlFor="expectedDelivery">Expected Delivery Date</Label>
+                        <Input
+                      id="expectedDelivery"
+                          type="date"
+                      value={newMaterial.expectedDelivery || ""}
+                      onChange={(e) => setNewMaterial({...newMaterial, expectedDelivery: e.target.value})}
+                      min={new Date().toISOString().split('T')[0]}
+                    />
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setIsOrderDialogOpen(false)}>
+                    Cancel
+                  </Button>
+                  <Button onClick={handleCreateOrder}>
+                    Create Order
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          </div>
+        </div>
+
+        {/* Add Custom Category Dialog */}
+        <Dialog open={showAddCategory} onOpenChange={setShowAddCategory}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Custom Category</DialogTitle>
+              <DialogDescription>
+                Add a new category for materials
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="new-category">Category Name</Label>
+                <Input
+                  id="new-category"
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="Enter category name"
                 />
+              </div>
             </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAddCategory(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddCustomCategory}>
+                Add Category
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Custom Unit Dialog */}
+        <Dialog open={showAddUnit} onOpenChange={setShowAddUnit}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Custom Unit</DialogTitle>
+              <DialogDescription>
+                Add a new unit of measurement
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div>
+                <Label htmlFor="new-unit">Unit Name</Label>
+                <Input
+                  id="new-unit"
+                  value={newUnitName}
+                  onChange={(e) => setNewUnitName(e.target.value)}
+                  placeholder="Enter unit name"
+                />
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowAddUnit(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleAddCustomUnit}>
+                Add Unit
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Quick Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center">
+                <CheckCircle className="h-8 w-8 text-green-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-muted-foreground">In Stock</p>
+                  <p className="text-2xl font-bold text-green-600">{stockStats.inStock}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center">
+                <AlertTriangle className="h-8 w-8 text-yellow-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-muted-foreground">Low Stock</p>
+                  <p className="text-2xl font-bold text-yellow-600">{stockStats.lowStock}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center">
+                <AlertCircle className="h-8 w-8 text-red-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-muted-foreground">Out of Stock</p>
+                  <p className="text-2xl font-bold text-red-600">{stockStats.outOfStock}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex items-center">
+                <TrendingDown className="h-8 w-8 text-blue-600" />
+                <div className="ml-3">
+                  <p className="text-sm font-medium text-muted-foreground">Overstock</p>
+                  <p className="text-2xl font-bold text-blue-600">{stockStats.overstock}</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Filters and Search */}
+        <Card className="mb-8">
+          <CardContent className="pt-6">
+            <div className="flex flex-col md:flex-row gap-4">
+              <div className="flex-1">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
+                  <Input
+                    placeholder="Search materials..."
+                    className="pl-10"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
+
               <Select value={categoryFilter} onValueChange={setCategoryFilter}>
                 <SelectTrigger className="w-48">
                   <SelectValue placeholder="All Categories" />
@@ -1247,1906 +2360,823 @@ Blue Dye (Industrial),ColorMax,Dye,BATCH-2025-005,60,liters,25,200,Chemical Work
                   ))}
                 </SelectContent>
               </Select>
+
               <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-40">
-                  <SelectValue placeholder="Status" />
+                <SelectTrigger className="w-48">
+                  <SelectValue placeholder="All Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low-stock">Low Stock</SelectItem>
-                  <SelectItem value="sufficient">Sufficient</SelectItem>
-                  <SelectItem value="out-of-stock">Out of Stock</SelectItem>
-                  <SelectItem value="in-transit">In Transit</SelectItem>
                   <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="in-stock">In Stock</SelectItem>
+                  <SelectItem value="low-stock">Low Stock</SelectItem>
+                  <SelectItem value="out-of-stock">Out of Stock</SelectItem>
+                  <SelectItem value="overstock">Overstock</SelectItem>
+                  <SelectItem value="in-transit">In Transit</SelectItem>
                 </SelectContent>
               </Select>
             </div>
-            <div className="flex gap-2 shrink-0">
+          </CardContent>
+        </Card>
 
-              
-              {/* Import Inventory Button */}
-              <Dialog open={isImportInventoryOpen} onOpenChange={setIsImportInventoryOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="flex items-center gap-2">
-                    <FileSpreadsheet className="w-4 h-4" />
-                    Import Inventory
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>Import Inventory from Excel/CSV</DialogTitle>
-                    <DialogDescription>
-                      Import your existing inventory data from an Excel or CSV file. Download the template below to see the required format.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-6">
-                    {/* Template Download */}
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <h4 className="font-medium text-blue-900 mb-1">Download Template</h4>
-                          <p className="text-sm text-blue-700">
-                            Download our CSV template to ensure your data is in the correct format.
-                          </p>
-                        </div>
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={downloadTemplate}
-                          className="flex items-center gap-2"
+        <Tabs defaultValue="overview">
+          <TabsList className="grid w-full grid-cols-5">
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="inventory">Inventory</TabsTrigger>
+            <TabsTrigger value="waste-recovery">
+              Waste Recovery (0)
+            </TabsTrigger>
+            <TabsTrigger value="analytics">Analytics</TabsTrigger>
+            <TabsTrigger value="notifications" className="text-xs sm:text-sm">
+              <span className="hidden sm:inline">Notifications</span>
+              <span className="sm:hidden">Alerts</span>
+              {notifications.length > 0 && (
+                <Badge variant="destructive" className="ml-1 sm:ml-2 text-xs">
+                  {notifications.length}
+                </Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="overview" className="space-y-6">
+            {/* Materials Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredMaterials.map((material) => (
+                <Card key={material.id} className="hover:shadow-lg transition-shadow">
+                  <CardContent className="p-6">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <h3 className="font-semibold text-lg mb-1">{material.name}</h3>
+                        <p className="text-sm text-muted-foreground mb-2">{material.brand}</p>
+                        <Badge
+                          variant="secondary"
+                          className={`text-xs ${statusStyles[material.status]}`}
                         >
-                          <Download className="w-4 h-4" />
-                          Download Template
-                        </Button>
+                          {material.status.replace('-', ' ')}
+                        </Badge>
+                      </div>
+                      {material.imageUrl && (
+                        <Image className="w-12 h-12 text-muted-foreground" />
+                      )}
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Stock:</span>
+                        <span className="font-medium">{material.currentStock} {material.unit}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Category:</span>
+                        <span>{material.category}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Supplier:</span>
+                        <span>{material.supplier}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Cost/Unit:</span>
+                        <span>₹{material.costPerUnit}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Value:</span>
+                        <span className="font-medium">₹{(material.totalValue || 0).toFixed(2)}</span>
                       </div>
                     </div>
 
-                    {/* File Upload */}
-                    <div>
-                      <Label>Upload CSV/Excel File</Label>
-                      <div className="mt-2">
-                        {importFile ? (
-                          <div className="border rounded-lg p-4 bg-green-50 border-green-200">
-                            <div className="flex items-center gap-2 mb-2">
-                              <CheckCircle className="w-5 h-5 text-green-600" />
-                              <span className="font-medium text-green-900">{importFile.name}</span>
-                            </div>
-                            <p className="text-sm text-green-700 mb-3">
-                              File selected successfully. Review the preview below.
-                            </p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setImportFile(null);
-                                setImportPreview([]);
-                                setImportStatus('idle');
-                                setImportErrors([]);
-                              }}
-                            >
-                              Change File
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
-                            <FileSpreadsheet className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                            <p className="text-sm text-muted-foreground mb-2">Click to upload CSV or Excel file</p>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => document.getElementById('import-file')?.click()}
-                            >
-                              <Upload className="w-4 h-4 mr-2" />
-                              Choose File
-                            </Button>
-                            <input
-                              id="import-file"
-                              type="file"
-                              accept=".csv,.xlsx,.xls"
-                              className="hidden"
-                              onChange={handleFileImport}
-                            />
-                          </div>
-                        )}
-                      </div>
+                    <div className="mt-4 pt-4 border-t flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => {
+                          setSelectedMaterial(material);
+                          setIsDetailsDialogOpen(true);
+                        }}
+                      >
+                        Details
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => handleOpenRestockDialog(material)}
+                      >
+                        <ShoppingCart className="w-4 h-4 mr-1" />
+                        Order
+                      </Button>
                     </div>
-
-                    {/* Import Preview */}
-                    {importPreview.length > 0 && (
-                      <div>
-                        <Label>Data Preview (First 5 rows)</Label>
-                        <div className="mt-2 border rounded-lg overflow-hidden">
-                          <div className="overflow-x-auto">
-                            <table className="w-full text-sm">
-                              <thead className="bg-muted">
-                                <tr>
-                                  {Object.keys(importPreview[0] || {}).map(header => (
-                                    <th key={header} className="p-2 text-left font-medium">
-                                      {header}
-                                    </th>
-                                  ))}
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {importPreview.map((row, index) => (
-                                  <tr key={index} className="border-t">
-                                    {Object.values(row).map((value, valueIndex) => (
-                                      <td key={valueIndex} className="p-2">
-                                        {String(value)}
-                                      </td>
-                                    ))}
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Import Errors */}
-                    {importErrors.length > 0 && (
-                      <div className="bg-red-50 border border-red-200 rounded-lg p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <AlertCircle className="w-5 h-5 text-red-600" />
-                          <h4 className="font-medium text-red-900">Import Errors</h4>
-                        </div>
-                        <div className="space-y-1">
-                          {importErrors.map((error, index) => (
-                            <p key={index} className="text-sm text-red-700">{error}</p>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Import Status */}
-                    {importStatus === 'processing' && (
-                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                        <div className="flex items-center gap-2">
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                          <span className="text-blue-900">Processing import...</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {importStatus === 'success' && (
-                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                        <div className="flex items-center gap-2">
-                          <CheckCircle className="w-5 h-5 text-green-600" />
-                          <span className="text-green-900">Import completed successfully!</span>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsImportInventoryOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button 
-                      onClick={processImport}
-                      disabled={!importFile || importStatus === 'processing'}
-                      className="flex items-center gap-2"
-                    >
-                      <Upload className="w-4 h-4" />
-                      Import Materials
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              {/* Add Material to Inventory Button */}
-              <Dialog open={isAddToInventoryOpen} onOpenChange={setIsAddToInventoryOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="flex items-center gap-2">
-                    <Package className="w-4 h-4" />
-                    Add to Inventory
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                    <DialogTitle>Add Material to Inventory</DialogTitle>
-                    <DialogDescription>
-                      Add a new raw material directly to your inventory system. This is for initial setup - the material will be added directly to your inventory list.
-                    </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    {/* Image Upload Section */}
-                    <div>
-                      <Label>Material Image (Optional)</Label>
-                      <div className="mt-2">
-                        {inventoryImagePreview ? (
-                          <div className="relative">
-                            <img 
-                              src={inventoryImagePreview} 
-                              alt="Preview" 
-                              className="w-32 h-32 object-cover rounded-lg border"
-                            />
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
-                              onClick={removeInventoryImage}
-                            >
-                              <X className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
-                            <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                            <p className="text-sm text-muted-foreground mb-2">Click to upload image</p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => document.getElementById('inventory-image-upload')?.click()}
-                            >
-                              <Image className="w-4 h-4 mr-2" />
-                              Upload Image
-                            </Button>
-                            <input
-                              id="inventory-image-upload"
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={handleInventoryImageUpload}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="inventoryMaterialName">Material Name *</Label>
-                      <Input
-                        id="inventoryMaterialName"
-                        value={newInventoryMaterial.name}
-                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, name: e.target.value})}
-                        placeholder="e.g., Cotton Yarn (Premium)"
-                        required
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="inventorySupplier">Supplier Name *</Label>
-                        <Input
-                          id="inventorySupplier"
-                          value={newInventoryMaterial.supplier}
-                          onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, supplier: e.target.value})}
-                          placeholder="e.g., ABC Textiles Ltd."
-                          required
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="inventoryCategory">Category *</Label>
-                        <div className="space-y-2">
-                          <Select value={newInventoryMaterial.category} onValueChange={(value) => {
-                            if (value === "add_new") {
-                              setShowAddCategory(true);
-                            } else {
-                              setNewInventoryMaterial({...newInventoryMaterial, category: value});
-                            }
-                          }}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                              {getAllCategories().map(category => (
-                                <SelectItem key={category} value={category}>{category}</SelectItem>
-                              ))}
-                              <SelectItem value="add_new" className="text-blue-600 font-medium">
-                                <div className="flex items-center gap-2">
-                                  <Plus className="w-4 h-4" />
-                                  Add New Category
-                                </div>
-                              </SelectItem>
-                          </SelectContent>
-                        </Select>
-                          {showAddCategory && (
-                            <div className="flex gap-2">
-                              <Input
-                                value={newCategoryName}
-                                onChange={(e) => setNewCategoryName(e.target.value)}
-                                placeholder="Enter new category"
-                                className="flex-1"
-                              />
-                              <Button type="button" size="sm" onClick={handleAddCategory}>Add</Button>
-                              <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddCategory(false); setNewCategoryName("");}}>Cancel</Button>
-                      </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="inventoryBrand">Brand Name *</Label>
-                      <Input
-                        id="inventoryBrand"
-                        value={newInventoryMaterial.brand}
-                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, brand: e.target.value})}
-                        placeholder="e.g., TextilePro"
-                        required
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="inventoryBatchNumber">Batch Number *</Label>
-                      <Input
-                        id="inventoryBatchNumber"
-                        value={newInventoryMaterial.batchNumber}
-                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, batchNumber: e.target.value})}
-                        placeholder="e.g., BATCH-2024-001"
-                        required
-                      />
-                    </div>
-                      <div>
-                        <Label htmlFor="inventoryUnit">Unit *</Label>
-                      <div className="space-y-2">
-                        <Select value={newInventoryMaterial.unit} onValueChange={(value) => {
-                          if (value === "add_new") {
-                            setShowAddUnit(true);
-                          } else {
-                            setNewInventoryMaterial({...newInventoryMaterial, unit: value});
-                          }
-                        }}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select unit" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getAllUnits().map(unit => (
-                              <SelectItem key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</SelectItem>
-                            ))}
-                            <SelectItem value="add_new" className="text-blue-600 font-medium">
-                              <div className="flex items-center gap-2">
-                                <Plus className="w-4 h-4" />
-                                Add New Unit
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {showAddUnit && (
-                          <div className="flex gap-2">
-                        <Input
-                              value={newUnitName}
-                              onChange={(e) => setNewUnitName(e.target.value)}
-                              placeholder="Enter new unit"
-                              className="flex-1"
-                            />
-                            <Button type="button" size="sm" onClick={handleAddUnit}>Add</Button>
-                            <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddUnit(false); setNewUnitName("");}}>Cancel</Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <Label htmlFor="inventoryCurrentStock">Current Stock *</Label>
-                        <Input
-                          id="inventoryCurrentStock"
-                          type="number"
-                          value={newInventoryMaterial.currentStock}
-                          onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, currentStock: e.target.value})}
-                          placeholder="100"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">Current quantity in stock</p>
-                      </div>
-                      <div>
-                        <Label htmlFor="inventoryMinThreshold">Min Threshold *</Label>
-                        <Input
-                          id="inventoryMinThreshold"
-                          type="number"
-                          value={newInventoryMaterial.minThreshold}
-                          onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, minThreshold: e.target.value})}
-                          placeholder="50"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">Reorder point</p>
-                      </div>
-                      <div>
-                        <Label htmlFor="inventoryMaxCapacity">Max Capacity *</Label>
-                        <Input
-                          id="inventoryMaxCapacity"
-                          type="number"
-                          value={newInventoryMaterial.maxCapacity}
-                          onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, maxCapacity: e.target.value})}
-                          placeholder="500"
-                          required
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">Maximum storage capacity</p>
-                      </div>
-                    </div>
-                    <div>
-                      <Label htmlFor="inventoryCostPerUnit">Cost/Unit (₹) *</Label>
-                      <Input
-                        id="inventoryCostPerUnit"
-                        type="number"
-                        value={newInventoryMaterial.costPerUnit}
-                        onChange={(e) => setNewInventoryMaterial({...newInventoryMaterial, costPerUnit: e.target.value})}
-                        placeholder="450"
-                        required
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">Cost per unit</p>
-                    </div>
-                    
-                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
-                      <p className="text-sm text-blue-800">
-                        <strong>Note:</strong> This material will be added directly to your inventory. 
-                        Use "Order Now" or "Restock" buttons to create purchase orders when stock is low.
-                      </p>
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsAddToInventoryOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleAddToInventory}>
-                      Add to Inventory
-                    </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              {/* Original Add Material Button (for ordering) */}
-              <Dialog open={isAddMaterialOpen} onOpenChange={setIsAddMaterialOpen}>
-                <DialogTrigger asChild>
-                  <Button className="flex items-center gap-2">
-                    <Plus className="w-4 h-4" />
-              Create Material Order
-                  </Button>
-                </DialogTrigger>
-                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-                  <DialogHeader>
-                                      <DialogTitle>Create Material Procurement Order</DialogTitle>
-                  <DialogDescription>
-                    Create a new material order that will be sent to Manage Stock for procurement. The material will be added with 0 quantity first, then orders will manage stock levels.
-                  </DialogDescription>
-                  </DialogHeader>
-                  <div className="space-y-4">
-                    {/* Image Upload Section */}
-                    <div>
-                      <Label>Material Image (Optional)</Label>
-                      <div className="mt-2">
-                        {imagePreview ? (
-                          <div className="relative">
-                            <img 
-                              src={imagePreview} 
-                              alt="Preview" 
-                              className="w-32 h-32 object-cover rounded-lg border"
-                            />
-                            <Button
-                              type="button"
-                              variant="destructive"
-                              size="sm"
-                              className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0"
-                              onClick={removeImage}
-                            >
-                              <X className="h-3 w-3" />
-            </Button>
-                          </div>
-                        ) : (
-                          <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-6 text-center hover:border-muted-foreground/50 transition-colors">
-                            <Upload className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-                            <p className="text-sm text-muted-foreground mb-2">Click to upload image</p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => document.getElementById('image-upload')?.click()}
-                            >
-                              <Image className="w-4 h-4 mr-2" />
-                              Upload Image
-                            </Button>
-                            <input
-                              id="image-upload"
-                              type="file"
-                              accept="image/*"
-                              className="hidden"
-                              onChange={handleImageUpload}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div>
-                      <Label htmlFor="materialName">Material Name</Label>
-                      <Input
-                        id="materialName"
-                        value={newMaterial.name}
-                        onChange={(e) => setNewMaterial({...newMaterial, name: e.target.value})}
-                        placeholder="e.g., Cotton Yarn (Premium)"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <Label htmlFor="supplier">Supplier Name *</Label>
-                        <Input
-                          id="supplier"
-                          value={newMaterial.supplier}
-                          onChange={(e) => setNewMaterial({...newMaterial, supplier: e.target.value})}
-                          placeholder="e.g., ABC Textiles Ltd."
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="category">Category *</Label>
-                        <div className="space-y-2">
-                          <Select value={newMaterial.category} onValueChange={(value) => {
-                            if (value === "add_new") {
-                              setShowAddCategory(true);
-                            } else {
-                              setNewMaterial({...newMaterial, category: value});
-                            }
-                          }}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select category" />
-                          </SelectTrigger>
-                          <SelectContent>
-                              {getAllCategories().map(category => (
-                                <SelectItem key={category} value={category}>{category}</SelectItem>
-                              ))}
-                              <SelectItem value="add_new" className="text-blue-600 font-medium">
-                                <div className="flex items-center gap-2">
-                                  <Plus className="w-4 h-4" />
-                                  Add New Category
-                                </div>
-                              </SelectItem>
-                          </SelectContent>
-                        </Select>
-                          {showAddCategory && (
-                            <div className="flex gap-2">
-                              <Input
-                                value={newCategoryName}
-                                onChange={(e) => setNewCategoryName(e.target.value)}
-                                placeholder="Enter new category"
-                                className="flex-1"
-                              />
-                              <Button type="button" size="sm" onClick={() => {
-                                if (newCategoryName.trim() && !customCategories.includes(newCategoryName.trim())) {
-                                  const updatedCategories = [...customCategories, newCategoryName.trim()];
-                                  setCustomCategories(updatedCategories);
-                                  setNewMaterial({...newMaterial, category: newCategoryName.trim()});
-                                  localStorage.setItem('rajdhani_custom_categories', JSON.stringify(updatedCategories));
-                                  setNewCategoryName("");
-                                  setShowAddCategory(false);
-                                }
-                              }}>Add</Button>
-                              <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddCategory(false); setNewCategoryName("");}}>Cancel</Button>
-                      </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="brand">Brand Name *</Label>
-                      <Input
-                        id="brand"
-                        value={newMaterial.brand}
-                        onChange={(e) => setNewMaterial({...newMaterial, brand: e.target.value})}
-                        placeholder="e.g., TextilePro"
-                      />
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="batchNumber">Batch Number</Label>
-                      <Input
-                        id="batchNumber"
-                        value={newMaterial.batchNumber}
-                        onChange={(e) => setNewMaterial({...newMaterial, batchNumber: e.target.value})}
-                        placeholder="e.g., BATCH-2024-001"
-                      />
-                    </div>
-                      <div>
-                      <Label htmlFor="unit">Unit *</Label>
-                      <div className="space-y-2">
-                        <Select value={newMaterial.unit} onValueChange={(value) => {
-                          if (value === "add_new") {
-                            setShowAddUnit(true);
-                          } else {
-                            setNewMaterial({...newMaterial, unit: value});
-                          }
-                        }}>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select unit" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {getAllUnits().map(unit => (
-                              <SelectItem key={unit} value={unit}>{unit.charAt(0).toUpperCase() + unit.slice(1)}</SelectItem>
-                            ))}
-                            <SelectItem value="add_new" className="text-blue-600 font-medium">
-                              <div className="flex items-center gap-2">
-                                <Plus className="w-4 h-4" />
-                                Add New Unit
-                              </div>
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {showAddUnit && (
-                          <div className="flex gap-2">
-                        <Input
-                              value={newUnitName}
-                              onChange={(e) => setNewUnitName(e.target.value)}
-                              placeholder="Enter new unit"
-                              className="flex-1"
-                            />
-                            <Button type="button" size="sm" onClick={() => {
-                              if (newUnitName.trim() && !customUnits.includes(newUnitName.trim())) {
-                                const updatedUnits = [...customUnits, newUnitName.trim()];
-                                setCustomUnits(updatedUnits);
-                                setNewMaterial({...newMaterial, unit: newUnitName.trim()});
-                                localStorage.setItem('rajdhani_custom_units', JSON.stringify(updatedUnits));
-                                setNewUnitName("");
-                                setShowAddUnit(false);
-                              }
-                            }}>Add</Button>
-                            <Button type="button" size="sm" variant="outline" onClick={() => {setShowAddUnit(false); setNewUnitName("");}}>Cancel</Button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <Label htmlFor="orderStock">Order Stock</Label>
-                        <Input
-                          id="orderStock"
-                          type="number"
-                          value={newMaterial.currentStock || ""}
-                          onChange={(e) => setNewMaterial({...newMaterial, currentStock: e.target.value})}
-                          placeholder="100"
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">Quantity to order for this material</p>
-                      </div>
-                      <div>
-                        <Label htmlFor="minThreshold">Min Threshold</Label>
-                        <Input
-                          id="minThreshold"
-                          type="number"
-                          value={newMaterial.minThreshold}
-                          onChange={(e) => setNewMaterial({...newMaterial, minThreshold: e.target.value})}
-                          placeholder="100"
-                        />
-                      </div>
-                      <div>
-                        <Label htmlFor="maxCapacity">Max Capacity</Label>
-                        <Input
-                          id="maxCapacity"
-                          type="number"
-                          value={newMaterial.maxCapacity}
-                          onChange={(e) => setNewMaterial({...newMaterial, maxCapacity: e.target.value})}
-                          placeholder="500"
-                        />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <Label htmlFor="costPerUnit">Cost/Unit (₹)</Label>
-                        <Input
-                          id="costPerUnit"
-                          type="number"
-                          value={newMaterial.costPerUnit}
-                          onChange={(e) => setNewMaterial({...newMaterial, costPerUnit: e.target.value})}
-                          placeholder="450"
-                        />
-                      </div>
-
-                      
-                    </div>
-                    
-                    <div>
-                      <Label htmlFor="expectedDelivery">Expected Delivery Date</Label>
-                      <Input
-                        id="expectedDelivery"
-                        type="date"
-                        value={newMaterial.expectedDelivery || ""}
-                        onChange={(e) => setNewMaterial({...newMaterial, expectedDelivery: e.target.value})}
-                        min={new Date().toISOString().split('T')[0]}
-                      />
-                    </div>
-                  </div>
-                  <DialogFooter>
-                    <Button variant="outline" onClick={() => setIsAddMaterialOpen(false)}>
-                      Cancel
-                    </Button>
-                    <Button onClick={handleAddMaterial}>
-              Add Material
-            </Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
-          </div>
-        </div>
 
-        <TabsContent value="inventory" className="space-y-6">
-          {/* Overview Cards */}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Materials</CardTitle>
-                <Package className="h-4 w-4 text-materials" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{totalMaterials}</div>
-                <p className="text-xs text-muted-foreground">
-                  Different material types
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
-                <AlertTriangle className="h-4 w-4 text-warning" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-warning">{lowStockCount}</div>
-                <p className="text-xs text-muted-foreground">
-                  Need reordering
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Stock Value</CardTitle>
-                <TrendingDown className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">₹{totalStockValue.toLocaleString()}</div>
-                <p className="text-xs text-muted-foreground">
-                  Current inventory value
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Waste Recovery</CardTitle>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setWasteRecoveryRefresh(prev => prev + 1)}
-                    className="h-6 w-6 p-0"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                  </Button>
-                <Recycle className="h-4 w-4 text-success" />
-                </div>
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{getWasteRecoveryCount()}</div>
-                <p className="text-xs text-muted-foreground">
-                  Items recovered from waste
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+            {filteredMaterials.length === 0 && (
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-center py-8">
+                    <Package className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+                    <h3 className="text-lg font-medium text-muted-foreground mb-2">
+                      No materials found
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Try adjusting your search criteria or add new materials.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
 
-          {/* Materials Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Material Inventory</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left p-4 font-medium text-muted-foreground">Material</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Category</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Current Stock</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Supplier</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Cost/Unit</th>
-                      <th className="text-left p-4 font-medium text-muted-foreground">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredMaterials.map((material) => {
-                      const stockPercent = (material.currentStock / material.maxCapacity) * 100;
-                      
-                      return (
+          <TabsContent value="inventory">
+            <Card>
+              <CardHeader>
+                <CardTitle>Material Inventory</CardTitle>
+                <CardDescription>
+                  Detailed inventory view with stock levels and reorder points
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left p-4 font-medium text-muted-foreground">Material</th>
+                        <th className="text-left p-4 font-medium text-muted-foreground">Category</th>
+                        <th className="text-left p-4 font-medium text-muted-foreground">Current Stock</th>
+                        <th className="text-left p-4 font-medium text-muted-foreground">Status</th>
+                        <th className="text-left p-4 font-medium text-muted-foreground">Supplier</th>
+                        <th className="text-left p-4 font-medium text-muted-foreground">Cost/Unit</th>
+                        <th className="text-left p-4 font-medium text-muted-foreground">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredMaterials.map((material) => {
+                        const stockPercent = (material.currentStock / material.maxCapacity) * 100;
+
+                        return (
                         <tr key={material.id} className="border-b hover:bg-muted/50">
-                          <td className="p-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                {material.imageUrl ? (
-                                  <img 
-                                    src={material.imageUrl} 
-                                    alt={material.name}
-                                    className="w-full h-full object-cover"
-                                  />
-                                ) : (
-                                  <div className="w-full h-full flex items-center justify-center bg-muted">
-                                    <Image className="w-6 h-6 text-muted-foreground" />
-                                  </div>
-                                )}
-                              </div>
+                            <td className="p-4">
+                              <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-lg overflow-hidden bg-muted flex-shrink-0">
+                                  {material.imageUrl ? (
+                                    <img
+                                      src={material.imageUrl}
+                                      alt={material.name}
+                                      className="w-full h-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center bg-muted">
+                                      <Image className="w-6 h-6 text-muted-foreground" />
+                                    </div>
+                                  )}
+                                </div>
                             <div>
-                              <div className="font-medium text-foreground">{material.name}</div>
+                                <div className="font-medium text-foreground">{material.name}</div>
                               <div className="text-sm text-muted-foreground">{material.brand}</div>
+                                </div>
+                            </div>
+                          </td>
+                            <td className="p-4">
+                              <Badge variant="outline">{material.category}</Badge>
+                            </td>
+                            <td className="p-4">
+                              <div className="space-y-1">
+                                <div className="font-medium text-foreground">
+                                  {material.currentStock} {material.unit}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {stockPercent.toFixed(1)}% of capacity
+                                </div>
+                                <div className="w-24 bg-muted rounded-full h-1.5">
+                                  <div
+                                    className="h-1.5 rounded-full bg-primary"
+                                    style={{ width: `${Math.min(stockPercent, 100)}%` }}
+                                  />
                               </div>
                             </div>
                           </td>
-                          <td className="p-4">
-                            <Badge variant="outline">{material.category}</Badge>
-                          </td>
-                          <td className="p-4">
-                            <div className="space-y-1">
-                              <div className="font-medium text-foreground">
-                                {material.currentStock} {material.unit}
-                              </div>
-                              <div className="text-xs text-muted-foreground">
-                                {stockPercent.toFixed(1)}% of capacity
-                              </div>
-                              <div className="w-24 bg-muted rounded-full h-1.5">
-                                <div 
-                                  className="h-1.5 rounded-full bg-primary" 
-                                  style={{ width: `${Math.min(stockPercent, 100)}%` }}
-                                />
-                              </div>
-                            </div>
-                          </td>
-                          <td className="p-4">
-                            <Badge className={statusStyles[material.status]}>
-                              {material.status.replace("-", " ")}
+                            <td className="p-4">
+                              <Badge className={statusStyles[material.status]}>
+                                {material.status.replace("-", " ")}
                             </Badge>
                           </td>
-                          <td className="p-4">
-                            <div className="text-sm text-foreground">{material.supplier}</div>
-                          </td>
-                          <td className="p-4">
-                            <div className="font-medium text-foreground">
-                              ₹{material.costPerUnit}
+                            <td className="p-4">
+                              <div className="text-sm text-foreground">{material.supplier}</div>
+                            </td>
+                            <td className="p-4">
+                              <div className="font-medium text-foreground">
+                                ₹{material.costPerUnit}
                             </div>
                           </td>
-                          <td className="p-4">
+                            <td className="p-4">
                             <div className="flex gap-2">
-                              <Button 
-                                variant={material.status === "out-of-stock" ? "default" : "outline"} 
-                                size="sm"
-                                onClick={() => handleOpenRestockDialog(material)}
-                              >
-                                {material.status === "out-of-stock" ? "Order Now" : "Restock"}
+                                <Button
+                                  variant={material.status === "out-of-stock" ? "default" : "outline"}
+                                  size="sm"
+                                  onClick={() => handleOpenRestockDialog(material)}
+                                >
+                                  {material.status === "out-of-stock" ? "Order Now" : "Restock"}
                               </Button>
-                              <Button 
-                                variant="outline" 
-                                size="sm"
-                                onClick={() => {
-                                  setSelectedMaterial(material);
-                                  setIsDetailsDialogOpen(true);
-                                }}
-                              >
-                                Details
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setSelectedMaterial(material);
+                                    setIsDetailsDialogOpen(true);
+                                  }}
+                                >
+                                  Details
                               </Button>
                             </div>
                           </td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        <TabsContent value="consumption" className="space-y-6">
-          {/* Usage Analytics Overview Cards */}
-          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Daily Usage</CardTitle>
-                <TrendingDown className="h-4 w-4 text-primary" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">--</div>
-                <p className="text-xs text-muted-foreground">
-                  No production data
-                </p>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Monthly Consumption</CardTitle>
-                <Package className="h-4 w-4 text-blue-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">--</div>
-                <p className="text-xs text-muted-foreground">
-                  Total materials used
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Usage Efficiency</CardTitle>
-                <TrendingDown className="h-4 w-4 text-success" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">--</div>
-                <p className="text-xs text-muted-foreground">
-                  % of materials utilized
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Most Used</CardTitle>
-                <Package className="h-4 w-4 text-orange-600" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">--</div>
-                <p className="text-xs text-muted-foreground">
-                  Top consumed material
-                </p>
-              </CardContent>
-            </Card>
-          </div>
+          </TabsContent>
 
-          {/* Material Consumption Chart */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingDown className="w-5 h-5 text-primary" />
-                Material Consumption Trends
-              </CardTitle>
-              <CardDescription>
-                Track material usage patterns and consumption rates over time
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12">
-                <TrendingDown className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">Production Integration Required</h3>
-                <p className="text-muted-foreground max-w-md mx-auto">
-                  Usage analytics will show real-time data from production processes, including:
-                </p>
-                <div className="mt-6 text-sm text-muted-foreground space-y-2">
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
-                    <span>Daily material consumption rates</span>
-                  </div>
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span>Monthly usage trends and patterns</span>
-                  </div>
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                    <span>Material efficiency analysis</span>
-                  </div>
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
-                    <span>Production step consumption breakdown</span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+          <TabsContent value="waste-recovery">
+            <WasteRecoveryTab
+              wasteRecoveryRefresh={wasteRecoveryRefresh}
+              onReturnToInventory={handleReturnToInventory}
+            />
+          </TabsContent>
 
-
-
-        <TabsContent value="notifications" className="space-y-6">
-          <ProductionNotifications />
-        </TabsContent>
-
-        <TabsContent value="waste" className="space-y-6">
-          <WasteManagement />
-
-          {/* Waste Analysis Table */}
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Recycle className="w-5 h-5 text-success" />
-                Waste Analysis by Material
-              </CardTitle>
-              <CardDescription>
-                Track which materials generate the most waste during production
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="text-center py-12">
-                <Recycle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                <h3 className="text-lg font-medium text-foreground mb-2">Production Integration Required</h3>
-                <p className="text-muted-foreground max-w-md mx-auto">
-                  Waste tracking will show real-time data from production processes, including:
-                </p>
-                <div className="mt-6 text-sm text-muted-foreground space-y-2">
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                    <span>Material consumption per production step</span>
-                  </div>
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                    <span>Waste generation during cutting/dyeing</span>
-                  </div>
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                    <span>Quality defects and rejected materials</span>
-                  </div>
-                  <div className="flex items-center gap-2 justify-center">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span>Recycling opportunities and cost savings</span>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* Enhanced Order Dialog */}
-      <Dialog open={isOrderDialogOpen} onOpenChange={setIsOrderDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Order Material</DialogTitle>
-            <DialogDescription>
-              Place an order for {selectedMaterial?.name}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div>
-              <Label>Material</Label>
-              <div className="p-3 border rounded-md bg-muted">
-                <div className="flex items-center gap-3">
-                  {selectedMaterial?.imageUrl && (
-                    <img 
-                      src={selectedMaterial.imageUrl} 
-                      alt={selectedMaterial.name}
-                      className="w-12 h-12 rounded object-cover"
-                    />
-                  )}
-                  <div>
-                    <div className="font-medium">{selectedMaterial?.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      Current stock: {selectedMaterial?.currentStock} {selectedMaterial?.unit}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <Label>Available Suppliers</Label>
-              <div className="space-y-2 max-h-24 overflow-y-auto border rounded-md p-2">
-                {selectedMaterial && getAvailableSuppliers(selectedMaterial.name).map((supplier, index) => (
-                  <div key={index} className="p-2 border rounded-md text-sm bg-background">
-                    <div className="font-medium">{supplier.name}</div>
-                    <div className="text-muted-foreground text-xs">
-                      Brand: {supplier.brand} | Stock: {supplier.currentStock} {supplier.unit} | Cost: ₹{supplier.costPerUnit}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="orderSupplier">Supplier</Label>
-              <Select 
-                value={orderDetails.supplier} 
-                onValueChange={(value) => setOrderDetails({...orderDetails, supplier: value})}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select supplier" />
-                </SelectTrigger>
-                <SelectContent>
-                  {selectedMaterial && getAvailableSuppliers(selectedMaterial.name).map((supplier, index) => (
-                    <SelectItem key={index} value={supplier.name}>
-                      {supplier.name} - ₹{supplier.costPerUnit}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value="new">New Supplier</SelectItem>
-                </SelectContent>
-              </Select>
-              {orderDetails.supplier === "new" && (
-                <Input
-                  placeholder="Enter new supplier name"
-                  className="mt-2"
-                  onChange={(e) => setOrderDetails({...orderDetails, supplier: e.target.value})}
-                />
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <Label htmlFor="orderQuantity">Quantity</Label>
-                <Input
-                  id="orderQuantity"
-                  type="number"
-                  value={orderDetails.quantity}
-                  onChange={(e) => setOrderDetails({...orderDetails, quantity: e.target.value})}
-                  placeholder="Enter quantity"
-                />
-              </div>
-              <div>
-                <Label htmlFor="orderUnit">Unit</Label>
-                <Select value={orderDetails.unit} onValueChange={(value) => setOrderDetails({...orderDetails, unit: value})}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select unit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="rolls">Rolls</SelectItem>
-                    <SelectItem value="liters">Liters</SelectItem>
-                    <SelectItem value="kg">Kilograms</SelectItem>
-                    <SelectItem value="sqm">Square Meters</SelectItem>
-                    <SelectItem value="pieces">Pieces</SelectItem>
-                    <SelectItem value="meters">Meters</SelectItem>
-                    <SelectItem value="tons">Tons</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div>
-              <Label htmlFor="orderCostPerUnit">Cost per Unit (₹)</Label>
-              <Input
-                id="orderCostPerUnit"
-                type="number"
-                value={orderDetails.costPerUnit}
-                onChange={(e) => setOrderDetails({...orderDetails, costPerUnit: e.target.value})}
-                placeholder="Enter cost per unit"
-              />
-            </div>
-
-            <div>
-              <Label htmlFor="expectedDelivery">Expected Delivery</Label>
-              <Input
-                id="expectedDelivery"
-                type="date"
-                value={orderDetails.expectedDelivery}
-                onChange={(e) => setOrderDetails({...orderDetails, expectedDelivery: e.target.value})}
-              />
-            </div>
-            <div>
-              <Label htmlFor="orderNotes">Notes</Label>
-              <Textarea
-                id="orderNotes"
-                value={orderDetails.notes}
-                onChange={(e) => setOrderDetails({...orderDetails, notes: e.target.value})}
-                placeholder="Additional notes..."
-                className="min-h-[60px] max-h-[100px]"
-              />
-            </div>
-          </div>
-          <DialogFooter className="sticky bottom-0 bg-background pt-4 border-t">
-            <Button variant="outline" onClick={() => setIsOrderDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handlePlaceOrder} className="flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4" />
-              Place Order
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Material Details Dialog */}
-      <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              Material Details: {selectedMaterial?.name}
-            </DialogTitle>
-            <DialogDescription>
-              Complete information about this raw material
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedMaterial && (
-            <div className="space-y-6">
-              {/* Material Image and Basic Info */}
-              <div className="flex gap-6">
-                <div className="w-48 h-48 bg-gradient-to-br from-gray-100 to-gray-200 rounded-lg flex items-center justify-center">
-                  {selectedMaterial.imageUrl ? (
-                    <img 
-                      src={selectedMaterial.imageUrl} 
-                      alt={selectedMaterial.name}
-                      className="w-full h-full object-cover rounded-lg"
-                    />
-                  ) : (
-                    <Package className="w-16 h-16 text-gray-400" />
-                  )}
-                </div>
-                
-                <div className="flex-1 space-y-4">
-                  <div>
-                    <h3 className="text-2xl font-bold">{selectedMaterial.name}</h3>
-                    <p className="text-lg text-muted-foreground">{selectedMaterial.brand}</p>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Category</Label>
-                      <p className="font-medium">{selectedMaterial.category}</p>
-                    </div>
-
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Batch Number</Label>
-                      <p className="font-mono text-sm">{selectedMaterial.batchNumber}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Status</Label>
-                      <Badge 
-                        className={
-                          selectedMaterial.status === "in-stock" ? "bg-green-100 text-green-800 border-green-200" :
-                          selectedMaterial.status === "low-stock" ? "bg-yellow-100 text-yellow-800 border-yellow-200" :
-                          selectedMaterial.status === "out-of-stock" ? "bg-red-100 text-red-800 border-red-200" :
-                          selectedMaterial.status === "in-transit" ? "bg-orange-100 text-orange-800 border-orange-200" :
-                          "bg-blue-100 text-blue-800 border-blue-200"
-                        }
-                      >
-                        {selectedMaterial.status.replace('-', ' ').toUpperCase()}
-                      </Badge>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Stock Information */}
+          <TabsContent value="analytics">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-lg">Stock Information</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-3 gap-6">
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-blue-600">{selectedMaterial.currentStock}</div>
-                      <div className="text-sm text-muted-foreground">Current Stock</div>
-                      <div className="text-xs text-muted-foreground">{selectedMaterial.unit}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-orange-600">{selectedMaterial.minThreshold}</div>
-                      <div className="text-sm text-muted-foreground">Min Threshold</div>
-                      <div className="text-xs text-muted-foreground">{selectedMaterial.unit}</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-2xl font-bold text-green-600">{selectedMaterial.maxCapacity}</div>
-                      <div className="text-sm text-muted-foreground">Max Capacity</div>
-                      <div className="text-xs text-muted-foreground">{selectedMaterial.unit}</div>
-                    </div>
-                  </div>
-                  
-                  {/* Stock Progress Bar */}
-                  <div className="mt-4">
-                    <div className="flex justify-between text-sm text-muted-foreground mb-2">
-                      <span>Stock Level</span>
-                      <span>{Math.round((selectedMaterial.currentStock / selectedMaterial.maxCapacity) * 100)}% of capacity</span>
-                    </div>
-                    <div className="w-full bg-gray-200 rounded-full h-2">
-                      <div 
-                        className={`h-2 rounded-full ${
-                          selectedMaterial.currentStock <= selectedMaterial.minThreshold ? 'bg-red-500' :
-                          selectedMaterial.currentStock <= selectedMaterial.minThreshold * 1.5 ? 'bg-yellow-500' :
-                          'bg-green-500'
-                        }`}
-                        style={{ width: `${Math.min((selectedMaterial.currentStock / selectedMaterial.maxCapacity) * 100, 100)}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Financial Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Financial Information</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-6">
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Cost per Unit</Label>
-                      <p className="text-xl font-bold text-green-600">₹{selectedMaterial.costPerUnit.toLocaleString()}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Total Value</Label>
-                      <p className="text-xl font-bold text-blue-600">₹{selectedMaterial.totalValue.toLocaleString()}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              {/* Supplier Information */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Supplier Information</CardTitle>
+                  <CardTitle>Stock Distribution</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-4">
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Supplier Name</Label>
-                      <p className="font-medium">{selectedMaterial.supplier}</p>
-                    </div>
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Supplier Performance</Label>
-                      <div className="flex items-center gap-2">
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div 
-                            className="bg-blue-500 h-2 rounded-full" 
-                            style={{ width: `${selectedMaterial.supplierPerformance}%` }}
-                          ></div>
+                    {categories.map(category => {
+                      const categoryMaterials = rawMaterials.filter(m => m.category === category);
+                      const totalValue = categoryMaterials.reduce((sum, m) => sum + m.totalValue, 0);
+
+                      return (
+                        <div key={category} className="flex items-center justify-between p-3 border rounded">
+                          <div>
+                            <div className="font-medium">{category}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {categoryMaterials.length} materials
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-medium">₹{totalValue.toFixed(2)}</div>
+                            <div className="text-sm text-muted-foreground">Total Value</div>
+                          </div>
                         </div>
-                        <span className="text-sm font-medium">{selectedMaterial.supplierPerformance}%</span>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Top Suppliers</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    {[...new Set(rawMaterials.map(m => m.supplier).filter(Boolean))].map((supplier, index) => {
+                      const supplierMaterials = rawMaterials.filter(m => m.supplier === supplier);
+                      const totalValue = supplierMaterials.reduce((sum, m) => sum + (m.totalValue || 0), 0);
+                      const avgPerformance = supplierMaterials.reduce((sum, m) => sum + (m.supplierPerformance || 0), 0) / supplierMaterials.length;
+
+                      return (
+                        <div key={`supplier-${index}-${supplier}`} className="flex items-center justify-between p-3 border rounded">
+                          <div>
+                            <div className="font-medium">{supplier}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {supplierMaterials.length} materials
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <div className="font-medium">₹{totalValue.toFixed(2)}</div>
+                            <div className="text-sm text-muted-foreground">
+                              Performance: {avgPerformance.toFixed(1)}%
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
+
+          <TabsContent value="notifications" className="space-y-6">
+            {/* Notifications Section */}
+            {notifications.length > 0 ? (
+              <Card className="border-orange-200 bg-orange-50">
+                <CardHeader className="pb-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Bell className="w-5 h-5 text-orange-600" />
+                      <CardTitle className="text-orange-800">Raw Material Alerts & Restock Requests</CardTitle>
+                      <Badge variant="destructive" className="ml-2">
+                        {notifications.length}
+                      </Badge>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleMarkAllAsRead}
+                      className="text-orange-700 border-orange-300 hover:bg-orange-100"
+                    >
+                      Mark All as Read
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {notifications.map((notification) => (
+                    <div key={notification.id} className="p-4 bg-white border border-orange-200 rounded-lg">
+                      <div className="flex items-start justify-between">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <AlertTriangle className="w-4 h-4 text-orange-600" />
+                            <h4 className="font-semibold text-orange-800">{notification.title}</h4>
+                            <Badge
+                              variant={notification.priority === 'high' ? 'destructive' : 'secondary'}
+                              className="text-xs"
+                            >
+                              {notification.priority?.toUpperCase()}
+                            </Badge>
+                          </div>
+                          <p className="text-sm text-gray-700 mb-3">{notification.message}</p>
+
+                          {notification.related_data && (
+                            <div className="text-xs text-gray-600 space-y-1">
+                              <div>📦 Material: {notification.related_data.materialName}</div>
+                              <div>📊 Required: {notification.related_data.requiredQuantity} units</div>
+                              <div>📋 Available: {notification.related_data.availableStock} units</div>
+                              <div>⚠️ Shortfall: {notification.related_data.shortfall} units</div>
+                              {notification.related_data.orderNumber && (
+                                <div>🔗 Order: {notification.related_data.orderNumber}</div>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="text-xs text-gray-500 mt-2">
+                            {new Date(notification.created_at).toLocaleString()}
+                          </div>
+                        </div>
+
+                        <div className="flex gap-2 ml-4">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleMarkAsRead(notification.id)}
+                            className="text-xs px-2 py-1"
+                          >
+                            Mark Read
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleResolveNotification(notification.id)}
+                            className="text-xs px-2 py-1 text-green-700 border-green-300 hover:bg-green-50"
+                          >
+                            Resolve
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card>
+                <CardContent className="flex flex-col items-center justify-center py-12">
+                  <CheckCircle className="w-12 h-12 text-green-500 mb-4" />
+                  <h3 className="text-lg font-semibold text-gray-900 mb-2">No Notifications</h3>
+                  <p className="text-gray-600 text-center max-w-md">
+                    All material notifications have been handled. You'll see restock requests and low stock alerts here when they come in from orders.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+          </TabsContent>
+        </Tabs>
+
+        {/* Material Details Dialog */}
+        <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+          <DialogContent className="sm:max-w-3xl">
+            <DialogHeader>
+              <DialogTitle>Material Details</DialogTitle>
+              <DialogDescription>
+                Complete information about {selectedMaterial?.name}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedMaterial && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Basic Information</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Name:</span>
+                        <span>{selectedMaterial.name}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Brand:</span>
+                        <span>{selectedMaterial.brand}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Category:</span>
+                        <span>{selectedMaterial.category}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Batch Number:</span>
+                        <span>{selectedMaterial.batchNumber}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Quality Grade:</span>
+                        <span>{selectedMaterial.qualityGrade}</span>
                       </div>
                     </div>
                   </div>
-                </CardContent>
-              </Card>
 
-              {/* Dates and History */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-lg">Dates & History</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="grid grid-cols-2 gap-6">
-
-                    <div>
-                      <Label className="text-sm font-medium text-muted-foreground">Last Restocked</Label>
-                      <p className="font-medium">{new Date(selectedMaterial.lastRestocked).toLocaleDateString()}</p>
-                    </div>
-
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsDetailsDialogOpen(false)}>
-              Close
-            </Button>
-            <Button 
-              onClick={() => {
-                setIsDetailsDialogOpen(false);
-                handleOrderMaterial(selectedMaterial!);
-              }}
-            >
-              Order Material
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Restock Dialog */}
-      <Dialog open={isRestockDialogOpen} onOpenChange={setIsRestockDialogOpen}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              {selectedRestockMaterial?.status === "out-of-stock" ? "Order" : "Restock"} {selectedRestockMaterial?.name}
-            </DialogTitle>
-            <DialogDescription>
-              {selectedRestockMaterial?.status === "out-of-stock" 
-                ? "Order this material from available suppliers" 
-                : "Restock this material from available suppliers"
-              }
-            </DialogDescription>
-          </DialogHeader>
-          
-          {selectedRestockMaterial && (
-            <div className="space-y-4">
-              {/* Material Info */}
-              <div className="p-3 border rounded-md bg-muted">
-                <div className="flex items-center gap-3">
-                  {selectedRestockMaterial.imageUrl && (
-                    <img 
-                      src={selectedRestockMaterial.imageUrl} 
-                      alt={selectedRestockMaterial.name}
-                      className="w-12 h-12 rounded object-cover"
-                    />
-                  )}
-                  <div>
-                    <div className="font-medium">{selectedRestockMaterial.name}</div>
-                    <div className="text-sm text-muted-foreground">
-                      Current stock: {selectedRestockMaterial.currentStock} {selectedRestockMaterial.unit}
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Stock Information</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Current Stock:</span>
+                        <span className="font-medium">{selectedMaterial.currentStock} {selectedMaterial.unit}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Min Threshold:</span>
+                        <span>{selectedMaterial.minThreshold} {selectedMaterial.unit}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Max Capacity:</span>
+                        <span>{selectedMaterial.maxCapacity} {selectedMaterial.unit}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Reorder Point:</span>
+                        <span>{selectedMaterial.reorderPoint} {selectedMaterial.unit}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Daily Usage:</span>
+                        <span>{selectedMaterial.dailyUsage} {selectedMaterial.unit}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Supplier Selection */}
-              <div>
-                <Label htmlFor="restockSupplier">Supplier</Label>
-                <Select 
-                  value={restockForm.supplier} 
-                  onValueChange={handleRestockSupplierChange}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select supplier" />
-                  </SelectTrigger>
-                  <SelectContent>
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Financial Information</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Cost per Unit:</span>
+                        <span>₹{selectedMaterial.costPerUnit}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Total Value:</span>
+                        <span className="font-medium">₹{selectedMaterial.totalValue.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h4 className="font-medium">Supplier Information</h4>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Supplier:</span>
+                        <span>{selectedMaterial.supplier}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Performance:</span>
+                        <span>{selectedMaterial.supplierPerformance}%</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Last Restocked:</span>
+                        <span>{new Date(selectedMaterial.lastRestocked).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="font-medium">Material Usage History</h4>
+                  {selectedMaterial.materialsUsed.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b">
+                            <th className="text-left p-2">Production Batch</th>
+                            <th className="text-left p-2">Step</th>
+                            <th className="text-left p-2">Consumed</th>
+                            <th className="text-left p-2">Waste</th>
+                            <th className="text-left p-2">Date</th>
+                            <th className="text-left p-2">Operator</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selectedMaterial.materialsUsed.slice(0, 5).map((usage) => (
+                            <tr key={usage.id} className="border-b">
+                              <td className="p-2">{usage.productionBatchId}</td>
+                              <td className="p-2">{usage.stepName}</td>
+                              <td className="p-2">{usage.consumedQuantity} {selectedMaterial.unit}</td>
+                              <td className="p-2">{usage.wasteQuantity} {selectedMaterial.unit}</td>
+                              <td className="p-2">{new Date(usage.consumptionDate).toLocaleDateString()}</td>
+                              <td className="p-2">{usage.operator}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">No usage history available</p>
+                  )}
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsDetailsDialogOpen(false)}>
+                Close
+              </Button>
+              <Button onClick={() => {
+                if (selectedMaterial) {
+                  setOrderDetails({
+                    quantity: "",
+                    unit: selectedMaterial.unit,
+                    supplier: selectedMaterial.supplier,
+                    costPerUnit: selectedMaterial.costPerUnit.toString(),
+                    expectedDelivery: "",
+                    notes: ""
+                  });
+                  setNewMaterial({
+                    ...newMaterial,
+                    name: selectedMaterial.name,
+                    brand: selectedMaterial.brand,
+                    category: selectedMaterial.category,
+                    unit: selectedMaterial.unit,
+                    supplier: selectedMaterial.supplier,
+                    costPerUnit: selectedMaterial.costPerUnit.toString()
+                  });
+                  setIsDetailsDialogOpen(false);
+                  handleOpenRestockDialog(selectedMaterial);
+                }
+              }}>
+                <ShoppingCart className="w-4 h-4 mr-2" />
+                Create Order
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Restock Dialog */}
+        <Dialog open={isRestockDialogOpen} onOpenChange={setIsRestockDialogOpen}>
+          <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                {selectedRestockMaterial?.status === "out-of-stock" ? "Order" : "Restock"} {selectedRestockMaterial?.name}
+              </DialogTitle>
+              <DialogDescription>
+                {selectedRestockMaterial?.status === "out-of-stock"
+                  ? "Order this material from available suppliers"
+                  : "Restock this material from available suppliers"
+                }
+              </DialogDescription>
+            </DialogHeader>
+
+            {selectedRestockMaterial && (
+              <div className="space-y-4">
+                {/* Material Info */}
+                <div className="p-3 border rounded-md bg-muted">
+                  <div className="flex items-center gap-3">
+                    {selectedRestockMaterial.imageUrl && (
+                      <img
+                        src={selectedRestockMaterial.imageUrl}
+                        alt={selectedRestockMaterial.name}
+                        className="w-12 h-12 rounded object-cover"
+                      />
+                    )}
+                    <div>
+                      <div className="font-medium">{selectedRestockMaterial.name}</div>
+                      <div className="text-sm text-muted-foreground">
+                        Current stock: {selectedRestockMaterial.currentStock} {selectedRestockMaterial.unit}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        Category: {selectedRestockMaterial.category}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Available Suppliers from Same Category */}
+                <div>
+                  <Label>Available Suppliers from {selectedRestockMaterial.category} Category</Label>
+                  <div className="space-y-2 max-h-32 overflow-y-auto border rounded-md p-2 bg-muted/50">
                     {getAvailableSuppliersForRestock(selectedRestockMaterial.category, selectedRestockMaterial.name).map((supplier, index) => (
-                      <SelectItem key={index} value={supplier.name}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{supplier.name}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {supplier.brand} • ₹{supplier.costPerUnit} • {supplier.unit}
-                          </span>
+                      <div key={index} className="p-2 border rounded-md text-sm bg-background">
+                        <div className="font-medium">{supplier.name}</div>
+                        <div className="text-muted-foreground text-xs">
+                          Brand: {supplier.brand} | Cost: ₹{supplier.costPerUnit} | Unit: {supplier.unit}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Supplier Selection */}
+                <div>
+                  <Label htmlFor="restockSupplier">Select Supplier *</Label>
+                  <Select
+                    value={restockForm.supplier}
+                    onValueChange={handleRestockSupplierChange}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select supplier" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {getAvailableSuppliersForRestock(selectedRestockMaterial.category, selectedRestockMaterial.name).map((supplier, index) => (
+                        <SelectItem key={index} value={supplier.name}>
+                          <div className="flex flex-col">
+                            <span className="font-medium">{supplier.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {supplier.brand} • ₹{supplier.costPerUnit} • {supplier.unit}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                      <SelectItem value="new_supplier">
+                        <div className="flex items-center gap-2 text-blue-600">
+                          <Plus className="w-4 h-4" />
+                          Add New Supplier
                         </div>
                       </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Available suppliers for {selectedRestockMaterial.category} materials
-                </p>
-              </div>
+                    </SelectContent>
+                  </Select>
+                  {restockForm.supplier === "new_supplier" && (
+                    <Input
+                      placeholder="Enter new supplier name"
+                      className="mt-2"
+                      onChange={(e) => setRestockForm({...restockForm, supplier: e.target.value})}
+                    />
+                  )}
+                </div>
 
-              {/* Brand (Auto-filled based on supplier) */}
-              <div>
-                <Label htmlFor="restockBrand">Brand</Label>
-                <Input
-                  id="restockBrand"
-                  value={restockForm.brand}
-                  onChange={(e) => setRestockForm({...restockForm, brand: e.target.value})}
-                  placeholder="Brand will be auto-filled based on supplier"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Brand from selected supplier (can be modified)
-                </p>
-              </div>
+                {/* Brand (Auto-filled based on supplier) */}
+                <div>
+                  <Label htmlFor="restockBrand">Brand Name *</Label>
+                  <Input
+                    id="restockBrand"
+                    value={restockForm.brand}
+                    onChange={(e) => setRestockForm({...restockForm, brand: e.target.value})}
+                    placeholder="Brand will be auto-filled based on supplier"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Brand from selected supplier (editable)
+                  </p>
+                </div>
 
-              {/* Quantity */}
-              <div>
-                <Label htmlFor="restockQuantity">Quantity</Label>
-                <Input
-                  id="restockQuantity"
-                  type="number"
-                  value={restockForm.quantity}
-                  onChange={(e) => setRestockForm({...restockForm, quantity: e.target.value})}
-                  placeholder="Enter quantity to restock"
-                  min="1"
-                />
-              </div>
+                {/* Quantity */}
+                <div>
+                  <Label htmlFor="restockQuantity">Quantity to Order *</Label>
+                  <Input
+                    id="restockQuantity"
+                    type="number"
+                    value={restockForm.quantity}
+                    onChange={(e) => setRestockForm({...restockForm, quantity: e.target.value})}
+                    placeholder="Enter quantity to restock"
+                    min="1"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Unit: {selectedRestockMaterial.unit}
+                  </p>
+                </div>
 
-              {/* Cost per Unit (Auto-filled based on supplier) */}
-              <div>
-                <Label htmlFor="restockCostPerUnit">Cost per Unit (₹)</Label>
-                <Input
-                  id="restockCostPerUnit"
-                  type="number"
-                  value={restockForm.costPerUnit}
-                  onChange={(e) => setRestockForm({...restockForm, costPerUnit: e.target.value})}
-                  placeholder="Cost will be auto-filled based on supplier"
-                  min="0"
-                  step="0.01"
-                />
-                <p className="text-xs text-muted-foreground mt-1">
-                  Cost from selected supplier (can be modified)
-                </p>
-              </div>
+                {/* Cost per Unit (Auto-filled based on supplier) */}
+                <div>
+                  <Label htmlFor="restockCostPerUnit">Cost per Unit (₹) *</Label>
+                  <Input
+                    id="restockCostPerUnit"
+                    type="number"
+                    value={restockForm.costPerUnit}
+                    onChange={(e) => setRestockForm({...restockForm, costPerUnit: e.target.value})}
+                    placeholder="Cost will be auto-filled based on supplier"
+                    min="0"
+                    step="0.01"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Cost from selected supplier (editable)
+                  </p>
+                </div>
 
-              {/* Expected Delivery */}
-              <div>
-                <Label htmlFor="restockExpectedDelivery">Expected Delivery Date</Label>
-                <Input
-                  id="restockExpectedDelivery"
-                  type="date"
-                  value={restockForm.expectedDelivery}
-                  onChange={(e) => setRestockForm({...restockForm, expectedDelivery: e.target.value})}
-                  min={new Date().toISOString().split('T')[0]}
-                />
-              </div>
+                {/* Expected Delivery */}
+                <div>
+                  <Label htmlFor="restockExpectedDelivery">Expected Delivery Date</Label>
+                  <Input
+                    id="restockExpectedDelivery"
+                    type="date"
+                    value={restockForm.expectedDelivery}
+                    onChange={(e) => setRestockForm({...restockForm, expectedDelivery: e.target.value})}
+                    min={new Date().toISOString().split('T')[0]}
+                  />
+                </div>
 
-              {/* Notes */}
-              <div>
-                <Label htmlFor="restockNotes">Notes</Label>
-                <Textarea
-                  id="restockNotes"
-                  value={restockForm.notes}
-                  onChange={(e) => setRestockForm({...restockForm, notes: e.target.value})}
-                  placeholder="Additional notes for this restock order"
-                  rows={3}
-                />
+                {/* Notes */}
+                <div>
+                  <Label htmlFor="restockNotes">Notes</Label>
+                  <Textarea
+                    id="restockNotes"
+                    value={restockForm.notes}
+                    onChange={(e) => setRestockForm({...restockForm, notes: e.target.value})}
+                    placeholder="Additional notes for this restock order"
+                    rows={3}
+                  />
+                </div>
+
+                {/* Total Cost Calculation */}
+                {restockForm.quantity && restockForm.costPerUnit && (
+                  <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="text-sm font-medium text-blue-900">
+                      Total Cost: ₹{(parseFloat(restockForm.quantity) * parseFloat(restockForm.costPerUnit)).toFixed(2)}
+                    </div>
+                    <div className="text-xs text-blue-700">
+                      {restockForm.quantity} {selectedRestockMaterial.unit} × ₹{restockForm.costPerUnit} per {selectedRestockMaterial.unit}
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
-          )}
-          
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setIsRestockDialogOpen(false)}>
-              Cancel
-            </Button>
-            <Button onClick={handleRestockSubmit}>
-              {selectedRestockMaterial?.status === "out-of-stock" ? "Create Order" : "Create Restock Order"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setIsRestockDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleRestockSubmit}>
+                {selectedRestockMaterial?.status === "out-of-stock" ? "Create Order" : "Create Restock Order"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }
 
-// Production Notifications Component
-function ProductionNotifications() {
-  const [notifications, setNotifications] = useState<any[]>([]);
-  const [wasteData, setWasteData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+// Waste Recovery Tab Component
+function WasteRecoveryTab({
+  wasteRecoveryRefresh,
+  onReturnToInventory
+}: {
+  wasteRecoveryRefresh: number;
+  onReturnToInventory: (waste: WasteItem) => void;
+}) {
+  const [wasteData, setWasteData] = useState<WasteItem[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Load notifications from localStorage
-    const storedNotifications = JSON.parse(localStorage.getItem('rajdhani_material_notifications') || '[]');
-    console.log('Loading notifications from localStorage:', storedNotifications);
-    setNotifications(storedNotifications);
-    
-    // Load waste data from localStorage
-    const storedWasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
-    console.log('Loading waste data from localStorage:', storedWasteData);
-    setWasteData(storedWasteData);
-    
-    setIsLoading(false);
-  }, []);
+    const loadWasteData = async () => {
+      setLoading(true);
+      try {
+        // TODO: Implement when waste_management table is created
+        setWasteData([]);
+      } catch (error) {
+        console.error('Error loading waste data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const markAsResolved = (notificationId: string) => {
-    const updatedNotifications = notifications.map(notification => 
-      notification.id === notificationId 
-        ? { ...notification, status: 'resolved' }
-        : notification
-    );
-    setNotifications(updatedNotifications);
-    localStorage.setItem('rajdhani_material_notifications', JSON.stringify(updatedNotifications));
-  };
+    loadWasteData();
+  }, [wasteRecoveryRefresh]);
 
-  const deleteNotification = (notificationId: string) => {
-    const updatedNotifications = notifications.filter(notification => notification.id !== notificationId);
-    setNotifications(updatedNotifications);
-    localStorage.setItem('rajdhani_material_notifications', JSON.stringify(updatedNotifications));
-  };
-
-
-  const pendingNotifications = notifications.filter(n => n.status === 'pending');
-  const resolvedNotifications = notifications.filter(n => n.status === 'resolved');
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Pending Notifications */}
-      <div>
-        <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-          <AlertTriangle className="w-5 h-5 text-orange-500" />
-          Pending Notifications ({pendingNotifications.length})
-        </h3>
-        
-        {pendingNotifications.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">
-            <CheckCircle className="w-12 h-12 mx-auto mb-4 text-green-500" />
-            <p>No pending material shortage notifications</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {pendingNotifications.map((notification) => (
-              <div key={notification.id} className="border border-orange-200 bg-orange-50 rounded-lg p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="destructive" className="text-xs">HIGH PRIORITY</Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {new Date(notification.createdAt).toLocaleDateString()}
-                      </Badge>
-                    </div>
-                    <h4 className="font-semibold text-orange-900 mb-1">
-                      {notification.materialName} - Shortage Alert
-                    </h4>
-                    <div className="text-sm text-orange-800 space-y-1">
-                      <p><strong>Required:</strong> {notification.requiredQuantity} {notification.unit}</p>
-                      <p><strong>Current Stock:</strong> {notification.currentStock} {notification.unit}</p>
-                      <p><strong>Supplier:</strong> {notification.supplier}</p>
-                      <p><strong>Estimated Cost:</strong> ₹{notification.estimatedCost.toFixed(2)}</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-2 ml-4">
-                    <Button
-                      size="sm"
-                      onClick={() => markAsResolved(notification.id)}
-                      className="bg-green-600 hover:bg-green-700"
-                    >
-                      <CheckCircle className="w-4 h-4 mr-1" />
-                      Mark Resolved
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => deleteNotification(notification.id)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <X className="w-4 h-4 mr-1" />
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Resolved Notifications */}
-      {resolvedNotifications.length > 0 && (
-        <div>
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <CheckCircle className="w-5 h-5 text-green-500" />
-            Resolved Notifications ({resolvedNotifications.length})
-          </h3>
-          <div className="space-y-3">
-            {resolvedNotifications.map((notification) => (
-              <div key={notification.id} className="border border-green-200 bg-green-50 rounded-lg p-4">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Badge variant="secondary" className="text-xs">RESOLVED</Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {new Date(notification.createdAt).toLocaleDateString()}
-                      </Badge>
-                    </div>
-                    <h4 className="font-semibold text-green-900 mb-1">
-                      {notification.materialName} - Shortage Resolved
-                    </h4>
-                    <div className="text-sm text-green-800">
-                      <p><strong>Required:</strong> {notification.requiredQuantity} {notification.unit}</p>
-                      <p><strong>Supplier:</strong> {notification.supplier}</p>
-                    </div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => deleteNotification(notification.id)}
-                    className="text-red-600 hover:text-red-700"
-                  >
-                    <X className="w-4 h-4 mr-1" />
-                    Delete
-                  </Button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Waste Management Component
-function WasteManagement() {
-  const [wasteData, setWasteData] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    // Load waste data from localStorage
-    const storedWasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
-    console.log('Loading waste data from localStorage:', storedWasteData);
-    
-    // Flatten the data if it's nested and fix localStorage
-    let flatWasteData = storedWasteData;
-    if (Array.isArray(storedWasteData) && storedWasteData.length > 0 && Array.isArray(storedWasteData[0])) {
-      flatWasteData = storedWasteData.flat();
-      console.log('Flattened waste data:', flatWasteData);
-      
-      // Fix the localStorage data structure
-      localStorage.setItem('rajdhani_waste_management', JSON.stringify(flatWasteData));
-      console.log('Fixed localStorage waste data structure');
-    }
-    
-    setWasteData(flatWasteData);
-    setIsLoading(false);
-  }, []);
-
-  // Calculate waste statistics
-  const totalWasteItems = wasteData.length;
-  const totalWasteQuantity = wasteData.reduce((sum, waste) => sum + waste.quantity, 0);
-  const reusableWaste = wasteData.filter(waste => waste.canBeReused && waste.status === 'available_for_reuse').length;
-  const addedWaste = wasteData.filter(waste => waste.status === 'added_to_inventory').length;
-  const recyclingRate = totalWasteItems > 0 ? Math.round((reusableWaste / totalWasteItems) * 100) : 0;
-  
-  // Find most wasted material
-  const materialWasteCount = wasteData.reduce((acc, waste) => {
-    acc[waste.materialName] = (acc[waste.materialName] || 0) + waste.quantity;
-    return acc;
-  }, {} as Record<string, number>);
-  const mostWastedMaterial = Object.entries(materialWasteCount).reduce((max, [material, count]) => 
-    (count as number) > max.count ? { material, count: count as number } : max, 
-    { material: 'None', count: 0 }
-  );
-
-  const handleReturnToInventory = (waste: any) => {
-    // Get current raw materials
-    const rawMaterials = JSON.parse(localStorage.getItem('rajdhani_raw_materials') || '[]');
-    
-    // Find the material in raw materials inventory
-    const materialIndex = rawMaterials.findIndex((material: any) => material.id === waste.materialId);
-    
-    if (materialIndex !== -1) {
-      // Update the material's current stock
-      rawMaterials[materialIndex].currentStock += waste.quantity;
-      
-      // Update material status based on new stock level
-      const newStock = rawMaterials[materialIndex].currentStock;
-      rawMaterials[materialIndex].status = newStock <= 0 ? "out-of-stock" : 
-                                          newStock <= 10 ? "low-stock" : "in-stock";
-      
-      // Save updated raw materials
-      localStorage.setItem('rajdhani_raw_materials', JSON.stringify(rawMaterials));
-      
-      // Update waste item status to 'added_to_inventory'
-      const updatedWasteData = wasteData.map(w => 
-        w.id === waste.id 
-          ? { ...w, status: 'added_to_inventory', addedAt: new Date().toISOString() }
-          : w
-      );
-      
-      // Save updated waste data
-      localStorage.setItem('rajdhani_waste_management', JSON.stringify(updatedWasteData));
-      setWasteData(updatedWasteData);
-      
-      console.log(`✅ ${waste.quantity} ${waste.unit} of ${waste.materialName} added back to inventory`);
-      console.log(`📈 Material stock increased from ${rawMaterials[materialIndex].currentStock - waste.quantity} to ${rawMaterials[materialIndex].currentStock} ${waste.unit}`);
-      
-      // Show success message with stock details
-      console.log(`✅ Successfully added ${waste.quantity} ${waste.unit} of ${waste.materialName} back to inventory! Stock increased to: ${rawMaterials[materialIndex].currentStock} ${waste.unit}, Status: ${rawMaterials[materialIndex].status}`);
-    } else {
-      console.error('Material not found in raw materials inventory:', waste.materialId);
-      console.error('Error: Material not found in inventory. Please check the material ID.');
-    }
-  };
-
-  if (isLoading) {
-    return <div className="text-center py-8">Loading waste data...</div>;
+  if (loading) {
+    return <div className="text-center py-8">Loading waste recovery data...</div>;
   }
 
   return (
     <>
-      {/* Waste Overview Cards */}
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Waste Items</CardTitle>
-            <Recycle className="h-4 w-4 text-destructive" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalWasteItems}</div>
-            <p className="text-xs text-muted-foreground">
-              {totalWasteItems === 0 ? 'No waste recorded' : `${totalWasteQuantity} total units`}
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Reusable Waste</CardTitle>
-            <Recycle className="h-4 w-4 text-success" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{reusableWaste}</div>
-            <p className="text-xs text-muted-foreground">
-              Items available for reuse
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Added to Inventory</CardTitle>
-            <Package className="h-4 w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{addedWaste}</div>
-            <p className="text-xs text-muted-foreground">
-              Items added back to stock
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Recycling Rate</CardTitle>
-            <Recycle className="h-4 w-4 text-success" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{recyclingRate}%</div>
-            <p className="text-xs text-muted-foreground">
-              % of waste that can be reused
-            </p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Most Wasted</CardTitle>
-            <AlertTriangle className="h-4 w-4 text-warning" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{mostWastedMaterial.count.toString()}</div>
-            <p className="text-xs text-muted-foreground">
-              {mostWastedMaterial.material}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Waste Recovery Summary */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-orange-600" />
-            Waste Recovery Summary
+            <Recycle className="w-5 h-5" />
+            Waste Recovery Management
           </CardTitle>
           <CardDescription>
-            Track which materials became waste and their recovery status
+            Recover reusable materials from production waste and return them to inventory
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {Object.entries(materialWasteCount).map(([materialName, totalWaste]) => {
-              const materialWasteItems = wasteData.filter(w => w.materialName === materialName);
-              const addedItems = materialWasteItems.filter(w => w.status === 'added_to_inventory');
-              const availableItems = materialWasteItems.filter(w => w.status === 'available_for_reuse');
-              const disposedItems = materialWasteItems.filter(w => w.status === 'disposed');
-              
-              return (
-                <div key={materialName} className="border rounded-lg p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <h4 className="font-medium">{materialName}</h4>
-                    <Badge variant="outline">{totalWaste.toString()} units wasted</Badge>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-sm">
-                    <div className="text-center">
-                      <div className="text-green-600 font-medium">{addedItems.length}</div>
-                      <div className="text-muted-foreground">Added to Inventory</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-blue-600 font-medium">{availableItems.length}</div>
-                      <div className="text-muted-foreground">Available for Reuse</div>
-                    </div>
-                    <div className="text-center">
-                      <div className="text-red-600 font-medium">{disposedItems.length}</div>
-                      <div className="text-muted-foreground">Disposed</div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Waste Items Table */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Recycle className="w-5 h-5 text-success" />
-                Waste Items
-              </CardTitle>
-              <CardDescription>
-                Track all waste generated during production processes
-              </CardDescription>
-            </div>
-            <Button 
-              variant="outline" 
-              size="sm"
-              onClick={() => {
-                const storedWasteData = JSON.parse(localStorage.getItem('rajdhani_waste_management') || '[]');
-                let flatWasteData = storedWasteData;
-                if (Array.isArray(storedWasteData) && storedWasteData.length > 0 && Array.isArray(storedWasteData[0])) {
-                  flatWasteData = storedWasteData.flat();
-                  localStorage.setItem('rajdhani_waste_management', JSON.stringify(flatWasteData));
-                }
-                setWasteData(flatWasteData);
-              }}
-            >
-              Refresh Data
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
           {wasteData.length === 0 ? (
-            <div className="text-center py-12">
-              <Recycle className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-foreground mb-2">No Waste Data</h3>
-              <p className="text-muted-foreground max-w-md mx-auto">
-                Waste items will appear here once production processes generate waste materials.
+            <div className="text-center py-8">
+              <Recycle className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+              <h3 className="text-lg font-medium text-muted-foreground mb-2">
+                No waste data found
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Waste materials from production will appear here for recovery.
               </p>
             </div>
           ) : (
@@ -3154,39 +3184,39 @@ function WasteManagement() {
               <table className="w-full">
                 <thead>
                   <tr className="border-b">
-                    <th className="text-left p-3 font-medium">Material</th>
-                    <th className="text-left p-3 font-medium">Quantity</th>
-                    <th className="text-left p-3 font-medium">Type</th>
-                    <th className="text-left p-3 font-medium">Status</th>
-                    <th className="text-left p-3 font-medium">Waste Source</th>
-                    <th className="text-left p-3 font-medium">Generated Date</th>
-                    <th className="text-left p-3 font-medium">Actions</th>
+                    <th className="text-left p-3">Status</th>
+                    <th className="text-left p-3">Material</th>
+                    <th className="text-left p-3">Quantity</th>
+                    <th className="text-left p-3">Waste Type</th>
+                    <th className="text-left p-3">Product Info</th>
+                    <th className="text-left p-3">Generated</th>
+                    <th className="text-left p-3">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {wasteData.map((waste) => (
-                    <tr key={waste.id} className="border-b hover:bg-gray-50">
-                      <td className="p-3">
-                        <div className="font-medium">{waste.materialName}</div>
-                        <div className="text-sm text-muted-foreground">{waste.materialId}</div>
-                      </td>
-                      <td className="p-3">
-                        {waste.quantity} {waste.unit}
-                      </td>
-                      <td className="p-3">
-                        <Badge variant={waste.wasteType === 'scrap' ? 'secondary' : 
-                                      waste.wasteType === 'defective' ? 'destructive' : 'outline'}>
-                          {waste.wasteType}
-                        </Badge>
-                      </td>
+                    <tr key={waste.id} className="border-b hover:bg-muted/50">
                       <td className="p-3">
                         <Badge variant={
-                          waste.status === 'available_for_reuse' ? 'default' : 
+                          waste.status === 'available_for_reuse' ? 'default' :
                           waste.status === 'added_to_inventory' ? 'outline' : 'secondary'
                         }>
-                          {waste.status === 'available_for_reuse' ? 'Reusable' : 
+                          {waste.status === 'available_for_reuse' ? 'Reusable' :
                            waste.status === 'added_to_inventory' ? 'Added' : 'Disposed'}
                         </Badge>
+                      </td>
+                      <td className="p-3">
+                        <div className="font-medium">{waste.productName}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {waste.quantity} {waste.unit}
+                        </div>
+                      </td>
+                      <td className="p-3">
+                        <div className="font-medium">{waste.quantity}</div>
+                        <div className="text-sm text-muted-foreground">{waste.unit}</div>
+                      </td>
+                      <td className="p-3">
+                        <div className="text-sm">{waste.wasteType}</div>
                       </td>
                       <td className="p-3">
                         <div className="text-sm font-medium">{waste.productName}</div>
@@ -3207,7 +3237,7 @@ function WasteManagement() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleReturnToInventory(waste)}
+                            onClick={() => onReturnToInventory(waste)}
                             className="text-green-600 hover:text-green-700 border-green-200 hover:border-green-300"
                           >
                             <Package className="w-4 h-4 mr-1" />

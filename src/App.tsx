@@ -27,19 +27,35 @@ import NotFound from "./pages/NotFound";
 import Products from "./pages/Products";
 import ProductDetail from "./pages/ProductDetail";
 import ProductStock from "./pages/ProductStock";
+import QRScanner from "./pages/QRScanner";
+import QRResult from "./pages/QRResult";
+import QRRedirect from "./pages/QRRedirect";
 import Settings from "./pages/Settings";
 import DataInitializer from "./components/DataInitializer";
+import BackendInitializer from "./components/BackendInitializer";
+import BackendTest from "./pages/BackendTest";
 
-import RajdhaniERP from "@/lib/storage";
-import { useEffect } from "react";
+// import RajdhaniERP from "@/lib/storageUtilsUtils"; // Removed - using Supabase now
+import { useEffect, useState } from "react";
 
 
 const queryClient = new QueryClient();
 
 const App = () => {
+  const [backendReady, setBackendReady] = useState(false);
+
   // Initialize Rajdhani ERP System
   useEffect(() => {
-    RajdhaniERP.initialize();
+    // RajdhaniERP.initialize(); // Removed - using Supabase now
+  }, []);
+
+  // Handle backend connection success
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setBackendReady(true);
+    }, 3000); // Show backend connection status for 3 seconds
+
+    return () => clearTimeout(timer);
   }, []);
 
   return (
@@ -49,8 +65,8 @@ const App = () => {
         <Sonner />
         <BrowserRouter>
           <div className="flex h-screen bg-background">
-            <Sidebar />
-            <main className="flex-1 overflow-auto min-w-0">
+            <Sidebar className="hidden md:flex" />
+            <main className="flex-1 overflow-auto min-w-0 w-full md:w-auto">
               <Routes>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/orders" element={<Orders />} />
@@ -74,14 +90,21 @@ const App = () => {
                 <Route path="/products" element={<Products />} />
                 <Route path="/product/:productId" element={<ProductDetail />} />
                 <Route path="/product-stock/:productId" element={<ProductStock />} />
+                <Route path="/qr-scanner" element={<QRScanner />} />
+                <Route path="/qr-result" element={<QRResult />} />
+                <Route path="/qr-redirect" element={<QRRedirect />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="/data-initializer" element={<DataInitializer />} />
+                <Route path="/backend-test" element={<BackendTest />} />
 
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
             </main>
           </div>
+
+          {/* Backend Connection Status - Only show briefly on app start */}
+          {!backendReady && <BackendInitializer />}
         </BrowserRouter>
       </TooltipProvider>
     </QueryClientProvider>

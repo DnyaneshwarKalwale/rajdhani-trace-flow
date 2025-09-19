@@ -9,12 +9,8 @@ Target Users: Carpet manufacturers, production managers, sales team, inventory m
 
 1.1 Product Categories (Required)
 What carpet categories do you manufacture?
-- Handmade
-- Machine Made
-- Commercial
-- Residential
-- Custom
-- Other: _______________
+
+- Other: __plain paper print degital print_, backing - jute - 800gsm, felt_______
 
 1.2 Colors (Required)
 List all colors you use:
@@ -27,8 +23,7 @@ Standard sizes you manufacture:
 - Small: 3x5 feet, 4x6 feet
 - Medium: 5x7 feet, 6x9 feet
 - Large: 8x10 feet, 9x12 feet, 10x14 feet
-- Custom sizes: _______________
-
+- Custom sizes: _____148 feet, 45 meter____, 5, 6, 10 feet.  1.52, 1.83, 3.05m.
 1.4 Patterns (Required)
 Patterns you create:
 - Geometric
@@ -36,14 +31,14 @@ Patterns you create:
 - Traditional
 - Modern
 - Abstract
-- Custom patterns: _______________
+- Custom patterns: ____paper print and degital print___________
 
-1.5 Pile Heights (Required)
-Pile height options:
-- Low: 3mm, 4mm, 5mm, 6mm
-- Medium: 7mm, 8mm, 9mm, 10mm
-- High: 11mm, 12mm, 15mm, 20mm
-- Custom heights: _______________
+# 1.5 Pile Heights (Required)
+# Pile height options:
+# - Low: 3mm, 4mm, 5mm, 6mm
+# - Medium: 7mm, 8mm, 9mm, 10mm
+# - High: 11mm, 12mm, 15mm, 20mm
+# - Custom heights: _______________
 
 1.6 Weight (Required)
 How do you measure carpet weight?
@@ -51,14 +46,14 @@ How do you measure carpet weight?
 - Per square foot
 - Total weight per piece
 - Weight categories: Light, Medium, Heavy
-- Other: _______________
+- Other: _GSM - 400, 600, 700, 800______________
 
 2. PRICING STRUCTURE
 
 2.1 Pricing Method (Critical)
 How do you price carpets?
 - Per square foot (sqft)
-- Per square meter (sqm)
+- Per square meter (sqm) -
 - Per piece (fixed price)
 - Per kilogram (kg)
 - Other: _______________
@@ -92,6 +87,115 @@ Do you offer quantity discounts?
 - Yes, special pricing for wholesale customers
 - No, same price for all quantities
 
+2.6 Customer-Specific Pricing (Critical)
+Do prices change according to customer?
+- Yes, different prices for different customer types
+- Yes, wholesale customers get different prices
+- Yes, long-term customers get special prices
+- Yes, export customers get different prices
+- No, same price for all customers
+
+2.7 Price Negotiation (Critical)
+Do customers negotiate prices?
+- Yes, customers always ask for discounts
+- Yes, customers negotiate on large orders
+- Yes, customers negotiate on custom orders
+- No, prices are fixed and non-negotiable
+- Sometimes, depends on order size
+
+2.8 Discount Policies (Critical)
+What discount policies do you have?
+- Quantity discounts (how many pieces for what discount?)
+- Customer type discounts (wholesale, retail, export)
+- Seasonal discounts (festival, off-season)
+- Payment terms discounts (cash vs credit)
+- Loyalty discounts (repeat customers)
+- Other: _______________
+
+2.9 Price Calculation Method (Critical)
+How do you calculate final prices?
+- Base price + size factor + color factor + pattern factor
+- Base price per sqft × total area + additional charges
+- Fixed price per piece regardless of variations
+- Negotiated price based on customer relationship
+- Other: _______________
+
+2.10 Price Variation Examples (Critical)
+How do prices vary for different products?
+- Example: Red carpet vs Blue carpet price difference
+- Example: 3x5 feet vs 8x10 feet price per sqft
+- Example: Persian pattern vs Geometric pattern price difference
+- Example: 6mm pile height vs 12mm pile height price difference
+- Example: 1500gsm vs 3000gsm weight price difference
+
+2.11 Price Approval Process (Critical)
+Who approves price changes?
+- Owner/Manager only
+- Sales manager can approve up to certain limit
+- Sales person can give small discounts
+- No approval needed for standard discounts
+- Other: _______________
+
+2.12 Price Documentation (Critical)
+How do you document price changes?
+- Written quotes for all customers
+- Price lists for different customer types
+- Discount approval forms
+- Price change logs
+- Other: _______________
+
+2.13 Product Variation Pricing (Critical)
+How do you price different product variations?
+- Base price + variation factors (color, size, pattern, pile height, weight)
+- Different price per sqft for different sizes
+- Premium pricing for special colors (gold, silk, etc.)
+- Premium pricing for complex patterns
+- Premium pricing for higher pile heights
+- Premium pricing for heavier weights
+- Other: _______________
+
+2.14 Competitive Pricing (Critical)
+How do you handle competitive pricing?
+- Match competitor prices
+- Beat competitor prices by small margin
+- Focus on quality over price
+- Offer better payment terms than competitors
+- Offer additional services (delivery, installation)
+- Other: _______________
+
+2.15 Market-Based Pricing (Critical)
+How do you adjust prices based on market conditions?
+- Increase prices when material costs increase
+- Decrease prices during off-season
+- Special pricing during festivals/events
+- Export pricing different from domestic pricing
+- Other: _______________
+
+2.16 Price Transparency (Critical)
+How transparent are your prices?
+- Show all prices openly to customers
+- Show prices only after customer inquiry
+- Negotiate prices privately with each customer
+- Have different price lists for different customers
+- Other: _______________
+
+2.17 Price Communication (Critical)
+How do you communicate prices to customers?
+- Show prices on product tags
+- Provide price lists/catalogs
+- Calculate prices on-demand
+- Show prices only in showroom
+- Other: _______________
+
+2.18 Price Updates (Critical)
+How often do you update prices?
+- Monthly price updates
+- Quarterly price updates
+- Price updates when material costs change
+- Annual price updates
+- Ad-hoc price updates as needed
+- Other: _______________
+
 3. RAW MATERIALS
 
 3.1 Material Types (Required)
@@ -124,7 +228,7 @@ How do you price raw materials?
 - Per meter
 - Per liter
 - Per roll
-- Other: _______________
+- Other: ____denier, __________
 
 4. PRODUCTION PROCESS
 
@@ -251,6 +355,170 @@ How do you handle individual product selection?
 - Customer can see product details (size, color, quality)
 - Customer can see product location in warehouse
 - Customer can see product condition
+- Other: _______________
+
+5.12 Order Pricing Process (Critical)
+How do you handle pricing during order process?
+- Show fixed prices to customer
+- Calculate price based on customer type
+- Allow price negotiation during order
+- Provide quotes before order confirmation
+- Other: _______________
+
+5.13 Customer Negotiation Process (Critical)
+How do you handle customer negotiations?
+- Customer asks for discount, you negotiate
+- Customer shows competitor prices, you match/beat
+- Customer asks for better payment terms
+- Customer asks for free delivery/installation
+- Customer asks for additional products at discount
+- Other: _______________
+
+5.14 Negotiation Limits (Critical)
+What are your negotiation limits?
+- Maximum discount you can give: _______________%
+- Minimum order value for negotiation
+- Which customers can negotiate (all/wholesale/export only)
+- Who can approve negotiations (manager/sales person)
+- Other: _______________
+
+5.15 Price Quotation Process (Critical)
+How do you provide price quotations?
+- Immediate verbal quote
+- Written quote with validity period
+- Quote includes all charges (delivery, taxes, etc.)
+- Quote shows discount if applicable
+- Quote shows payment terms
+- Other: _______________
+
+5.16 Order Confirmation Process (Critical)
+How do you confirm orders with customers?
+- Customer agrees to price, order is confirmed
+- Customer signs order form/contract
+- Customer pays advance, order is confirmed
+- Customer provides purchase order, order is confirmed
+- Other: _______________
+
+5.17 Price Changes After Order (Critical)
+Can you change prices after order is confirmed?
+- Yes, if customer requests changes
+- Yes, if material costs increase
+- Yes, if delivery timeline changes
+- No, price is locked after confirmation
+- Other: _______________
+
+5.18 Order Modification Process (Critical)
+How do you handle order modifications?
+- Customer wants to change size/color/quantity
+- Customer wants to add/remove products
+- Customer wants to change delivery date
+- Customer wants to change payment terms
+- How do you handle price changes for modifications?
+- Other: _______________
+
+5.19 Customer Credit Management (Critical)
+How do you manage customer credit?
+- Check customer credit history before order
+- Set credit limits for customers
+- Monitor outstanding payments
+- Stop orders if payment is overdue
+- Other: _______________
+
+5.20 Order Cancellation Process (Critical)
+How do you handle order cancellations?
+- Customer can cancel before production starts
+- Customer can cancel with penalty charges
+- Customer can cancel if product is not available
+- No cancellations allowed after confirmation
+- How do you handle advance payments for cancellations?
+- Other: _______________
+
+5.21 Delivery Pricing (Critical)
+How do you handle delivery charges?
+- Free delivery for all orders
+- Free delivery above certain order value
+- Fixed delivery charges
+- Delivery charges based on distance
+- Customer pays delivery separately
+- Other: _______________
+
+5.22 Installation Services (Critical)
+Do you provide installation services?
+- Yes, free installation
+- Yes, paid installation service
+- No, customer handles installation
+- Installation charges: _______________
+- Other: _______________
+
+5.23 After-Sales Services (Critical)
+What after-sales services do you provide?
+- Warranty on products
+- Free maintenance/cleaning
+- Product replacement if defective
+- Customer support
+- Other: _______________
+
+5.24 Customer Relationship Management (Critical)
+How do you maintain customer relationships?
+- Regular follow-up calls
+- Send new product catalogs
+- Invite to exhibitions/showrooms
+- Offer special deals to loyal customers
+- Other: _______________
+
+5.25 Order Scenarios (Critical)
+Common order scenarios you face:
+- Customer wants 10 pieces, asks for bulk discount
+- Customer compares your price with competitor, asks you to match
+- Customer wants custom size/color, asks for price
+- Customer wants to pay after delivery, asks for credit terms
+- Customer wants free delivery, asks for discount
+- Customer wants to return product, asks for refund
+- Other scenarios: _______________
+
+5.26 Negotiation Scenarios (Critical)
+Common negotiation scenarios:
+- "Your competitor is offering 10% less, can you match?"
+- "I'm buying 20 pieces, what discount can you give?"
+- "I'm a regular customer, can you give me better price?"
+- "I'll pay cash, can you give discount?"
+- "I need delivery tomorrow, can you do it?"
+- "The quality is not as expected, can you reduce price?"
+- Other scenarios: _______________
+
+5.27 Price Objection Handling (Critical)
+How do you handle price objections?
+- Explain quality difference vs competitors
+- Offer payment terms instead of discount
+- Offer additional services (delivery, installation)
+- Show value proposition (durability, warranty)
+- Offer smaller quantity at same price
+- Other: _______________
+
+5.28 Order Priority Management (Critical)
+How do you prioritize orders?
+- First come, first served
+- Large orders get priority
+- Regular customers get priority
+- Cash payment orders get priority
+- Export orders get priority
+- Other: _______________
+
+5.29 Order Tracking (Critical)
+How do you track order progress?
+- Customer calls to check status
+- You call customer with updates
+- Send SMS/WhatsApp updates
+- Customer can check online
+- Other: _______________
+
+5.30 Order Completion Process (Critical)
+How do you complete orders?
+- Customer inspects product before payment
+- Customer pays remaining amount
+- You deliver and install
+- Customer signs delivery receipt
+- You update inventory
 - Other: _______________
 
 6. INVENTORY MANAGEMENT

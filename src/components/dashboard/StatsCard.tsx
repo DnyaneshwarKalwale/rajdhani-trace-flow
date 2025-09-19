@@ -26,22 +26,22 @@ export function StatsCard({
 }: StatsCardProps) {
   return (
     <Card className={cn("hover:shadow-lg transition-all duration-300", className)}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-4 sm:p-6">
+        <CardTitle className="text-xs sm:text-sm font-medium text-muted-foreground truncate flex-1 mr-2">
           {title}
         </CardTitle>
-        <Icon className={cn("h-5 w-5", color)} />
+        <Icon className={cn("h-4 w-4 sm:h-5 sm:w-5 flex-shrink-0", color)} />
       </CardHeader>
-      <CardContent>
-        <div className="text-3xl font-bold text-foreground">{value}</div>
+      <CardContent className="p-4 sm:p-6 pt-0">
+        <div className="text-xl sm:text-2xl lg:text-3xl font-bold text-foreground">{value}</div>
         {(description || trend) && (
-          <div className="flex items-center justify-between mt-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-2 gap-1 sm:gap-2">
             {description && (
-              <p className="text-xs text-muted-foreground">{description}</p>
+              <p className="text-xs text-muted-foreground truncate flex-1">{description}</p>
             )}
             {trend && (
               <p className={cn(
-                "text-xs font-medium",
+                "text-xs font-medium flex-shrink-0",
                 trend.isPositive ? "text-success" : "text-destructive"
               )}>
                 {trend.isPositive ? "+" : ""}{trend.value}%

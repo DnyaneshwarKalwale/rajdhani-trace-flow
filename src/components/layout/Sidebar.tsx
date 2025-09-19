@@ -12,10 +12,11 @@ import {
   AlertTriangle,
   Home,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  QrCode
 } from "lucide-react";
 import { useLocation, Link } from "react-router-dom";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 interface SidebarProps {
   className?: string;
@@ -59,6 +60,12 @@ const sidebarItems = [
     color: "text-products"
   },
   {
+    title: "QR Scanner",
+    icon: QrCode,
+    href: "/qr-scanner",
+    color: "text-purple-600"
+  },
+  {
     title: "Manage Stock",
     icon: AlertTriangle,
     href: "/manage-stock",
@@ -87,30 +94,53 @@ const sidebarItems = [
     icon: Settings,
     href: "/data-initializer",
     color: "text-green-600"
+  },
+  {
+    title: "Backend Test",
+    icon: Cog,
+    href: "/backend-test",
+    color: "text-blue-600"
   }
 ];
 
 export function Sidebar({ className }: SidebarProps) {
   const location = useLocation();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Auto-collapse on mobile
+  useEffect(() => {
+    const handleResize = () => {
+      if (window.innerWidth < 768) {
+        setIsCollapsed(true);
+      } else {
+        setIsCollapsed(false);
+      }
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   return (
     <div className={cn(
       "flex h-full flex-col bg-card border-r transition-all duration-300",
       isCollapsed ? "w-16" : "w-64",
+      "md:relative fixed z-50 md:z-auto",
       className
     )}>
       {/* Header */}
-      <div className={cn("border-b", isCollapsed ? "p-2" : "p-6")}>
+      <div className={cn("border-b", isCollapsed ? "p-2" : "p-4 md:p-6")}>
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-primary to-primary-hover rounded-lg flex items-center justify-center">
-              <Factory className="w-6 h-6 text-primary-foreground" />
+          <div className="flex items-center space-x-2 md:space-x-3">
+            <div className="w-8 h-8 md:w-10 md:h-10 bg-gradient-to-br from-primary to-primary-hover rounded-lg flex items-center justify-center">
+              <Factory className="w-4 h-4 md:w-6 md:h-6 text-primary-foreground" />
             </div>
             {!isCollapsed && (
               <div>
-                <h1 className="text-xl font-bold text-primary">Rajdhani Carpet</h1>
-                <p className="text-sm text-muted-foreground">ERP System</p>
+                <h1 className="text-lg md:text-xl font-bold text-primary">Rajdhani Carpet</h1>
+                <p className="text-xs md:text-sm text-muted-foreground">ERP System</p>
               </div>
             )}
           </div>
@@ -118,42 +148,42 @@ export function Sidebar({ className }: SidebarProps) {
             variant="ghost"
             size="sm"
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="h-8 w-8 p-0"
+            className="h-6 w-6 md:h-8 md:w-8 p-0"
           >
             {isCollapsed ? (
-              <ChevronRight className="h-4 w-4" />
+              <ChevronRight className="h-3 w-3 md:h-4 md:w-4" />
             ) : (
-              <ChevronLeft className="h-4 w-4" />
+              <ChevronLeft className="h-3 w-3 md:h-4 md:w-4" />
             )}
           </Button>
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className={cn("flex-1 space-y-2", isCollapsed ? "p-2" : "p-4")}>
+      <nav className={cn("flex-1 space-y-1 md:space-y-2", isCollapsed ? "p-1 md:p-2" : "p-2 md:p-4")}>
         {sidebarItems.map((item) => {
           const isActive = location.pathname === item.href;
           const Icon = item.icon;
-          
+
           return (
             <Link key={item.href} to={item.href}>
               <Button
                 variant={isActive ? "secondary" : "ghost"}
                 className={cn(
-                  "w-full h-12 text-left",
-                  isCollapsed ? "justify-center px-0" : "justify-start",
+                  "w-full text-left transition-all",
+                  isCollapsed ? "h-10 md:h-12 justify-center px-0" : "h-10 md:h-12 justify-start",
                   isActive && "bg-primary/10 text-primary hover:bg-primary/15",
                   !isActive && "hover:bg-muted"
                 )}
                 title={isCollapsed ? item.title : undefined}
               >
                 <Icon className={cn(
-                  "h-5 w-5", 
+                  "h-4 w-4 md:h-5 md:w-5 flex-shrink-0",
                   isActive ? "text-primary" : item.color,
-                  !isCollapsed && "mr-3"
+                  !isCollapsed && "mr-2 md:mr-3"
                 )} />
                 {!isCollapsed && (
-                  <span className="font-medium">{item.title}</span>
+                  <span className="font-medium text-sm md:text-base truncate">{item.title}</span>
                 )}
               </Button>
             </Link>
@@ -162,7 +192,7 @@ export function Sidebar({ className }: SidebarProps) {
       </nav>
 
       {/* Footer */}
-      <div className={cn("border-t", isCollapsed ? "p-2" : "p-4")}>
+      <div className={cn("border-t", isCollapsed ? "p-1 md:p-2" : "p-2 md:p-4")}>
         {!isCollapsed && (
           <div className="text-xs text-muted-foreground text-center">
             Version 1.0.0

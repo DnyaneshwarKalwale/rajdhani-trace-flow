@@ -11,9 +11,14 @@ import {
   ArrowLeft, Package, Factory, Plus, Trash2, Save,
   Truck, AlertTriangle, FileSpreadsheet, CheckCircle, Info, Search,
   XCircle, X, Settings, User
-} from "lucide-react";
-import { getFromStorage, updateStorage, replaceStorage, getProductRecipe, saveProductRecipe, createRecipeFromMaterials, getProductionProductData, generateUniqueId } from "@/lib/storage";
-import { getProductionFlow, updateProductionStep, moveToNextStep } from "@/lib/machines";
+  } from "lucide-react";
+  import { generateUniqueId } from "@/lib/storageUtils";
+import { ProductService } from "@/services/ProductService";
+import { ProductRecipeService } from "@/services/productRecipeService";
+import { RawMaterialService } from "@/services/rawMaterialService";
+import { MachineService, Machine } from "@/services/machineService";
+import { ProductionFlowService } from "@/services/productionFlowService";
+import { supabase } from "@/lib/supabase";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loading } from "@/components/ui/loading";
 import { 
@@ -47,10 +52,10 @@ interface WasteItem {
 interface ExpectedProduct {
   name: string;
   category: string;
-  dimensions: string;
+  height: string;
+  width: string;
   weight: string;
   thickness: string;
-  pileHeight: string;
   materialComposition: string;
   qualityGrade: string;
 }
@@ -61,7 +66,8 @@ interface ProductionProduct {
   productName: string;
   category: string;
   color: string;
-  size: string;
+  height: string;
+  width: string;
   pattern: string;
   targetQuantity: number;
   priority: "normal" | "high" | "urgent";
@@ -77,16 +83,14 @@ interface ProductionProduct {
 interface RawMaterial {
   id: string;
   name: string;
-  brand: string;
+  brand?: string;
   category: string;
-  currentStock: number;
+  current_stock: number;
   unit: string;
-  costPerUnit: number;
-  supplier: string;
-  supplierId: string;
-  status: "in-stock" | "low-stock" | "out-of-stock" | "overstock";
-  location?: string;
-  batchNumber?: string;
+  cost_per_unit: number;
+  supplier_name?: string;
+  status: "in-stock" | "low-stock" | "out-of-stock" | "overstock" | "in-transit";
+  batch_number?: string;
 }
 
 export default function ProductionDetail() {
@@ -101,19 +105,19 @@ export default function ProductionDetail() {
   const [selectedMaterials, setSelectedMaterials] = useState<Array<RawMaterial & { selectedQuantity: number }>>([]);
   const [notifications, setNotifications] = useState<Array<{id: string, type: 'success' | 'warning' | 'error', title: string, message: string, timestamp: Date}>>([]);
   const [materialsFromRecipe, setMaterialsFromRecipe] = useState(false);
+  const [productRecipe, setProductRecipe] = useState<any>(null);
   
   // Machine selection popup states
   const [showMachineSelectionPopup, setShowMachineSelectionPopup] = useState(false);
   const [showAddMachinePopup, setShowAddMachinePopup] = useState(false);
   const [selectedMachineId, setSelectedMachineId] = useState("");
   const [inspectorName, setInspectorName] = useState("");
-  const [machines, setMachines] = useState<any[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
   const [productionFlow, setProductionFlow] = useState<any>(null);
   
   // New machine form
   const [newMachineForm, setNewMachineForm] = useState({
     name: "",
-    location: "",
     description: ""
   });
   
@@ -131,181 +135,226 @@ export default function ProductionDetail() {
   const [expectedProduct, setExpectedProduct] = useState<ExpectedProduct>({
     name: "",
     category: "",
-    dimensions: "",
+    height: "",
+    width: "",
     weight: "",
     thickness: "",
-    pileHeight: "",
     materialComposition: "",
     qualityGrade: ""
   });
 
 
   useEffect(() => {
-    if (productId) {
-      const products = getFromStorage('rajdhani_production_products');
-      const product = products.find((p: ProductionProduct) => p.id === productId);
-      if (product) {
-        setProductionProduct(product);
-        
-        // Check if production flow exists and update status
-        const existingFlow = getProductionFlow(product.id);
-        if (existingFlow) {
-          // Auto-complete material selection if materials are already selected and step is pending
-          if (product.materialsConsumed && product.materialsConsumed.length > 0) {
-            const materialStep = existingFlow.steps.find(s => s.stepType === 'material_selection');
-            if (materialStep && materialStep.status === 'pending') {
-              updateProductionStep(existingFlow.id, materialStep.id, {
-                status: 'completed',
-                endTime: new Date().toISOString(),
-                inspectorId: 'Admin',
-                qualityNotes: `Materials selected during planning: ${product.materialsConsumed.length} items`
-              });
-              // Move to next step if current step is material selection
-              if (existingFlow.currentStepIndex === 0) {
-                moveToNextStep(existingFlow.id);
-              }
-            }
-          }
-        }
-        
-        // If product is in active status and has completed all flow steps, redirect to individual details
-        if (product.status === "active" && existingFlow?.status === 'completed') {
-          navigate(`/production/complete/${product.id}`);
-          return;
-        }
-        
-        // Auto-fill expected product details from existing product info
-        if (product.expectedProduct && Object.values(product.expectedProduct).some(v => v)) {
-          setExpectedProduct(product.expectedProduct);
-        } else {
-          // Get complete product data with individual stock details
-          const completeProductData = getProductionProductData(product.productId);
+    const loadProductData = async () => {
+      if (productId) {
+        try {
+          // Load actual product data from Supabase
+          const response = await ProductService.getProducts();
+          const products = response.data || [];
           
-          if (completeProductData) {
-            // Pre-fill with complete product details from inventory
-            setExpectedProduct({
-              name: completeProductData.name || product.productName || "",
-              category: completeProductData.category || product.category || "",
-              dimensions: completeProductData.dimensions || product.size || "",
-              weight: completeProductData.weight || "", // From product details
-              thickness: completeProductData.thickness || "", // From product details
-              pileHeight: completeProductData.pileHeight || "", // From product details
-              materialComposition: completeProductData.materialComposition || "", // From product details
-              qualityGrade: "A+" // Pre-fill quality grade
-            });
-          } else {
-            // Fallback to basic product details
-            setExpectedProduct({
-              name: product.productName || "",
-              category: product.category || "",
-              dimensions: product.size || "",
-              weight: "", // Will be filled during production
-              thickness: "", // Will be filled during production
-              pileHeight: "", // Will be filled during production
-              materialComposition: "", // Will be filled during production
-              qualityGrade: "A+" // Pre-fill quality grade
-            });
-          }
-        }
-
-        // Check for existing recipe and auto-populate materials
-        const existingRecipe = getProductRecipe(product.productId);
-        if (existingRecipe && existingRecipe.materials.length > 0) {
-          // Get raw materials from localStorage (should be initialized by DataInitializer)
-          const rawMaterialsFromStorage = getFromStorage('rajdhani_raw_materials') || [];
+          // Use the product ID directly (no PROD_ prefix needed)
+          const actualProductId = productId;
+          const actualProduct = products.find((p: any) => p.id === actualProductId);
           
-          // Debug: Log raw materials loading
-          console.log('Raw materials in storage:', rawMaterialsFromStorage.length, rawMaterialsFromStorage);
-          console.log('Recipe materials to match:', existingRecipe.materials);
+          console.log('Looking for product ID:', actualProductId);
+          console.log('Available products:', products.map(p => p.id));
           
-          // Convert recipe materials to selected materials format
-          // Include ALL materials from recipe, even if not currently in inventory
-          const recipeMaterials = existingRecipe.materials.map(recipeMaterial => {
-            // First try to find by ID
-            let rawMaterial = rawMaterialsFromStorage.find(rm => rm.id === recipeMaterial.materialId);
-            
-            // If not found by ID, try to find by name (in case IDs changed)
-            if (!rawMaterial && recipeMaterial.materialName) {
-              rawMaterial = rawMaterialsFromStorage.find(rm => 
-                rm.name.toLowerCase() === recipeMaterial.materialName.toLowerCase()
-              );
-            }
-            
-            // If material not found in current inventory by ID or name, create a placeholder with recipe data
-            if (!rawMaterial) {
-              return {
-                id: recipeMaterial.materialId,
-                name: recipeMaterial.materialName || "Unknown Material",
-                brand: "Recipe Item", // More descriptive than "Unknown"
-                category: "From Recipe",
-                currentStock: 0,
-                unit: recipeMaterial.unit,
-                costPerUnit: recipeMaterial.costPerUnit,
-                supplier: "From Recipe",
-                supplierId: recipeMaterial.materialId,
-                status: "out-of-stock" as const,
-                location: "Recipe Only",
-                batchNumber: undefined,
-                selectedQuantity: recipeMaterial.quantity
-              };
-            }
-            
-            // If material exists in inventory, use current inventory data but preserve recipe quantity
-            return {
-              id: rawMaterial.id,
-              name: rawMaterial.name,
-              brand: rawMaterial.brand,
-              category: rawMaterial.category,
-              currentStock: rawMaterial.currentStock,
-              unit: rawMaterial.unit,
-              costPerUnit: rawMaterial.costPerUnit,
-              supplier: rawMaterial.supplier,
-              supplierId: rawMaterial.supplierId,
-              status: rawMaterial.status,
-              location: rawMaterial.location,
-              batchNumber: rawMaterial.batchNumber,
-              selectedQuantity: recipeMaterial.quantity
+          if (actualProduct) {
+            const product: ProductionProduct = {
+              id: productId,
+              productId: actualProduct.id,
+              productName: actualProduct.name,
+              category: actualProduct.category,
+              color: actualProduct.color || 'N/A',
+              height: actualProduct.height || 'N/A',
+              width: actualProduct.width || 'N/A',
+              pattern: actualProduct.pattern || 'N/A',
+              targetQuantity: 1,
+              priority: "normal",
+              status: "planning",
+              expectedCompletion: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+              materialsConsumed: [],
+              wasteGenerated: [],
+              expectedProduct: {
+                name: actualProduct.name,
+                category: actualProduct.category,
+                height: actualProduct.height || '',
+                width: actualProduct.width || '',
+                weight: actualProduct.weight || '',
+                thickness: actualProduct.thickness || '',
+                materialComposition: actualProduct.materialComposition || '',
+                qualityGrade: "A+"
+              },
+              notes: ""
             };
-          });
-          setSelectedMaterials(recipeMaterials);
-          setMaterialsFromRecipe(true);
-          
-          // Show notification that materials were auto-selected from recipe
-          const availableMaterials = recipeMaterials.filter(m => m.currentStock > 0);
-          const unavailableMaterials = recipeMaterials.filter(m => m.currentStock === 0);
-          
-          let notificationMessage = `Recipe loaded successfully.`;
-          if (unavailableMaterials.length > 0) {
-            notificationMessage += ` ${unavailableMaterials.length} material${unavailableMaterials.length > 1 ? 's' : ''} out of stock.`;
+            setProductionProduct(product);
+            
+            // Auto-fill expected product details from actual product data
+            setExpectedProduct({
+              name: actualProduct.name,
+              category: actualProduct.category,
+              height: actualProduct.height || '',
+              width: actualProduct.width || '',
+              weight: actualProduct.weight || '',
+              thickness: actualProduct.thickness || '',
+              materialComposition: actualProduct.materialComposition || '',
+              qualityGrade: "A+"
+            });
+            
+          } else {
+            console.error('Product not found:', actualProductId);
+            // Fallback to mock data if product not found
+            const fallbackProduct: ProductionProduct = {
+              id: productId,
+              productId: actualProductId,
+              productName: "Product Not Found",
+              category: "Unknown",
+              color: "N/A",
+              height: "N/A",
+              width: "N/A",
+              pattern: "N/A",
+              targetQuantity: 1,
+              priority: "normal",
+              status: "planning",
+              expectedCompletion: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+              materialsConsumed: [],
+              wasteGenerated: [],
+              expectedProduct: {
+                name: "Product Not Found",
+                category: "Unknown",
+                height: "",
+                width: "",
+                weight: "",
+                thickness: "",
+                materialComposition: "",
+                qualityGrade: "A+"
+              },
+              notes: ""
+            };
+            setProductionProduct(fallbackProduct);
           }
-          
-          showNotification(
-            `📋 Recipe Auto-Filled`,
-            notificationMessage,
-            unavailableMaterials.length > 0 ? 'warning' : 'success'
-          );
+        } catch (error) {
+          console.error('Error loading product data:', error);
         }
       }
-    }
+    };
     
-    // Load raw materials from inventory (should be initialized by DataInitializer)
-    const materials = getFromStorage('rajdhani_raw_materials') || [];
-    setRawMaterials(materials);
+    loadProductData();
     
-    // Load machines
-    const machinesData = getFromStorage('rajdhani_machines') || [];
-    setMachines(machinesData);
+    // Load raw materials from Supabase
+    const loadRawMaterials = async () => {
+      try {
+        const { data: materials, error } = await RawMaterialService.getRawMaterials();
+        if (error) {
+          console.error('Error loading raw materials:', error);
+        } else {
+          // Use materials directly from Supabase (already in correct format)
+          const mappedMaterials = materials || [];
+          setRawMaterials(mappedMaterials);
+          console.log('✅ Loaded', mappedMaterials.length, 'raw materials from Supabase');
+          return mappedMaterials;
+        }
+      } catch (error) {
+        console.error('Error loading raw materials:', error);
+      }
+      return [];
+    };
     
-    // Load production flow
-    if (productId) {
-      const flow = getProductionFlow(productId);
-      setProductionFlow(flow);
-    }
+    loadRawMaterials().then(() => {
+      // Load recipe after raw materials are loaded so stock quantities are available
+      if (productId) {
+        const actualProductId = productId;
+        loadProductRecipe(actualProductId);
+      }
+    });
+
+    // Load machines from Supabase
+    const loadMachines = async () => {
+      try {
+        const machinesData = await MachineService.getMachines();
+        setMachines(machinesData);
+        console.log('✅ Loaded', machinesData.length, 'machines from Supabase:', machinesData);
+      } catch (error) {
+        console.error('Error loading machines:', error);
+        // Fallback to empty array if loading fails
+        setMachines([]);
+        // For debugging - add some test machines
+        console.log('Setting fallback machines for debugging');
+        setMachines([
+          { id: 'MACHINE_001', name: 'BR3C-Cutter', description: 'Test machine' },
+          { id: 'MACHINE_002', name: 'Needle Punching Machine', description: 'Test machine 2' }
+        ]);
+      }
+    };
+    
+    loadMachines();
+    
+    // Production flow functionality removed
   }, [productId, navigate]);
+
+  // Load product recipe
+  const loadProductRecipe = async (productId: string) => {
+    try {
+      const recipeResponse = await ProductRecipeService.getRecipeByProductId(productId);
+      if (recipeResponse && recipeResponse.data) {
+        const recipe = recipeResponse.data;
+        setProductRecipe(recipe);
+        console.log('Product recipe loaded:', recipe);
+
+        // Auto-populate materials from recipe if available
+        if (recipe.recipe_materials && recipe.recipe_materials.length > 0) {
+          // Get current raw materials - either from state or fetch fresh
+          let currentRawMaterials = rawMaterials;
+          if (currentRawMaterials.length === 0) {
+            try {
+              const { data: materials } = await RawMaterialService.getRawMaterials();
+              currentRawMaterials = materials || [];
+              console.log('Fetched raw materials for recipe loading:', currentRawMaterials.length);
+            } catch (error) {
+              console.error('Error fetching raw materials for recipe:', error);
+            }
+          }
+
+          const recipeMaterials = recipe.recipe_materials.map((material: any) => {
+            const rawMaterial = currentRawMaterials.find(rm => rm.id === material.material_id);
+
+            return {
+              id: material.material_id,
+              name: material.material_name,
+              brand: rawMaterial?.brand || material.brand || '',
+              category: rawMaterial?.category || material.category || '',
+              current_stock: rawMaterial?.current_stock || 0,
+              unit: material.unit,
+              cost_per_unit: rawMaterial?.cost_per_unit || material.cost_per_unit || 0,
+              supplier_name: rawMaterial?.supplier_name || material.supplier_name || "From Recipe",
+              status: (rawMaterial?.status || 'in-stock') as const,
+              batch_number: rawMaterial?.batch_number || material.batch_number || '',
+              selectedQuantity: material.quantity || 1
+            };
+          });
+
+          setSelectedMaterials(recipeMaterials);
+          setMaterialsFromRecipe(true);
+
+          showNotification(
+            "📋 Recipe Loaded",
+            `Loaded recipe with ${recipe.recipe_materials.length} materials`,
+            'success'
+          );
+        }
+      } else {
+        console.log('No recipe found for product:', productId);
+      }
+    } catch (error) {
+      console.error('Error loading product recipe:', error);
+    }
+  };
 
   // Get available materials (in stock)
   const getAvailableMaterials = () => {
-    return rawMaterials.filter(material => material.status === "in-stock" && material.currentStock > 0);
+    return rawMaterials.filter(material => material.status === "in-stock" && material.current_stock > 0);
   };
 
   // Handle material selection change
@@ -317,7 +366,7 @@ export default function ProductionDetail() {
         materialName: selectedMaterial.name,
         quantity: "",
         unit: selectedMaterial.unit,
-        cost: selectedMaterial.costPerUnit.toString()
+        cost: selectedMaterial.cost_per_unit.toString()
       });
     }
   };
@@ -329,7 +378,7 @@ export default function ProductionDetail() {
       materialName: material.name,
       quantity: "",
       unit: material.unit,
-      cost: material.costPerUnit.toString()
+      cost: material.cost_per_unit.toString()
     });
     setIsMaterialSelectionOpen(false);
   };
@@ -353,8 +402,167 @@ export default function ProductionDetail() {
     setSelectedMaterials(selectedMaterials.filter(m => m.id !== materialId));
   };
 
-  // Remove material from production and update recipe
-  const removeMaterialFromProduction = (materialId: string) => {
+  // Save product recipe to database
+  const saveProductRecipe = async (productionProduct: ProductionProduct) => {
+    try {
+      if (!productionProduct.materialsConsumed || productionProduct.materialsConsumed.length === 0) {
+        return;
+      }
+
+      // Calculate total cost
+      const totalCost = productionProduct.materialsConsumed.reduce((sum, material) =>
+        sum + (material.quantity * material.cost), 0
+      );
+
+      // Check if recipe already exists for this product
+      console.log('Checking for existing recipe for product_id:', productionProduct.productId);
+      const { data: existingRecipe, error: existingRecipeError } = await supabase
+        .from('product_recipes')
+        .select('id')
+        .eq('product_id', productionProduct.productId)
+        .single();
+
+      console.log('Existing recipe check result:', { existingRecipe, existingRecipeError });
+
+      // Handle 406 Not Acceptable or other RLS errors by treating as no existing recipe
+      if (existingRecipeError && existingRecipeError.code !== 'PGRST116') {
+        console.warn('Error checking existing recipe (treating as new):', existingRecipeError);
+      }
+
+      let recipeId: string;
+
+      if (existingRecipe && !existingRecipeError) {
+        // Update existing recipe
+        recipeId = existingRecipe.id;
+        await supabase
+          .from('product_recipes')
+          .update({
+            product_name: productionProduct.productName,
+            total_cost: totalCost,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', recipeId);
+
+        // Delete existing recipe materials for this specific recipe only
+        console.log('Deleting existing recipe materials for recipe_id:', recipeId);
+        const { data: deletedMaterials, error: deleteError } = await supabase
+          .from('recipe_materials')
+          .delete()
+          .eq('recipe_id', recipeId)
+          .select();
+
+        if (deleteError) {
+          console.error('Error deleting recipe materials:', deleteError);
+        } else {
+          console.log('Deleted recipe materials:', deletedMaterials);
+        }
+      } else {
+        // Create new recipe with custom ID
+        recipeId = `RECIPE_${Date.now()}`;
+        console.log('Creating new recipe with ID:', recipeId, 'for product_id:', productionProduct.productId);
+        const { data: newRecipe, error: recipeError } = await supabase
+          .from('product_recipes')
+          .insert({
+            id: recipeId,
+            product_id: productionProduct.productId,
+            product_name: productionProduct.productName,
+            total_cost: totalCost,
+            created_by: 'Production Team'
+          })
+          .select('id')
+          .single();
+
+        if (recipeError) {
+          console.error('Error creating recipe:', recipeError);
+          console.error('Recipe error details:', recipeError);
+          return;
+        }
+        console.log('✅ Recipe created with ID:', recipeId);
+      }
+
+      // Insert recipe materials with custom IDs (include quantity for recipe loading)
+      const recipeMaterials = productionProduct.materialsConsumed.map((material, index) => ({
+        id: `RECIPE_MAT_${Date.now()}_${index}`,
+        recipe_id: recipeId,
+        material_id: material.materialId,
+        material_name: material.materialName,
+        quantity: material.quantity,
+        unit: material.unit,
+        cost_per_unit: material.cost / material.quantity,
+        total_cost: material.cost
+      }));
+
+      console.log('Attempting to save recipe materials for recipe_id:', recipeId);
+      console.log('Recipe materials data:', recipeMaterials);
+
+      const { data: recipeMaterialsData, error: materialsError } = await supabase
+        .from('recipe_materials')
+        .insert(recipeMaterials)
+        .select();
+
+      if (materialsError) {
+        console.error('❌ Error saving recipe materials:', materialsError);
+        console.error('Recipe materials data that failed:', recipeMaterials);
+      } else {
+        console.log('✅ Product recipe saved to database:', recipeMaterialsData);
+      }
+    } catch (error) {
+      console.error('Error saving product recipe:', error);
+    }
+  };
+
+  // Update production product function
+  const updateProductionProduct = async (updatedProduct: ProductionProduct) => {
+    try {
+      // Save material consumption to Supabase
+      if (updatedProduct.materialsConsumed && updatedProduct.materialsConsumed.length > 0) {
+        // First, clear existing material consumption for this product
+        await supabase
+          .from('material_consumption')
+          .delete()
+          .eq('production_batch_id', updatedProduct.id);
+
+        // Then insert updated material consumption with custom IDs
+        const materialConsumptionData = updatedProduct.materialsConsumed.map((material, index) => ({
+          id: `MAT_CONSUME_${Date.now()}_${index}`,
+          production_batch_id: updatedProduct.id,
+          material_id: material.materialId,
+          material_name: material.materialName,
+          consumed_quantity: material.quantity,
+          unit: material.unit,
+          cost_per_unit: material.cost / material.quantity,
+          consumption_date: material.consumedAt,
+          operator: 'Production Team',
+          notes: `${material.materialName} - ${material.quantity} ${material.unit} consumed in production of ${updatedProduct.productName}`
+        }));
+
+        console.log('Attempting to save material consumption:', materialConsumptionData);
+
+        const { data: materialData, error: materialError } = await supabase
+          .from('material_consumption')
+          .insert(materialConsumptionData)
+          .select();
+
+        if (materialError) {
+          console.error('❌ Error saving material consumption:', materialError);
+          console.error('Data that failed to insert:', materialConsumptionData);
+        } else {
+          console.log('✅ Material consumption saved to database:', materialData);
+        }
+
+        // Also save as recipe for future reference
+        await saveProductRecipe(updatedProduct);
+      }
+
+      // Update local state
+      setProductionProduct(updatedProduct);
+    } catch (error) {
+      console.error('Error updating production product:', error);
+    }
+  };
+
+  // Remove material from production
+  const removeMaterialFromProduction = async (materialId: string) => {
     if (!productionProduct) return;
 
     const updatedMaterials = (productionProduct.materialsConsumed || []).filter(
@@ -368,65 +576,17 @@ export default function ProductionDetail() {
 
     updateProductionProduct(updatedProduct);
 
-    // Update recipe with current materials
-    const recipe = createRecipeFromMaterials(
-      productionProduct.productId,
-      productionProduct.productName,
-      updatedMaterials.map(m => ({
-        id: m.materialId,
-        name: m.materialName,
-        selectedQuantity: m.quantity,
-        unit: m.unit,
-        costPerUnit: m.cost / m.quantity,
-        currentStock: 0 // We don't need stock info for recipe
-      }))
-    );
-
-    if (recipe) {
-      const existingRecipe = getProductRecipe(productionProduct.productId);
-      if (existingRecipe) {
-        recipe.id = existingRecipe.id;
-        recipe.createdAt = existingRecipe.createdAt;
-        recipe.createdBy = existingRecipe.createdBy;
-      }
-      saveProductRecipe(recipe);
-    }
-
-    // Update the product's materialsUsed field in the main products storage
-    updateProductMaterialsInStorage(productionProduct.productId, updatedMaterials.map(m => {
-      const rawMaterial = rawMaterials.find(rm => rm.id === m.materialId);
-      return {
-        ...rawMaterial!,
-        selectedQuantity: m.quantity
-      };
-    }));
-
     showNotification(
       `🗑️ Material Removed`,
-      `Material removed from production. Recipe updated.`,
+      `Material removed from production.`,
       'success'
     );
   };
 
-  // Update product materials in main products storage
+  // Update product materials in Supabase (TODO: Implement when product service is ready)
   const updateProductMaterialsInStorage = (productId: string, materials: Array<RawMaterial & { selectedQuantity: number }>) => {
-    const products = getFromStorage('rajdhani_products') || [];
-    const updatedProducts = products.map((product: any) => {
-      if (product.id === productId) {
-        return {
-          ...product,
-          materialsUsed: materials.map(m => ({
-            materialName: m.name,
-            quantity: m.selectedQuantity,
-            unit: m.unit,
-            cost: m.costPerUnit * m.selectedQuantity
-          })),
-          totalCost: materials.reduce((sum, m) => sum + (m.costPerUnit * m.selectedQuantity), 0)
-        };
-      }
-      return product;
-    });
-    replaceStorage('rajdhani_products', updatedProducts);
+    // TODO: Update product materials in Supabase
+    console.log('Updating product materials for:', productId, materials);
   };
 
   // Show notification
@@ -456,37 +616,34 @@ export default function ProductionDetail() {
       materialName: material.name,
       requiredQuantity: shortage,
       unit: material.unit,
-      currentStock: material.currentStock,
-      supplier: material.supplier,
-      costPerUnit: material.costPerUnit,
-      estimatedCost: shortage * material.costPerUnit,
+      current_stock: material.current_stock,
+      supplier_name: material.supplier_name,
+      cost_per_unit: material.cost_per_unit,
+      estimatedCost: shortage * material.cost_per_unit,
       createdAt: new Date().toISOString(),
       status: 'pending',
       priority: 'high',
       source: 'production'
     };
 
-    // Save to localStorage
-    const existingNotifications = JSON.parse(localStorage.getItem('rajdhani_material_notifications') || '[]');
-    existingNotifications.push(shortageNotification);
-    localStorage.setItem('rajdhani_material_notifications', JSON.stringify(existingNotifications));
+    // Notifications will be handled by Supabase notification service
     
     // Debug: Log to console
     console.log('Notification sent:', shortageNotification);
-    console.log('All notifications:', existingNotifications);
+    console.log('Notification created for material shortage');
   };
 
   // Add all selected materials to production
-  const addSelectedMaterialsToProduction = () => {
+  const addSelectedMaterialsToProduction = async () => {
     if (!productionProduct) return;
 
     // Filter out materials with insufficient stock
     const availableMaterials = selectedMaterials.filter(material => 
-      material.currentStock >= material.selectedQuantity
+      material.current_stock >= material.selectedQuantity
     );
 
     const unavailableMaterials = selectedMaterials.filter(material => 
-      material.currentStock < material.selectedQuantity
+      material.current_stock < material.selectedQuantity
     );
 
     // Show warning if some materials are unavailable
@@ -513,7 +670,7 @@ export default function ProductionDetail() {
       materialName: material.name,
       quantity: material.selectedQuantity,
       unit: material.unit,
-      cost: material.costPerUnit * material.selectedQuantity,
+      cost: material.cost_per_unit * material.selectedQuantity,
       consumedAt: new Date().toISOString()
     }));
 
@@ -549,68 +706,9 @@ export default function ProductionDetail() {
     // Note: Material inventory will be deducted only after waste generation step
     // This allows for proper waste tracking and management
     
-    // Save or update recipe for future use
-    const existingRecipe = getProductRecipe(productionProduct.productId);
+    // Material tracking simplified - focus on machine operations
     
-    if (!existingRecipe) {
-      // Create new recipe - this is the first time materials are added for this product
-      const recipe = createRecipeFromMaterials(
-        productionProduct.productId,
-        productionProduct.productName,
-        availableMaterials
-      );
-      saveProductRecipe(recipe);
-      
-      // Update the product's materialsUsed field in the main products storage
-      updateProductMaterialsInStorage(productionProduct.productId, availableMaterials);
-      
-      showNotification(
-        `📝 Recipe Created & Saved`,
-        `Recipe saved for ${productionProduct.productName}. ${availableMaterials.length} materials will auto-fill next time.`,
-        'success'
-      );
-    } else {
-      // Recipe exists - always update it with current materials
-        const updatedRecipe = createRecipeFromMaterials(
-          productionProduct.productId,
-          productionProduct.productName,
-          availableMaterials
-        );
-        // Keep the original creation info but update the recipe
-        updatedRecipe.id = existingRecipe.id;
-        updatedRecipe.createdAt = existingRecipe.createdAt;
-        updatedRecipe.createdBy = existingRecipe.createdBy;
-        
-        saveProductRecipe(updatedRecipe);
-      
-      // Update the product's materialsUsed field in the main products storage
-      updateProductMaterialsInStorage(productionProduct.productId, availableMaterials);
-      
-      // Only show notification if materials were not auto-filled from recipe
-      if (!materialsFromRecipe) {
-        showNotification(
-          `📝 Recipe Updated`,
-          `Recipe for ${productionProduct.productName} has been updated with current materials.`,
-          'success'
-        );
-      }
-    }
-    
-    // Update production flow if material selection step is active
-    const flow = getProductionFlow(productionProduct.id);
-    if (flow) {
-      const materialStep = flow.steps.find(s => s.stepType === 'material_selection' && s.status === 'in_progress');
-      if (materialStep) {
-        // Auto-complete material selection step
-        updateProductionStep(flow.id, materialStep.id, {
-          status: 'completed',
-          endTime: new Date().toISOString(),
-          inspectorId: 'Admin',
-          qualityNotes: `Materials selected: ${availableMaterials.length} items`
-        });
-        moveToNextStep(flow.id);
-      }
-    }
+    // Production flow functionality removed
     
     // Show success notification
     showNotification(
@@ -624,14 +722,14 @@ export default function ProductionDetail() {
   };
 
   // Update raw material inventory (deduct consumed quantities)
-  const updateRawMaterialInventory = (consumedMaterials: Array<RawMaterial & { selectedQuantity: number }>) => {
+  const updateRawMaterialInventory = async (consumedMaterials: Array<RawMaterial & { selectedQuantity: number }>) => {
     const updatedMaterials = rawMaterials.map(material => {
       const consumed = consumedMaterials.find(cm => cm.id === material.id);
       if (consumed) {
-        const newQuantity = material.currentStock - consumed.selectedQuantity;
+        const newQuantity = material.current_stock - consumed.selectedQuantity;
           return {
           ...material,
-          currentStock: Math.max(0, newQuantity), // Ensure quantity doesn't go below 0
+          current_stock: Math.max(0, newQuantity), // Ensure quantity doesn't go below 0
           status: newQuantity <= 0 ? "out-of-stock" as const : 
                   newQuantity <= 10 ? "low-stock" as const : "in-stock" as const
         };
@@ -639,8 +737,16 @@ export default function ProductionDetail() {
       return material;
     });
     
-    // Update localStorage
-    localStorage.setItem('rajdhani_raw_materials', JSON.stringify(updatedMaterials));
+    // Update raw materials in Supabase
+    for (const material of updatedMaterials) {
+      try {
+        await RawMaterialService.updateRawMaterial(material.id, {
+          current_stock: material.current_stock
+        });
+      } catch (error) {
+        console.error(`Error updating material ${material.name}:`, error);
+      }
+    }
     setRawMaterials(updatedMaterials);
   };
 
@@ -653,28 +759,30 @@ export default function ProductionDetail() {
   };
 
   // Machine management functions
-  const addNewMachine = () => {
+  const addNewMachine = async () => {
     if (!newMachineForm.name.trim()) {
       showNotification("Error", "Machine name is required", "error");
       return;
     }
 
-    const newMachine = {
-      id: generateUniqueId('MACHINE'),
+    try {
+      const newMachine = await MachineService.createMachine({
       name: newMachineForm.name,
-      location: newMachineForm.location || "Factory Floor",
       description: newMachineForm.description || ""
-    };
+      });
 
-    const updatedMachines = [...machines, newMachine];
-    setMachines(updatedMachines);
-    replaceStorage('rajdhani_machines', updatedMachines);
+      // Update local state
+      setMachines(prev => [...prev, newMachine]);
 
     // Reset form
-    setNewMachineForm({ name: "", location: "", description: "" });
+      setNewMachineForm({ name: "", description: "" });
     setShowAddMachinePopup(false);
     
     showNotification("Success", `Machine "${newMachine.name}" added successfully`, "success");
+    } catch (error) {
+      console.error('Error adding machine:', error);
+      showNotification("Error", "Failed to add machine. Please try again.", "error");
+    }
   };
 
   const handleMachineSelection = () => {
@@ -716,93 +824,40 @@ export default function ProductionDetail() {
     setShowMachineSelectionPopup(false);
   };
 
-  const addMachineStepToFlow = (machine: any, inspector: string) => {
+  const addMachineStepToFlow = async (machine: any, inspector: string) => {
     if (!productionProduct) return;
 
-    console.log('Adding machine step to flow:', machine, inspector);
-    console.log('Production product ID:', productionProduct.id);
+    try {
+      console.log('Adding machine step to flow:', machine, inspector);
+      console.log('Production product ID:', productionProduct.id);
 
-    // Get or create production flow
-    let flow = getProductionFlow(productionProduct.id);
-    console.log('Existing flow:', flow);
-    
-    if (!flow) {
-      // Create new flow if doesn't exist
-      flow = {
-        id: generateUniqueId('FLOW'),
-        productionProductId: productionProduct.id,
-        steps: [
-          {
-            id: generateUniqueId('STEP'),
-            stepNumber: 1,
-            name: 'Raw Material Selection',
-            description: 'Materials already selected in planning phase',
-            machineId: null,
-            machineName: 'Completed',
-            status: 'completed' as const,
-            inspectorId: 'Admin',
-            stepType: 'material_selection' as const,
-            startTime: new Date().toISOString(),
-            endTime: new Date().toISOString(),
-            qualityNotes: 'Materials selected during planning phase',
-            createdAt: new Date().toISOString()
-          }
-        ],
-        currentStepIndex: 0,
-        status: 'in_progress' as const,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      console.log('Created new flow:', flow);
+      // Get or create production flow
+      let flow = await ProductionFlowService.getProductionFlow(productionProduct.id);
+      
+      if (!flow) {
+        // Create new production flow
+        flow = await ProductionFlowService.createProductionFlow({
+          production_product_id: productionProduct.id,
+          flow_name: `${productionProduct.productName} Production Flow`
+        });
+      }
+
+      // Add machine step to flow
+      await ProductionFlowService.addStepToFlow({
+        flow_id: flow.id,
+        step_name: `${machine.name} Operation`,
+        step_type: 'machine_operation',
+        order_index: 1, // You can make this dynamic based on existing steps
+        machine_id: machine.id,
+        inspector_name: inspector,
+        notes: `Machine operation performed by ${inspector}`
+      });
+
+      showNotification("Success", `Machine step "${machine.name}" added to production flow`, "success");
+    } catch (error) {
+      console.error('Error adding machine step to flow:', error);
+      showNotification("Error", "Failed to add machine step to flow", "error");
     }
-
-    // Create new machine step
-    const newStep = {
-      id: generateUniqueId('STEP'),
-      stepNumber: flow.steps.length + 1,
-      name: machine.name,
-      description: machine.description || `Machine operation using ${machine.name}`,
-      machineId: machine.id,
-      machineName: machine.name,
-      status: 'pending' as const,
-      inspector: inspector,
-      stepType: 'machine_operation' as const,
-      createdAt: new Date().toISOString()
-    };
-
-    console.log('Created new machine step:', newStep);
-
-    // Add step to flow
-    const updatedSteps = [...flow.steps, newStep];
-    const updatedFlow = {
-      ...flow,
-      steps: updatedSteps,
-      currentStepIndex: updatedSteps.length - 1,
-      updatedAt: new Date().toISOString()
-    };
-
-    console.log('Updated flow:', updatedFlow);
-
-    // Save flow using the same method as DynamicProductionFlow
-    const flows = getFromStorage('rajdhani_production_flows') || [];
-    const existingFlowIndex = flows.findIndex(f => f.id === flow.id);
-    
-    if (existingFlowIndex >= 0) {
-      flows[existingFlowIndex] = updatedFlow;
-    } else {
-      flows.push(updatedFlow);
-    }
-    
-    console.log('Saving flows to storage:', flows);
-    replaceStorage('rajdhani_production_flows', flows);
-    
-    // Verify the flow was saved
-    const savedFlows = getFromStorage('rajdhani_production_flows') || [];
-    console.log('Verification - flows after saving:', savedFlows);
-    const savedFlow = savedFlows.find(f => f.id === updatedFlow.id);
-    console.log('Verification - saved flow found:', savedFlow);
-
-    showNotification("Success", `Machine step "${machine.name}" added to production flow`, "success");
   };
 
   const skipToWasteGeneration = () => {
@@ -813,17 +868,7 @@ export default function ProductionDetail() {
     setShowMachineSelectionPopup(false);
   };
 
-
-  const updateProductionProduct = (updatedProduct: ProductionProduct) => {
-    const products = getFromStorage('rajdhani_production_products');
-    const updatedProducts = products.map((p: ProductionProduct) => 
-      p.id === updatedProduct.id ? updatedProduct : p
-    );
-    localStorage.setItem('rajdhani_production_products', JSON.stringify(updatedProducts));
-    setProductionProduct(updatedProduct);
-  };
-
-  const addMaterialConsumption = () => {
+  const addMaterialConsumption = async () => {
     if (!productionProduct || !newMaterial.materialId || !newMaterial.quantity) return;
 
     const material: MaterialConsumption = {
@@ -865,30 +910,7 @@ export default function ProductionDetail() {
     // Note: Material inventory will be deducted only after waste generation step
     // This allows for proper waste tracking and management
     
-    // Create or update recipe with all current materials
-    const existingRecipe = getProductRecipe(productionProduct.productId);
-    if (!existingRecipe && combinedMaterials.length > 0) {
-      // Convert MaterialConsumption to the format needed for recipe
-      const materialsForRecipe = combinedMaterials.map(mat => {
-        const rawMat = rawMaterials.find(rm => rm.id === mat.materialId);
-        return {
-          ...rawMat!,
-          selectedQuantity: mat.quantity
-        };
-      });
-      
-      const recipe = createRecipeFromMaterials(
-        productionProduct.productId,
-        productionProduct.productName,
-        materialsForRecipe
-      );
-      saveProductRecipe(recipe);
-      showNotification(
-        `📝 Recipe Auto-Created`,
-        `Recipe created for ${productionProduct.productName} with ${combinedMaterials.length} material${combinedMaterials.length > 1 ? 's' : ''}.\n\nNext time you add this product to production, materials will auto-fill!`,
-        'success'
-      );
-    }
+    // Material tracking simplified
     
     // Reset form
     setNewMaterial({
@@ -938,7 +960,6 @@ export default function ProductionDetail() {
     return <Loading message="Loading production details..." />;
   }
 
-  const totalMaterialCost = (productionProduct.materialsConsumed || []).reduce((sum, m) => sum + m.cost, 0);
 
     return (
     <div className="flex-1 space-y-6 p-6">
@@ -1114,7 +1135,7 @@ export default function ProductionDetail() {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="text-center">
                   <div className="text-2xl font-bold text-blue-600">
                 {productionProduct.targetQuantity}
@@ -1127,11 +1148,17 @@ export default function ProductionDetail() {
                         </div>
               <div className="text-sm text-gray-500">Materials Used</div>
                         </div>
+             <div className="text-center">
+               <div className="text-2xl font-bold text-purple-600">
+                 {expectedProduct.height || "N/A"}
+               </div>
+               <div className="text-sm text-gray-500">Height</div>
+                        </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-orange-600">
-                ₹{totalMaterialCost.toLocaleString()}
+                 {expectedProduct.width || "N/A"}
                       </div>
-              <div className="text-sm text-gray-500">Total Cost</div>
+               <div className="text-sm text-gray-500">Width</div>
                         </div>
             </div>
         </CardContent>
@@ -1177,11 +1204,19 @@ export default function ProductionDetail() {
                 </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Dimensions</Label>
+                  <Label>Height</Label>
                   <Input
-                    value={expectedProduct.dimensions}
-                    onChange={(e) => setExpectedProduct({...expectedProduct, dimensions: e.target.value})}
-                    placeholder="e.g., 8' x 10'"
+                    value={expectedProduct.height}
+                    onChange={(e) => setExpectedProduct({...expectedProduct, height: e.target.value})}
+                    placeholder="e.g., 8'"
+                  />
+              </div>
+                <div>
+                  <Label>Width</Label>
+                  <Input
+                    value={expectedProduct.width}
+                    onChange={(e) => setExpectedProduct({...expectedProduct, width: e.target.value})}
+                    placeholder="e.g., 10'"
                   />
               </div>
                 <div>
@@ -1200,14 +1235,6 @@ export default function ProductionDetail() {
                     value={expectedProduct.thickness}
                     onChange={(e) => setExpectedProduct({...expectedProduct, thickness: e.target.value})}
                     placeholder="e.g., 12 mm"
-                  />
-                  </div>
-                <div>
-                  <Label>Pile Height</Label>
-                  <Input
-                    value={expectedProduct.pileHeight}
-                    onChange={(e) => setExpectedProduct({...expectedProduct, pileHeight: e.target.value})}
-                    placeholder="e.g., 8 mm"
                   />
                 </div>
                   </div>
@@ -1243,8 +1270,12 @@ export default function ProductionDetail() {
                 <p className="font-medium">{expectedProduct.category || "Not set"}</p>
                     </div>
                     <div>
-                <span className="text-gray-500">Dimensions:</span>
-                <p className="font-medium">{expectedProduct.dimensions || "Not set"}</p>
+                <span className="text-gray-500">Height:</span>
+                <p className="font-medium">{expectedProduct.height || "Not set"}</p>
+                </div>
+                    <div>
+                <span className="text-gray-500">Width:</span>
+                <p className="font-medium">{expectedProduct.width || "Not set"}</p>
                 </div>
                     <div>
                 <span className="text-gray-500">Weight:</span>
@@ -1279,17 +1310,6 @@ export default function ProductionDetail() {
                   <div className="mb-6">
               <div className="flex items-center gap-2 mb-3">
                 <h4 className="font-medium">Selected Materials</h4>
-                {materialsFromRecipe ? (
-                  <Badge variant="secondary" className="text-xs">
-                    <CheckCircle className="w-3 h-3 mr-1" />
-                    From Saved Recipe
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs border-green-200 text-green-700">
-                    <Plus className="w-3 h-3 mr-1" />
-                    Will Create Recipe
-                  </Badge>
-                )}
                     </div>
               <div className="border rounded-lg overflow-hidden">
                 <table className="w-full text-sm">
@@ -1307,30 +1327,30 @@ export default function ProductionDetail() {
                   </thead>
                   <tbody>
                     {selectedMaterials.map((material, index) => (
-                      <tr key={material.id || `material-${index}`} className={`border-t hover:bg-gray-50 ${material.currentStock === 0 ? 'bg-red-50' : ''}`}>
+                      <tr key={material.id || `material-${index}`} className={`border-t hover:bg-gray-50 ${material.current_stock === 0 ? 'bg-red-50' : ''}`}>
                         <td className="p-3 font-mono text-xs hidden lg:table-cell">
                           {material.id}
-                          {material.supplier === "From Recipe" && (
+                          {material.supplier_name === "From Recipe" && (
                             <span className="ml-1 text-blue-600" title="Material from saved recipe">📋</span>
                           )}
                         </td>
                         <td className="p-3 font-medium">
                           {material.name}
-                          {material.supplier === "From Recipe" && (
+                          {material.supplier_name === "From Recipe" && (
                             <Badge variant="secondary" className="ml-2 text-xs">Recipe</Badge>
                           )}
                         </td>
                         <td className="p-3 hidden md:table-cell">
-                          {material.supplier === "From Recipe" ? (
+                          {material.supplier_name === "From Recipe" ? (
                             <span className="text-blue-600">From Recipe</span>
                           ) : (
-                            material.supplier
+                            material.supplier_name
                           )}
                         </td>
-                        <td className="p-3 hidden lg:table-cell">₹{material.costPerUnit}</td>
+                        <td className="p-3 hidden lg:table-cell">₹{material.cost_per_unit}</td>
                         <td className="p-3 hidden md:table-cell">
-                          {material.currentStock} {material.unit}
-                          {material.currentStock === 0 && material.supplier === "From Recipe" && (
+                          {material.current_stock} {material.unit}
+                          {material.current_stock === 0 && material.supplier_name === "From Recipe" && (
                             <span className="ml-1 text-red-600 text-xs">Not in inventory</span>
                           )}
                         </td>
@@ -1340,20 +1360,20 @@ export default function ProductionDetail() {
                               type="number"
                               value={material.selectedQuantity || 1}
                               onChange={(e) => addMaterialToSelection(material, parseFloat(e.target.value) || 1)}
-                              className={`w-20 ${(material.selectedQuantity || 1) > material.currentStock ? 'border-red-300 bg-red-50' : ''}`}
+                              className={`w-20 ${(material.selectedQuantity || 1) > material.current_stock ? 'border-red-300 bg-red-50' : ''}`}
                               min="1"
                             />
-                            {(material.selectedQuantity || 1) > material.currentStock && (
+                            {(material.selectedQuantity || 1) > material.current_stock && (
                               <div className="space-y-1">
                                 <div className="text-xs text-red-600 flex items-center gap-1">
                                   <AlertTriangle className="w-3 h-3" />
-                                  Shortage: {(material.selectedQuantity || 1) - material.currentStock} {material.unit}
+                                  Shortage: {(material.selectedQuantity || 1) - material.current_stock} {material.unit}
                   </div>
                         <Button 
                              size="sm"
                                   variant="outline"
                                   onClick={() => {
-                                    const shortage = (material.selectedQuantity || 1) - material.currentStock;
+                                    const shortage = (material.selectedQuantity || 1) - material.current_stock;
                                     sendMaterialShortageNotification(material, shortage);
                                     showNotification(
                                       `📋 Notification Sent`,
@@ -1370,7 +1390,7 @@ export default function ProductionDetail() {
                             )}
                           </div>
                         </td>
-                        <td className="p-3 font-medium hidden lg:table-cell">₹{((material.costPerUnit || 0) * (material.selectedQuantity || 1)).toFixed(2)}</td>
+                        <td className="p-3 font-medium hidden lg:table-cell">₹{((material.cost_per_unit || 0) * (material.selectedQuantity || 1)).toFixed(2)}</td>
                         <td className="p-3">
                       <Button 
                         variant="outline"
@@ -1388,7 +1408,7 @@ export default function ProductionDetail() {
                     </div>
               <div className="flex justify-between items-center mt-4">
                 <div className="text-sm text-gray-600">
-                  Total Cost: ₹{selectedMaterials.reduce((sum, m) => sum + ((m.costPerUnit || 0) * (m.selectedQuantity || 1)), 0).toFixed(2)}
+                  Total Cost: ₹{selectedMaterials.reduce((sum, m) => sum + ((m.cost_per_unit || 0) * (m.selectedQuantity || 1)), 0).toFixed(2)}
                             </div>
                 <Button onClick={addSelectedMaterialsToProduction} className="bg-blue-600 hover:bg-blue-700">
                   <Save className="w-4 h-4 mr-2" />
@@ -1402,26 +1422,13 @@ export default function ProductionDetail() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 mb-3">
               <h4 className="font-medium">Materials Consumed in Production</h4>
-              {productionProduct.materialsConsumed && productionProduct.materialsConsumed.length > 0 ? (
-                materialsFromRecipe ? (
-                  <Badge variant="secondary" className="text-xs">
-                    <CheckCircle className="w-3 h-3 mr-1" />
-                    Auto-filled from Recipe
-                  </Badge>
-                ) : (
-                  <Badge variant="outline" className="text-xs border-blue-200 text-blue-700">
-                    📝 Recipe will be saved
-                  </Badge>
-                )
-              ) : (
-                <Badge variant="outline" className="text-xs text-gray-500">
-                  No materials added yet
-                </Badge>
-              )}
+              <Badge variant="outline" className="text-xs text-gray-500">
+                {productionProduct.materialsConsumed?.length || 0} materials added
+              </Badge>
                   </div>
             {productionProduct.materialsConsumed?.map((material, index) => {
               const rawMaterial = rawMaterials.find(rm => rm.id === material.materialId);
-              const isAvailable = rawMaterial && rawMaterial.currentStock > 0;
+              const isAvailable = rawMaterial && rawMaterial.current_stock > 0;
               
               return (
                 <div key={material.materialId || `material-${index}`} className={`flex items-center justify-between p-3 rounded-lg ${
@@ -1430,13 +1437,13 @@ export default function ProductionDetail() {
                       <div>
                         <div className="font-medium">{material.materialName}</div>
                         <div className="text-sm text-gray-500">
-                          ID: {material.materialId} • Brand: {rawMaterial?.brand || "Unknown"} • Supplier: {rawMaterial?.supplier || "Unknown"}
+                          ID: {material.materialId} • Brand: {rawMaterial?.brand || "Unknown"} • Supplier: {rawMaterial?.supplier_name || "Unknown"}
                         </div>
                         <div className="text-sm text-gray-500">
                           {material.quantity} {material.unit} • ₹{material.cost} • {new Date(material.consumedAt).toLocaleDateString()}
                       </div>
                         <div className="text-sm text-gray-500">
-                          Available: {rawMaterial?.currentStock || 0} {material.unit} • Unit Price: ₹{rawMaterial?.costPerUnit || material.cost / material.quantity}
+                          Available: {rawMaterial?.current_stock || 0} {material.unit} • Unit Price: ₹{rawMaterial?.cost_per_unit || material.cost / material.quantity}
                       </div>
                     {!isAvailable && (
                       <div className="text-xs text-red-600 flex items-center gap-1 mt-1">
@@ -1526,7 +1533,7 @@ export default function ProductionDetail() {
                        <div className="flex-1">
                       <span className="font-medium">{material.name}</span>
                       <span className="text-sm text-gray-500 ml-2">
-                        {material.selectedQuantity || 1} {material.unit} • ₹{((material.costPerUnit || 0) * (material.selectedQuantity || 1)).toFixed(2)}
+                        {material.selectedQuantity || 1} {material.unit} • ₹{((material.cost_per_unit || 0) * (material.selectedQuantity || 1)).toFixed(2)}
                       </span>
                        </div>
                        <Button 
@@ -1542,10 +1549,10 @@ export default function ProductionDetail() {
                </div>
               <div className="flex justify-between items-center mt-4">
                 <div className="font-medium">
-                  Total Cost: ₹{(selectedMaterials || []).reduce((sum, m) => sum + ((m.costPerUnit || 0) * (m.selectedQuantity || 1)), 0).toFixed(2)}
+                  Total Cost: ₹{(selectedMaterials || []).reduce((sum, m) => sum + ((m.cost_per_unit || 0) * (m.selectedQuantity || 1)), 0).toFixed(2)}
              </div>
                 <div className="flex flex-col items-end gap-2">
-                  {selectedMaterials && selectedMaterials.some(m => (m.selectedQuantity || 1) > m.currentStock) && (
+                  {selectedMaterials && selectedMaterials.some(m => (m.selectedQuantity || 1) > m.current_stock) && (
                     <div className="text-xs text-orange-600 flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" />
                       Some materials have insufficient stock
@@ -1604,18 +1611,24 @@ export default function ProductionDetail() {
             <div className="space-y-3">
               <Label className="text-sm font-medium text-gray-700 flex items-center gap-2">
                 <Settings className="w-4 h-4" />
-                Select Machine *
+                Select Machine * ({machines.length} available)
               </Label>
               <Select value={selectedMachineId} onValueChange={setSelectedMachineId}>
                 <SelectTrigger className="w-full">
                   <SelectValue placeholder="Choose a machine..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {machines.map((machine) => (
-                    <SelectItem key={machine.id} value={machine.id}>
-                      {machine.name} - {machine.location}
+                  {machines.length === 0 ? (
+                    <SelectItem value="no-machines" disabled>
+                      No machines available
                     </SelectItem>
-                  ))}
+                  ) : (
+                    machines.map((machine) => (
+                    <SelectItem key={machine.id} value={machine.id}>
+                        {machine.name}
+                    </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -1691,16 +1704,6 @@ export default function ProductionDetail() {
             </div>
             
             <div>
-              <Label htmlFor="machine-location">Location:</Label>
-              <Input
-                id="machine-location"
-                value={newMachineForm.location}
-                onChange={(e) => setNewMachineForm({...newMachineForm, location: e.target.value})}
-                placeholder="Enter machine location"
-              />
-            </div>
-            
-            <div>
               <Label htmlFor="machine-description">Description:</Label>
               <Textarea
                 id="machine-description"
@@ -1752,10 +1755,10 @@ function MaterialSelectionCard({ material, onAddToSelection, isSelected }: Mater
       <div className="flex-1">
         <div className="font-medium">{material.name}</div>
         <div className="text-sm text-gray-500">
-          {material.category} • {material.currentStock} {material.unit} available • ₹{material.costPerUnit} per {material.unit}
+          {material.category} • {material.current_stock} {material.unit} available • ₹{material.cost_per_unit} per {material.unit}
         </div>
         <div className="text-xs text-gray-400">
-          Brand: {material.brand} • Supplier: {material.supplier}
+          Brand: {material.brand} • Supplier: {material.supplier_name}
         </div>
       </div>
       <div className="flex items-center gap-3">

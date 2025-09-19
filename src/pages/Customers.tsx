@@ -1,5 +1,7 @@
 import { useState, useEffect } from "react";
-import { saveToStorage, getFromStorage, replaceStorage, STORAGE_KEYS, fixNestedArray } from "@/lib/storage";
+import { CustomerService } from "@/services/customerService";
+import { OrderService } from "@/services/orderService";
+import { useToast } from "@/hooks/use-toast";
 import { Header } from "@/components/layout/Header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +18,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Plus, Search, Filter, Eye, Edit, MoreHorizontal, Phone, Mail, MapPin, ShoppingBag, Save, X, Calendar, DollarSign, Package, User, Building } from "lucide-react";
+import { Plus, Search, Filter, Eye, Edit, MoreHorizontal, Phone, Mail, MapPin, ShoppingBag, Save, X, Calendar, DollarSign, Package, User, Building, RefreshCw } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -50,6 +52,7 @@ const statusStyles = {
 };
 
 export default function Customers() {
+  const { toast } = useToast();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -73,46 +76,123 @@ export default function Customers() {
     companyName: ""
   });
 
-  // Load customers and orders from storage on component mount
-  useEffect(() => {
-    const storedCustomers = getFromStorage(STORAGE_KEYS.CUSTOMERS) || [];
-    const storedOrders = getFromStorage(STORAGE_KEYS.ORDERS) || [];
-    
-    // Fix nested array issue for customers
-    const flatCustomers = fixNestedArray(storedCustomers);
-    if (flatCustomers !== storedCustomers) {
-      console.log('🔧 Fixed nested customers array, flattened from', storedCustomers.length, 'to', flatCustomers.length);
-      // Save the flattened array back to localStorage
-      localStorage.setItem('rajdhani_customers', JSON.stringify(flatCustomers));
-    }
-    
-    // Fix nested array issue for orders
-    const flatOrders = fixNestedArray(storedOrders);
-    if (flatOrders !== storedOrders) {
-      console.log('🔧 Fixed nested orders array, flattened from', storedOrders.length, 'to', flatOrders.length);
-      // Save the flattened array back to localStorage
-      localStorage.setItem('rajdhani_orders', JSON.stringify(flatOrders));
-    }
-    
-    setCustomers(flatCustomers);
-    setOrders(flatOrders);
-  }, []);
-
-  // Auto-cleanup empty customers when orders are loaded
-  useEffect(() => {
-    if (orders.length > 0 && customers.length > 0) {
-      const customersWithOrders = customers.filter(customer => {
-        const customerOrders = orders.filter(order => order.customerId === customer.id);
-        return customerOrders.length > 0;
-      });
+  const loadCustomers = async () => {
+    try {
+      // Load customers from Supabase
+      const { data: supabaseCustomers, error } = await CustomerService.getCustomers();
       
-      if (customersWithOrders.length !== customers.length) {
-        setCustomers(customersWithOrders);
-        replaceStorage(STORAGE_KEYS.CUSTOMERS, customersWithOrders);
-        console.log(`🧹 Auto-removed ${customers.length - customersWithOrders.length} empty customers`);
+      if (error) {
+        console.error('Error loading customers:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load customers from database",
+          variant: "destructive",
+        });
+        return;
       }
+
+      if (supabaseCustomers) {
+        // Convert from Supabase format to local format
+        const localCustomers: Customer[] = supabaseCustomers.map(customer => ({
+          id: customer.id,
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          address: customer.address || '',
+          city: customer.city || '',
+          state: customer.state || '',
+          pincode: customer.pincode || '',
+          customerType: customer.customer_type,
+          status: customer.status === 'active' ? 'active' : 'inactive',
+          totalOrders: customer.total_orders,
+          totalValue: customer.total_value,
+          lastOrderDate: customer.last_order_date || '',
+          registrationDate: customer.registration_date,
+          gstNumber: customer.gst_number,
+          companyName: customer.company_name
+        }));
+        
+        setCustomers(localCustomers);
+        console.log('✅ Loaded', localCustomers.length, 'customers from Supabase');
+      }
+    } catch (error) {
+      console.error('Error loading customers:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load customers. Please try again.",
+        variant: "destructive",
+      });
     }
-  }, [orders, customers]);
+  };
+
+  const loadOrders = async () => {
+    try {
+      // Load orders from Supabase
+      const { data: ordersData, error } = await OrderService.getOrders();
+      
+      if (error) {
+        console.error('Error loading orders:', error);
+        toast({
+          title: "Error",
+          description: "Failed to load orders from database.",
+          variant: "destructive",
+        });
+        setOrders([]);
+        return;
+      }
+      
+      if (ordersData) {
+        // Transform Supabase data to match expected format
+        const transformedOrders = ordersData.map(order => ({
+          id: order.id,
+          orderNumber: order.order_number,
+          customerId: order.customer_id,
+          customerName: order.customer_name,
+          customerEmail: order.customer_email,
+          customerPhone: order.customer_phone,
+          orderDate: order.order_date,
+          expectedDelivery: order.expected_delivery,
+          status: order.status,
+          workflowStep: order.workflow_step,
+          priority: order.priority,
+          subtotal: order.subtotal,
+          gstRate: order.gst_rate,
+          gstAmount: order.gst_amount,
+          discountAmount: order.discount_amount,
+          totalAmount: order.total_amount,
+          paidAmount: order.paid_amount,
+          outstandingAmount: order.outstanding_amount,
+          specialInstructions: order.special_instructions,
+          acceptedAt: order.accepted_at,
+          dispatchedAt: order.dispatched_at,
+          deliveredAt: order.delivered_at,
+          createdAt: order.created_at,
+          updatedAt: order.updated_at,
+          items: order.items || []
+        }));
+        
+        setOrders(transformedOrders);
+        console.log('✅ Loaded orders from Supabase:', transformedOrders.length);
+      } else {
+        setOrders([]);
+      }
+    } catch (error) {
+      console.error('Error in loadOrders:', error);
+      toast({
+        title: "Error",
+        description: "Failed to load orders from database.",
+        variant: "destructive",
+      });
+      setOrders([]);
+    }
+  };
+
+  // Load customers and orders from Supabase on component mount
+  useEffect(() => {
+    loadCustomers();
+    loadOrders();
+  }, [toast]);
+
 
   // Get customer orders
   const getCustomerOrders = (customerId: string) => {
@@ -136,19 +216,6 @@ export default function Customers() {
     };
   };
 
-  // Remove empty customers (customers with no orders)
-  const removeEmptyCustomers = () => {
-    const customersWithOrders = customers.filter(customer => {
-      const orderStats = getCustomerOrderStats(customer.id);
-      return orderStats.totalOrders > 0;
-    });
-    
-    if (customersWithOrders.length !== customers.length) {
-      setCustomers(customersWithOrders);
-      replaceStorage(STORAGE_KEYS.CUSTOMERS, customersWithOrders);
-      console.log(`🧹 Removed ${customers.length - customersWithOrders.length} empty customers`);
-    }
-  };
 
   // Handle customer details view
   const handleViewCustomer = (customer: Customer) => {
@@ -163,17 +230,83 @@ export default function Customers() {
   };
 
   // Save customer edits
-  const handleSaveCustomer = () => {
+  const handleSaveCustomer = async () => {
     if (!editingCustomer) return;
     
+    try {
+      // Prepare update data for Supabase
+      const updateData = {
+        name: editingCustomer.name.trim(),
+        email: editingCustomer.email.trim(),
+        phone: editingCustomer.phone.trim(),
+        address: editingCustomer.address.trim() || undefined,
+        city: editingCustomer.city.trim() || undefined,
+        state: editingCustomer.state.trim() || undefined,
+        pincode: editingCustomer.pincode.trim() || undefined,
+        customer_type: editingCustomer.customerType,
+        status: editingCustomer.status === 'active' ? 'active' as const : 'inactive' as const,
+        gst_number: editingCustomer.gstNumber?.trim() || undefined,
+        company_name: editingCustomer.companyName?.trim() || undefined
+      };
+
+      // Update customer in Supabase
+      const { data: updatedCustomer, error } = await CustomerService.updateCustomer(editingCustomer.id, updateData);
+      
+      if (error) {
+        console.error('Error updating customer:', error);
+        toast({
+          title: "Error",
+          description: error,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (updatedCustomer) {
+        // Convert from Supabase format to local format
+        const localUpdatedCustomer: Customer = {
+          id: updatedCustomer.id,
+          name: updatedCustomer.name,
+          email: updatedCustomer.email,
+          phone: updatedCustomer.phone,
+          address: updatedCustomer.address || '',
+          city: updatedCustomer.city || '',
+          state: updatedCustomer.state || '',
+          pincode: updatedCustomer.pincode || '',
+          customerType: updatedCustomer.customer_type,
+          status: updatedCustomer.status === 'active' ? 'active' : 'inactive',
+          totalOrders: updatedCustomer.total_orders,
+          totalValue: updatedCustomer.total_value,
+          lastOrderDate: updatedCustomer.last_order_date || '',
+          registrationDate: updatedCustomer.registration_date,
+          gstNumber: updatedCustomer.gst_number,
+          companyName: updatedCustomer.company_name
+        };
+
+        // Update local state
     const updatedCustomers = customers.map(customer => 
-      customer.id === editingCustomer.id ? editingCustomer : customer
+          customer.id === editingCustomer.id ? localUpdatedCustomer : customer
     );
     
     setCustomers(updatedCustomers);
-    replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
     setShowEditCustomerDialog(false);
     setEditingCustomer(null);
+        
+        toast({
+          title: "Success",
+          description: "Customer updated successfully!",
+        });
+        
+        console.log('✅ Customer updated successfully:', updatedCustomer);
+      }
+    } catch (error) {
+      console.error('Error updating customer:', error);
+      toast({
+        title: "Error",
+        description: "Failed to update customer. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   // Get customer payment summary
@@ -234,43 +367,83 @@ export default function Customers() {
     return matchesSearch && matchesType && matchesStatus;
   });
 
-  const handleAddCustomer = () => {
+  const handleAddCustomer = async () => {
     // Basic validation
     if (!newCustomerForm.name.trim() || !newCustomerForm.email.trim() || !newCustomerForm.phone.trim()) {
       console.error('Please fill in required fields: Name, Email, and Phone');
       return;
     }
 
-    // Create new customer
-    const newCustomer: Customer = {
-      id: Date.now().toString(),
+    try {
+      // Create new customer using CustomerService
+      const customerData = {
       name: newCustomerForm.name.trim(),
       email: newCustomerForm.email.trim(),
       phone: newCustomerForm.phone.trim(),
-      address: newCustomerForm.address.trim(),
-      city: newCustomerForm.city.trim(),
-      state: newCustomerForm.state.trim(),
-      pincode: newCustomerForm.pincode.trim(),
-      customerType: newCustomerForm.customerType,
-      status: "active",
-      totalOrders: 0,
-      totalValue: 0,
-      lastOrderDate: "",
-      registrationDate: new Date().toISOString().split('T')[0],
-      gstNumber: newCustomerForm.gstNumber.trim() || undefined,
-      companyName: newCustomerForm.companyName.trim() || undefined
-    };
+        address: newCustomerForm.address.trim() || undefined,
+        city: newCustomerForm.city.trim() || undefined,
+        state: newCustomerForm.state.trim() || undefined,
+        pincode: newCustomerForm.pincode.trim() || undefined,
+        customer_type: newCustomerForm.customerType,
+        gst_number: newCustomerForm.gstNumber.trim() || undefined,
+        company_name: newCustomerForm.companyName.trim() || undefined
+      };
 
-    // Add to customers array and save to localStorage
-    const updatedCustomers = [...customers, newCustomer];
+      const { data: newCustomer, error } = await CustomerService.createCustomer(customerData);
+      
+      if (error) {
+        console.error('Error creating customer:', error);
+        toast({
+          title: "Error",
+          description: error,
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (newCustomer) {
+        // Add to customers array (convert from Supabase format to local format)
+        const localCustomer: Customer = {
+          id: newCustomer.id,
+          name: newCustomer.name,
+          email: newCustomer.email,
+          phone: newCustomer.phone,
+          address: newCustomer.address || '',
+          city: newCustomer.city || '',
+          state: newCustomer.state || '',
+          pincode: newCustomer.pincode || '',
+          customerType: newCustomer.customer_type,
+          status: newCustomer.status === 'active' ? 'active' : 'inactive',
+          totalOrders: newCustomer.total_orders,
+          totalValue: newCustomer.total_value,
+          lastOrderDate: newCustomer.last_order_date || '',
+          registrationDate: newCustomer.registration_date,
+          gstNumber: newCustomer.gst_number,
+          companyName: newCustomer.company_name
+        };
+
+        const updatedCustomers = [...customers, localCustomer];
     setCustomers(updatedCustomers);
-    replaceStorage(STORAGE_KEYS.CUSTOMERS, updatedCustomers);
     
     // Reset form and close dialog
     resetForm();
     setShowAddCustomerDialog(false);
     
-    console.log(`Customer "${newCustomer.name}" added successfully!`);
+        toast({
+          title: "Success",
+          description: "Customer created successfully!",
+        });
+        
+        console.log('Customer added successfully:', newCustomer);
+      }
+    } catch (error) {
+      console.error('Error creating customer:', error);
+      toast({
+        title: "Error",
+        description: "Failed to create customer. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const resetForm = () => {
@@ -295,19 +468,22 @@ export default function Customers() {
 
   return (
     <div className="flex-1 space-y-6 p-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
       <Header 
         title="Customer Management" 
         subtitle="Manage customer information and relationships"
       />
-
-      {/* Cleanup Actions */}
-      <div className="flex justify-end">
         <Button 
+          onClick={() => {
+            loadCustomers();
+            loadOrders();
+          }}
           variant="outline" 
-          onClick={removeEmptyCustomers}
-          className="text-orange-600 border-orange-300 hover:bg-orange-50"
+          size="sm"
+          className="gap-2"
         >
-          🧹 Clean Empty Customers
+          <RefreshCw className="h-4 w-4" />
+          Refresh Data
         </Button>
       </div>
 

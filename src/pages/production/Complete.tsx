@@ -17,11 +17,13 @@ import {
   ArrowLeft, Package, CheckCircle, Plus, Trash2, Download, Upload,
   Save, QrCode, AlertTriangle
 } from "lucide-react";
-import { getFromStorage, saveToStorage, generateUniqueId } from "@/lib/storage";
+import { getFromStorage, saveToStorage, generateUniqueId } from "@/lib/storageUtils";
 import { getProductionFlow, updateProductionStep } from "@/lib/machines";
 import { Loading } from "@/components/ui/loading";
 import ProductionProgressBar from "@/components/production/ProductionProgressBar";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { QRCodeService, IndividualProductQRData } from "@/lib/qrCode";
+import { individualProductService } from "@/services/individualProductService";
 
 interface IndividualProduct {
   id: string;
@@ -29,12 +31,10 @@ interface IndividualProduct {
   productId: string;
   customId: string;
   manufacturingDate: string;
-  finalDimensions: string;
   finalWeight: string;
   finalThickness: string;
   finalWidth: string;
   finalHeight: string;
-  finalPileHeight: string;
   qualityGrade: "A+" | "A" | "B" | "C" | "D";
   status: "available" | "damaged";
   inspector: string;
@@ -105,7 +105,7 @@ export default function Complete() {
         setProductionProduct(product);
         
         // Get production flow to extract step history
-        const flow = getProductionFlow(product.id);
+        getProductionFlow(product.id).then(flow => {
         setProductionFlow(flow);
         const productionSteps = flow?.steps.filter(s => s.status === 'completed').map(step => ({
           stepName: step.name,
@@ -115,22 +115,8 @@ export default function Complete() {
           qualityNotes: step.qualityNotes
         })) || [];
         
-        // Function to calculate dimensions from size
-        const calculateDimensionsFromSize = (size: string) => {
-          const sizeMap: { [key: string]: { width: string, height: string, dimensions: string } } = {
-            "3x5 feet": { width: "0.91m", height: "1.52m", dimensions: "3' x 5' (0.91m x 1.52m)" },
-            "5x7 feet": { width: "1.52m", height: "2.13m", dimensions: "5' x 7' (1.52m x 2.13m)" },
-            "6x9 feet": { width: "1.83m", height: "2.74m", dimensions: "6' x 9' (1.83m x 2.74m)" },
-            "8x10 feet": { width: "2.44m", height: "3.05m", dimensions: "8' x 10' (2.44m x 3.05m)" },
-            "9x12 feet": { width: "2.74m", height: "3.66m", dimensions: "9' x 12' (2.74m x 3.66m)" },
-            "10x14 feet": { width: "3.05m", height: "4.27m", dimensions: "10' x 14' (3.05m x 4.27m)" },
-            "Custom": { width: "", height: "", dimensions: "" }
-          };
-          return sizeMap[size] || { width: "", height: "", dimensions: "" };
-        };
 
-        // Initialize individual products with production history and auto-calculated dimensions
-        const calculatedDimensions = calculateDimensionsFromSize(product.size);
+        // Initialize individual products with production history
         
         // Generate globally unique custom IDs for all products in this batch
         const customIds = [];
@@ -144,12 +130,10 @@ export default function Complete() {
           productId: product.productId,
           customId: customIds[index],
           manufacturingDate: new Date().toISOString().split('T')[0],
-          finalDimensions: product.size,
           finalWeight: "",
           finalThickness: "",
-          finalWidth: calculatedDimensions.width,
-          finalHeight: calculatedDimensions.height,
-          finalPileHeight: "",
+          finalWidth: "",
+          finalHeight: "",
           qualityGrade: "A" as const,
           status: "available" as const,
           inspector: inspector,
@@ -158,6 +142,7 @@ export default function Complete() {
           notes: ""
         }));
         setIndividualProducts(initialProducts);
+        });
       }
     }
   }, [productId, inspector]);
@@ -193,7 +178,7 @@ export default function Complete() {
 
   const addRow = () => {
     // Get production flow to extract step history
-    const flow = getProductionFlow(productionProduct.id);
+    getProductionFlow(productionProduct.id).then(flow => {
     const productionSteps = flow?.steps.filter(s => s.status === 'completed').map(step => ({
       stepName: step.name,
       machineUsed: step.machineName,
@@ -202,33 +187,17 @@ export default function Complete() {
       qualityNotes: step.qualityNotes
     })) || [];
     
-    // Function to calculate dimensions from size
-    const calculateDimensionsFromSize = (size: string) => {
-      const sizeMap: { [key: string]: { width: string, height: string, dimensions: string } } = {
-        "3x5 feet": { width: "0.91m", height: "1.52m", dimensions: "3' x 5' (0.91m x 1.52m)" },
-        "5x7 feet": { width: "1.52m", height: "2.13m", dimensions: "5' x 7' (1.52m x 2.13m)" },
-        "6x9 feet": { width: "1.83m", height: "2.74m", dimensions: "6' x 9' (1.83m x 2.74m)" },
-        "8x10 feet": { width: "2.44m", height: "3.05m", dimensions: "8' x 10' (2.44m x 3.05m)" },
-        "9x12 feet": { width: "2.74m", height: "3.66m", dimensions: "9' x 12' (2.74m x 3.66m)" },
-        "10x14 feet": { width: "3.05m", height: "4.27m", dimensions: "10' x 14' (3.05m x 4.27m)" },
-        "Custom": { width: "", height: "", dimensions: "" }
-      };
-      return sizeMap[size] || { width: "", height: "", dimensions: "" };
-    };
 
-    const calculatedDimensions = calculateDimensionsFromSize(productionProduct.size);
     const newProduct: IndividualProduct = {
       id: generateUniqueId('IND'),
       qrCode: generateUniqueId('QR'),
       productId: productionProduct.productId,
       customId: generateGloballyUniqueCustomId(productionProduct.productName),
       manufacturingDate: new Date().toISOString().split('T')[0],
-      finalDimensions: productionProduct.size,
       finalWeight: "",
       finalThickness: "",
-      finalWidth: calculatedDimensions.width,
-      finalHeight: calculatedDimensions.height,
-      finalPileHeight: "",
+      finalWidth: "",
+      finalHeight: "",
       qualityGrade: "A" as const,
       status: "available" as const,
       inspector: inspector,
@@ -236,13 +205,14 @@ export default function Complete() {
       productionSteps: productionSteps,
       notes: ""
     };
-    const updatedProducts = [...individualProducts, newProduct];
-    setIndividualProducts(updatedProducts);
-    
-    // Auto-save to localStorage
-    const existing = getFromStorage('rajdhani_individual_products') || [];
-    existing.push(newProduct);
-    localStorage.setItem('rajdhani_individual_products', JSON.stringify(existing));
+      const updatedProducts = [...individualProducts, newProduct];
+      setIndividualProducts(updatedProducts);
+      
+      // Auto-save to localStorage
+      const existing = getFromStorage('rajdhani_individual_products') || [];
+      existing.push(newProduct);
+      localStorage.setItem('rajdhani_individual_products', JSON.stringify(existing));
+    });
   };
 
   const removeRow = (index: number) => {
@@ -256,13 +226,14 @@ export default function Complete() {
     localStorage.setItem('rajdhani_individual_products', JSON.stringify(updated));
   };
 
-  const handleCompleteProduction = () => {
-    // Validate all required fields are filled (excluding optional fields like pile height and notes)
-    const requiredFields = ['finalDimensions', 'finalWeight', 'finalThickness', 'qualityGrade'];
+  const handleCompleteProduction = async () => {
+    // Validate all required fields are filled (excluding optional fields like notes)
+    const requiredFields = ['finalWeight', 'finalThickness', 'finalWidth', 'finalHeight', 'qualityGrade'];
     const fieldLabels = {
-      'finalDimensions': 'Final Dimensions',
       'finalWeight': 'Final Weight', 
       'finalThickness': 'Final Thickness',
+      'finalWidth': 'Final Width',
+      'finalHeight': 'Final Height',
       'qualityGrade': 'Quality Grade'
     };
     
@@ -288,7 +259,64 @@ export default function Complete() {
       return;
     }
 
-    // Save individual products with complete production history
+    // Save individual products with complete production history and QR codes
+    for (const individualProduct of individualProducts) {
+      try {
+        // Generate QR code for individual product
+        const individualProductQRData: IndividualProductQRData = {
+          id: individualProduct.id,
+          product_id: individualProduct.productId,
+          product_name: productionProduct.productName,
+          batch_id: individualProduct.customId,
+          serial_number: individualProduct.qrCode,
+          production_date: individualProduct.manufacturingDate,
+          quality_grade: individualProduct.qualityGrade,
+          dimensions: {
+            length: parseFloat(individualProduct.finalWidth?.replace(/[^\d.]/g, '') || '0'),
+            width: parseFloat(individualProduct.finalHeight?.replace(/[^\d.]/g, '') || '0'),
+            thickness: parseFloat(individualProduct.finalThickness?.replace(/[^\d.]/g, '') || '0')
+          },
+          weight: parseFloat(individualProduct.finalWeight?.replace(/[^\d.]/g, '') || '0'),
+          color: productionProduct.color || 'N/A',
+          pattern: productionProduct.pattern || 'N/A',
+          material_composition: (productionProduct.materialsConsumed || []).map(m => m.materialName),
+          production_steps: individualProduct.productionSteps.map(step => ({
+            step_name: step.stepName,
+            completed_at: step.completedAt,
+            operator: step.inspector,
+            quality_check: true
+          })),
+          machine_used: individualProduct.productionSteps.map(step => step.machineUsed),
+          inspector: individualProduct.inspector,
+          status: individualProduct.status as 'active' | 'sold' | 'damaged' | 'returned',
+          created_at: individualProduct.manufacturingDate
+        };
+        
+        const individualProductQRCode = await QRCodeService.generateIndividualProductQR(individualProductQRData);
+        
+        // Create in Supabase
+        await individualProductService.createIndividualProduct({
+          qr_code: individualProductQRCode,
+          product_id: individualProduct.productId,
+          product_name: productionProduct.productName,
+          final_weight: individualProduct.finalWeight,
+          final_thickness: individualProduct.finalThickness,
+          final_width: individualProduct.finalWidth,
+          final_height: individualProduct.finalHeight,
+          quality_grade: individualProduct.qualityGrade,
+          status: individualProduct.status as 'available' | 'sold' | 'damaged' | 'in-production' | 'completed',
+          notes: individualProduct.notes,
+          added_date: individualProduct.manufacturingDate,
+          inspector: individualProduct.inspector
+        });
+        
+        console.log(`✅ Created individual product "${productionProduct.productName}" with QR code: ${individualProductQRCode}`);
+      } catch (error) {
+        console.error(`Error creating individual product ${individualProduct.id}:`, error);
+      }
+    }
+    
+    // Also save to localStorage as fallback
     const existing = getFromStorage('rajdhani_individual_products');
     existing.push(...individualProducts);
     localStorage.setItem('rajdhani_individual_products', JSON.stringify(existing));
@@ -342,7 +370,7 @@ export default function Complete() {
     localStorage.setItem('rajdhani_production_products', JSON.stringify(updatedProduction));
 
     // Update production flow status
-    const flow = getProductionFlow(productionProduct.id);
+    getProductionFlow(productionProduct.id).then(flow => {
     if (flow && flow.status !== 'completed') {
       const lastStep = flow.steps[flow.steps.length - 1];
       if (lastStep) {
@@ -354,6 +382,7 @@ export default function Complete() {
         });
       }
     }
+    });
 
     // Show completion summary popup
     setCompletionSummary({
@@ -485,6 +514,58 @@ export default function Complete() {
         </CardContent>
       </Card>
 
+      {/* Material Usage Details */}
+      {productionProduct.materialsConsumed && productionProduct.materialsConsumed.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="w-5 h-5" />
+              Material Usage in This Production Batch
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                The following materials were consumed during this production batch:
+              </p>
+              <div className="grid gap-4">
+                {productionProduct.materialsConsumed.map((material: any, index: number) => (
+                  <div key={index} className="flex items-center justify-between p-4 border rounded-lg bg-gray-50">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3">
+                        <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                        <div>
+                          <h4 className="font-medium text-gray-900">{material.materialName}</h4>
+                          <p className="text-sm text-gray-500">
+                            {material.materialBrand && `${material.materialBrand} • `}
+                            {material.materialCategory}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="font-medium text-gray-900">
+                        {material.quantityUsed || material.quantity} {material.unit}
+                      </div>
+                      {material.costPerUnit && (
+                        <div className="text-sm text-gray-500">
+                          ₹{material.costPerUnit} per {material.unit}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+                <p className="text-sm text-blue-800">
+                  <strong>Total Materials Used:</strong> {productionProduct.materialsConsumed.length} different materials
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Individual Product Details */}
         <Card>
           <CardHeader>
@@ -509,10 +590,10 @@ export default function Complete() {
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Custom ID</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">QR Code</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Manufacturing Date</th>
-                  <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Dimensions</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Weight</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Thickness</th>
-                  <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Pile Height</th>
+                  <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Width</th>
+                  <th className="border border-gray-200 p-2 text-left text-sm font-medium">Final Height</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Quality Grade</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Status</th>
                   <th className="border border-gray-200 p-2 text-left text-sm font-medium">Notes</th>
@@ -563,21 +644,41 @@ export default function Complete() {
                       )}
                     </td>
                     <td className="border border-gray-200 p-2">
-                      {editingCell?.row === index && editingCell?.col === 'finalDimensions' ? (
+                      {editingCell?.row === index && editingCell?.col === 'finalWidth' ? (
                         <Input
                           value={editValue}
                           onChange={(e) => setEditValue(e.target.value)}
                           onBlur={handleCellSave}
                           onKeyDown={(e) => e.key === 'Enter' && handleCellSave()}
                           autoFocus
+                          placeholder="e.g., 1.83m"
                         />
                       ) : (
                         <div
                           className="cursor-pointer p-1 hover:bg-blue-50 rounded"
-                          onClick={() => handleCellClick(index, 'finalDimensions')}
+                          onClick={() => handleCellClick(index, 'finalWidth')}
                         >
-                          {product.finalDimensions}
-                      </div>
+                          {product.finalWidth || "Click to edit"}
+                        </div>
+                      )}
+                    </td>
+                    <td className="border border-gray-200 p-2">
+                      {editingCell?.row === index && editingCell?.col === 'finalHeight' ? (
+                        <Input
+                          value={editValue}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={handleCellSave}
+                          onKeyDown={(e) => e.key === 'Enter' && handleCellSave()}
+                          autoFocus
+                          placeholder="e.g., 2.74m"
+                        />
+                      ) : (
+                        <div
+                          className="cursor-pointer p-1 hover:bg-blue-50 rounded"
+                          onClick={() => handleCellClick(index, 'finalHeight')}
+                        >
+                          {product.finalHeight || "Click to edit"}
+                        </div>
                       )}
                     </td>
                     <td className="border border-gray-200 p-2">
@@ -614,25 +715,6 @@ export default function Complete() {
                         >
                           {product.finalThickness || "Click to edit"}
                     </div>
-                      )}
-                    </td>
-                    <td className="border border-gray-200 p-2">
-                      {editingCell?.row === index && editingCell?.col === 'finalPileHeight' ? (
-              <Input
-                          value={editValue}
-                          onChange={(e) => setEditValue(e.target.value)}
-                          onBlur={handleCellSave}
-                          onKeyDown={(e) => e.key === 'Enter' && handleCellSave()}
-                          autoFocus
-                          placeholder="e.g., 8mm"
-                        />
-                      ) : (
-                        <div
-                          className="cursor-pointer p-1 hover:bg-blue-50 rounded"
-                          onClick={() => handleCellClick(index, 'finalPileHeight')}
-                        >
-                          {product.finalPileHeight || "Click to edit"}
-            </div>
                       )}
                     </td>
                     <td className="border border-gray-200 p-2">
@@ -734,14 +816,14 @@ export default function Complete() {
                 {individualProducts.filter(p => p.status === "available").length} products will be added to inventory
               </p>
               {(() => {
-                const requiredFields = ['finalDimensions', 'finalWeight', 'finalThickness', 'qualityGrade'];
+                const requiredFields = ['finalWeight', 'finalThickness', 'finalWidth', 'finalHeight', 'qualityGrade'];
                 const incompleteProducts = individualProducts.filter(product => 
                   requiredFields.some(field => !product[field as keyof IndividualProduct] || product[field as keyof IndividualProduct] === "")
                 );
                 return incompleteProducts.length > 0 ? (
                   <div className="text-sm text-red-600 mt-1">
                     <p>⚠️ {incompleteProducts.length} products have incomplete data.</p>
-                    <p className="text-xs mt-1">Missing: Final Dimensions, Final Weight, Final Thickness, or Quality Grade</p>
+                    <p className="text-xs mt-1">Missing: Final Weight, Final Thickness, Final Width, Final Height, or Quality Grade</p>
                   </div>
                 ) : (
                   <p className="text-sm text-green-600 mt-1">

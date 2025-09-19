@@ -3,12 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { 
-  STORAGE_KEYS, 
-  getFromStorage, 
-  saveToStorage, 
-  updateStorage, 
-  generateUniqueId
-} from '@/lib/storage';
+  OrderService,
+  ProductService,
+  RawMaterialService
+} from '@/services';
 import { 
   Package, 
   ShoppingCart, 
@@ -25,7 +23,7 @@ export const RealTimeDashboard = () => {
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [materials, setMaterials] = useState<any[]>([]);
-
+  const [loading, setLoading] = useState<boolean>(false);
   const [lastUpdate, setLastUpdate] = useState<string>('');
 
   // Load data on component mount
@@ -33,11 +31,24 @@ export const RealTimeDashboard = () => {
     loadData();
   }, []);
 
-  const loadData = () => {
-    setOrders(getFromStorage(STORAGE_KEYS.ORDERS));
-    setProducts(getFromStorage(STORAGE_KEYS.INDIVIDUAL_PRODUCTS));
-    setMaterials(getFromStorage(STORAGE_KEYS.RAW_MATERIALS));
-    setLastUpdate(new Date().toLocaleTimeString());
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [ordersResult, productsResult, materialsResult] = await Promise.all([
+        OrderService.getOrders(),
+        ProductService.getIndividualProducts(),
+        RawMaterialService.getRawMaterials()
+      ]);
+      
+      setOrders(ordersResult?.data || []);
+      setProducts(productsResult?.data || []);
+      setMaterials(materialsResult?.data || []);
+      setLastUpdate(new Date().toLocaleTimeString());
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
 
@@ -68,13 +79,13 @@ export const RealTimeDashboard = () => {
         <div>
           <h2 className="text-2xl font-bold">Dashboard</h2>
           <p className="text-muted-foreground">
-            Data from localStorage - Last updated: {lastUpdate}
+            Data from Supabase - Last updated: {lastUpdate}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button onClick={loadData} variant="outline" size="sm">
-            <RefreshCw className="w-4 h-4 mr-2" />
-            Refresh
+          <Button onClick={loadData} variant="outline" size="sm" disabled={loading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? 'Loading...' : 'Refresh'}
           </Button>
         </div>
       </div>
@@ -139,7 +150,7 @@ export const RealTimeDashboard = () => {
             </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-2">
-            Click "Refresh Data" to update statistics with latest data from localStorage.
+            Click "Refresh Data" to update statistics with latest data from Supabase.
           </p>
         </CardContent>
       </Card>

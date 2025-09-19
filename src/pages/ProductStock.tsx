@@ -28,7 +28,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
-import { getFromStorage, saveToStorage, replaceStorage, generateUniqueId } from "@/lib/storage";
+import { generateUniqueId } from "@/lib/storageUtils";
+import { QRCodeService, IndividualProductQRData, MainProductQRData } from "@/lib/qrCode";
+import { QRCodeDisplay } from "@/components/qr/QRCodeDisplay";
+import { ProductService } from "@/services/ProductService";
 
 interface ProductMaterial {
   materialName: string;
@@ -50,23 +53,38 @@ interface Product {
   manufacturingDate: string;
   imageUrl?: string;
   location: string;
+  weight?: string;
+  thickness?: string;
+  width?: string;
+  height?: string;
+  individualStockTracking?: boolean;
 }
 
 interface IndividualProduct {
   id: string;
   qrCode: string;
   productId: string;
+  productName?: string;
   manufacturingDate: string;
+  productionDate?: string;
+  addedDate?: string;
+  completionDate?: string;
   materialsUsed: ProductMaterial[];
-  finalDimensions: string;
   finalWeight: string;
   finalThickness: string;
   finalWidth: string;
   finalHeight: string;
+  width?: string;
+  height?: string;
+  thickness?: string;
+  weight?: string;
+  color?: string;
+  pattern?: string;
   qualityGrade: string;
   inspector: string;
   notes: string;
   status: "available" | "sold" | "damaged";
+  location?: string;
   // Production steps data (kept in background, not displayed in UI)
   productionSteps?: Array<{
     stepName: string;
@@ -79,20 +97,6 @@ interface IndividualProduct {
 
 
 
-// Function to calculate dimensions from size
-const calculateDimensionsFromSize = (size: string) => {
-  const sizeMap: { [key: string]: { width: string, height: string, dimensions: string } } = {
-    "3x5 feet": { width: "0.91m", height: "1.52m", dimensions: "3' x 5' (0.91m x 1.52m)" },
-    "5x7 feet": { width: "1.52m", height: "2.13m", dimensions: "5' x 7' (1.52m x 2.13m)" },
-    "6x9 feet": { width: "1.83m", height: "2.74m", dimensions: "6' x 9' (1.83m x 2.74m)" },
-    "8x10 feet": { width: "2.44m", height: "3.05m", dimensions: "8' x 10' (2.44m x 3.05m)" },
-    "9x12 feet": { width: "2.74m", height: "3.66m", dimensions: "9' x 12' (2.74m x 3.66m)" },
-    "10x14 feet": { width: "3.05m", height: "4.27m", dimensions: "10' x 14' (3.05m x 4.27m)" },
-    "Custom": { width: "", height: "", dimensions: "" }
-  };
-  
-  return sizeMap[size] || { width: "", height: "", dimensions: "" };
-};
 
 export default function ProductStock() {
   const { productId } = useParams();
@@ -106,94 +110,129 @@ export default function ProductStock() {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<IndividualProduct | null>(null);
   const [editForm, setEditForm] = useState({
-    finalDimensions: '',
     finalWeight: '',
     finalThickness: '',
     finalWidth: '',
     finalHeight: '',
     qualityGrade: '',
     inspector: '',
+    location: '',
     notes: '',
     status: 'available' as 'available' | 'sold' | 'damaged'
   });
+  const [showQRCode, setShowQRCode] = useState(false);
+  const [selectedQRIndividualProduct, setSelectedQRIndividualProduct] = useState<IndividualProduct | null>(null);
 
   useEffect(() => {
-    if (productId) {
-      // Load product from localStorage
-      const products = getFromStorage('rajdhani_products') || [];
-      const foundProduct = products.find((p: Product) => p.id === productId);
-    if (foundProduct) {
-      setProduct(foundProduct);
+    const loadData = async () => {
+      if (productId) {
+        try {
+          // Load product from Supabase
+          const productResult = await ProductService.getProducts();
+          const foundProduct = productResult.data?.find((p: any) => p.id === productId);
+          if (foundProduct) {
+            setProduct(foundProduct);
+            // Use individual products from the main product data
+            setIndividualProducts(foundProduct.individual_products || []);
+          }
+        } catch (error) {
+          console.error('Error loading data:', error);
+          // Set empty states on error
+          setProduct(null);
+          setIndividualProducts([]);
+        }
       }
+    };
 
-      // Load individual products from localStorage
-      const individualProductsData = getFromStorage('rajdhani_individual_products') || [];
-      const productIndividualStocks = individualProductsData.filter((ind: IndividualProduct) => 
-        ind.productId === productId
-      );
-      setIndividualProducts(productIndividualStocks);
-    }
+    loadData();
   }, [productId]);
 
   const getIndividualProducts = (productId: string) => {
     return individualProducts.filter(ind => ind.productId === productId);
   };
 
-  // Function to auto-calculate dimensions for individual products
-  const autoCalculateDimensions = (individualProduct: IndividualProduct) => {
-    if (product && individualProduct.finalDimensions) {
-      const calculatedDimensions = calculateDimensionsFromSize(product.size);
-      if (calculatedDimensions.width && calculatedDimensions.height) {
-        return {
-          ...individualProduct,
-          finalWidth: calculatedDimensions.width,
-          finalHeight: calculatedDimensions.height
-        };
-      }
-    }
-    return individualProduct;
+
+  // Generate QR data for individual product
+  const generateIndividualProductQRData = (individualProduct: IndividualProduct): IndividualProductQRData => {
+    return {
+      id: individualProduct.id,
+      product_id: individualProduct.productId,
+      product_name: individualProduct.productName || product?.name || 'Unknown Product',
+      batch_id: individualProduct.id, // Using individual product ID as batch ID
+      serial_number: individualProduct.qrCode,
+      production_date: individualProduct.productionDate || individualProduct.addedDate || new Date().toISOString().split('T')[0],
+      quality_grade: individualProduct.qualityGrade || 'A',
+      dimensions: {
+        length: parseFloat(individualProduct.width?.replace(/[^\d.]/g, '') || '0'),
+        width: parseFloat(individualProduct.height?.replace(/[^\d.]/g, '') || '0'),
+        thickness: parseFloat(individualProduct.thickness?.replace(/[^\d.]/g, '') || '0')
+      },
+      weight: parseFloat(individualProduct.weight?.replace(/[^\d.]/g, '') || '0'),
+      color: individualProduct.color || 'N/A',
+      pattern: individualProduct.pattern || 'N/A',
+      material_composition: (individualProduct.materialsUsed || []).map(m => m.materialName),
+      production_steps: [
+        {
+          step_name: 'Production',
+          completed_at: individualProduct.completionDate || new Date().toISOString(),
+          operator: individualProduct.inspector || 'System',
+          quality_check: true
+        }
+      ],
+      machine_used: ['Production Line'], // Default value
+      inspector: individualProduct.inspector || 'System',
+      location: individualProduct.location || 'Not specified',
+      status: individualProduct.status as 'active' | 'sold' | 'damaged' | 'returned',
+      created_at: individualProduct.addedDate || new Date().toISOString()
+    };
   };
+
 
   const handleEditItem = (item: IndividualProduct) => {
     setEditingItem(item);
     setEditForm({
-      finalDimensions: item.finalDimensions,
       finalWeight: item.finalWeight,
       finalThickness: item.finalThickness,
       finalWidth: item.finalWidth,
       finalHeight: item.finalHeight,
       qualityGrade: item.qualityGrade,
       inspector: item.inspector,
+      location: item.location || '',
       notes: item.notes,
       status: item.status
     });
     setIsEditDialogOpen(true);
   };
 
-  const handleSaveEdit = () => {
+  const handleSaveEdit = async () => {
     if (!editingItem) return;
     
-    // Update the individual product in localStorage
-    const existingIndividualProducts = getFromStorage('rajdhani_individual_products') || [];
-    const updatedProducts = existingIndividualProducts.map((item: IndividualProduct) => 
-      item.id === editingItem.id 
-        ? { ...item, ...editForm }
-        : item
-    );
-    replaceStorage('rajdhani_individual_products', updatedProducts);
+    try {
+      // Update the individual product in Supabase using ProductService
+      const { data, error } = await ProductService.updateIndividualProduct(editingItem.id, editForm);
+      
+      if (error) {
+        console.error('Error updating individual product:', error);
+        return;
+      }
     
     // Update local state
     const updatedItem = { ...editingItem, ...editForm };
     setSelectedItem(updatedItem);
     
     // Update the individualProducts state
-    setIndividualProducts(updatedProducts.filter((ind: IndividualProduct) => ind.productId === productId));
+      setIndividualProducts(prev => prev.map(item => 
+        item.id === editingItem.id ? updatedItem : item
+      ));
     
     setIsEditDialogOpen(false);
     setEditingItem(null);
+    } catch (error) {
+      console.error('Error updating individual product:', error);
+    }
   };
 
-  const filteredItems = getIndividualProducts(productId || "").map(item => autoCalculateDimensions(item)).filter(item => {
+  const filteredItems = getIndividualProducts(productId || "").filter(item => {
     const matchesSearch = item.qrCode.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          item.inspector.toLowerCase().includes(searchTerm.toLowerCase());
@@ -291,10 +330,6 @@ export default function ProductStock() {
               <p className="text-sm text-blue-700">{product.color}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium text-blue-800">Size</p>
-              <p className="text-sm text-blue-700">{product.size}</p>
-            </div>
-            <div className="space-y-1">
               <p className="text-sm font-medium text-blue-800">Pattern</p>
               <p className="text-sm text-blue-700">{product.pattern}</p>
             </div>
@@ -307,24 +342,12 @@ export default function ProductStock() {
               <p className="text-sm text-blue-700">{product.thickness}</p>
             </div>
             <div className="space-y-1">
-              <p className="text-sm font-medium text-blue-800">Pile Height</p>
-              <p className="text-sm text-blue-700">{product.pileHeight}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-blue-800">Dimensions</p>
-              <p className="text-sm text-blue-700">{product.dimensions}</p>
-            </div>
-            <div className="space-y-1">
               <p className="text-sm font-medium text-blue-800">Width</p>
               <p className="text-sm text-blue-700">{product.width}</p>
             </div>
             <div className="space-y-1">
               <p className="text-sm font-medium text-blue-800">Height</p>
               <p className="text-sm text-blue-700">{product.height}</p>
-            </div>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-blue-800">Location</p>
-              <p className="text-sm text-blue-700">{product.location}</p>
             </div>
           </div>
         </CardContent>
@@ -349,7 +372,7 @@ export default function ProductStock() {
             </div>
             <div className="flex-1">
               <h3 className="text-xl font-semibold">{product.name}</h3>
-              <p className="text-muted-foreground">{product.color} • {product.size} • {product.pattern}</p>
+              <p className="text-muted-foreground">{product.color} • {product.width}x{product.height} • {product.pattern}</p>
                              <div className="flex items-center gap-4 mt-2">
                  <div className="flex items-center gap-2">
                    <Hash className="w-4 h-4 text-muted-foreground" />
@@ -358,10 +381,6 @@ export default function ProductStock() {
                  <div className="flex items-center gap-2">
                    <CheckCircle className="w-4 h-4 text-success" />
                    <span className="text-sm text-success">Available: {getStatusCount("available")} {product.unit || 'pieces'}</span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                   <MapPin className="w-4 h-4 text-muted-foreground" />
-                   <span className="text-sm text-muted-foreground">{product.location}</span>
                  </div>
                </div>
             </div>
@@ -473,7 +492,8 @@ export default function ProductStock() {
                   <th className="text-left p-3 font-medium text-muted-foreground">ID</th>
                   <th className="text-left p-3 font-medium text-muted-foreground hidden lg:table-cell">QR Code</th>
                   <th className="text-left p-3 font-medium text-muted-foreground hidden md:table-cell">Manufacturing Date</th>
-                  <th className="text-left p-3 font-medium text-muted-foreground">Final Dimensions</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Final Width</th>
+                  <th className="text-left p-3 font-medium text-muted-foreground">Final Height</th>
                   <th className="text-left p-3 font-medium text-muted-foreground">Quality Grade</th>
                   <th className="text-left p-3 font-medium text-muted-foreground hidden lg:table-cell">Inspector</th>
                   <th className="text-left p-3 font-medium text-muted-foreground">Status</th>
@@ -491,14 +511,28 @@ export default function ProductStock() {
                     </td>
                     <td className="p-3 hidden lg:table-cell">
                       <div className="flex items-center gap-2">
-                        <QrCode className="w-4 h-4 text-muted-foreground" />
-                        <span className="font-mono text-sm">{item.qrCode}</span>
+                        {item.qrCode ? (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setSelectedQRIndividualProduct(item);
+                              setShowQRCode(true);
+                            }}
+                            title={`QR Code: ${item.qrCode}`}
+                          >
+                            <QrCode className="w-4 h-4" />
+                          </Button>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">No QR Code</span>
+                        )}
                       </div>
                     </td>
                     <td className="p-3 text-sm hidden md:table-cell">
-                      {new Date(item.manufacturingDate).toLocaleDateString()}
+                      {(item.manufacturingDate) && item.manufacturingDate !== 'null' ? new Date(item.manufacturingDate).toLocaleDateString() : (item.productionDate) && item.productionDate !== 'null' ? new Date(item.productionDate).toLocaleDateString() : (item.completionDate) && item.completionDate !== 'null' ? new Date(item.completionDate).toLocaleDateString() : 'N/A'}
                     </td>
-                    <td className="p-3 text-sm">{item.finalDimensions}</td>
+                    <td className="p-3 text-sm">{item.finalWidth}</td>
+                    <td className="p-3 text-sm">{item.finalHeight}</td>
                     <td className="p-3">
                       <Badge variant={item.qualityGrade === "A+" ? "default" : "secondary"}>
                         {item.qualityGrade}
@@ -557,9 +591,24 @@ export default function ProductStock() {
                   <QrCode className="w-5 h-5 text-primary" />
                   <h4 className="font-medium">QR Code</h4>
                 </div>
-                <div className="font-mono text-lg bg-background p-3 rounded border">
-                  {selectedItem.qrCode}
+                {selectedItem.qrCode ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setSelectedQRIndividualProduct(selectedItem);
+                      setShowQRCode(true);
+                    }}
+                    className="w-full justify-center p-3 h-auto"
+                    title={`QR Code: ${selectedItem.qrCode}`}
+                  >
+                    <QrCode className="w-5 h-5 mr-2" />
+                    View QR Code
+                  </Button>
+                ) : (
+                  <div className="font-mono text-lg bg-background p-3 rounded border text-muted-foreground">
+                    No QR Code Available
                 </div>
+                )}
               </div>
 
               {/* Details Grid */}
@@ -579,6 +628,10 @@ export default function ProductStock() {
                   <p className="text-sm">{selectedItem.inspector}</p>
                 </div>
                 <div>
+                  <Label className="text-sm font-medium">Location</Label>
+                  <p className="text-sm">{selectedItem.location || 'Not specified'}</p>
+                </div>
+                <div>
                   <Label className="text-sm font-medium">Status</Label>
                   <Badge 
                     variant={selectedItem.status === "available" ? "default" : 
@@ -586,10 +639,6 @@ export default function ProductStock() {
                   >
                     {selectedItem.status}
                   </Badge>
-                </div>
-                <div>
-                  <Label className="text-sm font-medium">Final Dimensions</Label>
-                  <p className="text-sm">{selectedItem.finalDimensions}</p>
                 </div>
                 <div>
                   <Label className="text-sm font-medium">Final Weight</Label>
@@ -650,15 +699,6 @@ export default function ProductStock() {
           </DialogHeader>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="finalDimensions">Final Dimensions</Label>
-              <Input
-                id="finalDimensions"
-                value={editForm.finalDimensions}
-                onChange={(e) => setEditForm({...editForm, finalDimensions: e.target.value})}
-                placeholder="e.g., 8x10 feet"
-              />
-            </div>
             
             <div className="space-y-2">
               <Label htmlFor="finalWeight">Final Weight</Label>
@@ -681,24 +721,25 @@ export default function ProductStock() {
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="finalWidth">Final Width (meters)</Label>
+              <Label htmlFor="finalWidth">Final Width</Label>
               <Input
                 id="finalWidth"
                 value={editForm.finalWidth}
                 onChange={(e) => setEditForm({...editForm, finalWidth: e.target.value})}
-                placeholder="e.g., 2.44m"
+                placeholder="e.g., 1.83m"
               />
             </div>
             
             <div className="space-y-2">
-              <Label htmlFor="finalHeight">Final Height (meters)</Label>
+              <Label htmlFor="finalHeight">Final Height</Label>
               <Input
                 id="finalHeight"
                 value={editForm.finalHeight}
                 onChange={(e) => setEditForm({...editForm, finalHeight: e.target.value})}
-                placeholder="e.g., 3.05m"
+                placeholder="e.g., 2.74m"
               />
             </div>
+            
             
             <div className="space-y-2">
               <Label htmlFor="qualityGrade">Quality Grade</Label>
@@ -722,6 +763,16 @@ export default function ProductStock() {
                 value={editForm.inspector}
                 onChange={(e) => setEditForm({...editForm, inspector: e.target.value})}
                 placeholder="Inspector name"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="location">Location</Label>
+              <Input
+                id="location"
+                value={editForm.location}
+                onChange={(e) => setEditForm({...editForm, location: e.target.value})}
+                placeholder="e.g., Warehouse A, Shelf 3"
               />
             </div>
             
@@ -757,6 +808,44 @@ export default function ProductStock() {
             </Button>
             <Button onClick={handleSaveEdit}>
               Save Changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* QR Code Display Dialog */}
+      <Dialog open={showQRCode} onOpenChange={setShowQRCode}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Individual Product QR Code</DialogTitle>
+            <DialogDescription>
+              Scan this QR code to view individual product details and specifications
+            </DialogDescription>
+          </DialogHeader>
+          
+          {selectedQRIndividualProduct && (
+            <div className="space-y-4">
+              <div className="text-sm text-muted-foreground">
+                <p><strong>Product:</strong> {selectedQRIndividualProduct.productName || product?.name}</p>
+                <p><strong>QR Code:</strong> {selectedQRIndividualProduct.qrCode}</p>
+                <p><strong>Status:</strong> {selectedQRIndividualProduct.status}</p>
+                <p><strong>Quality Grade:</strong> {selectedQRIndividualProduct.qualityGrade}</p>
+                <p><strong>Manufacturing Date:</strong> {(selectedQRIndividualProduct.manufacturingDate) && selectedQRIndividualProduct.manufacturingDate !== 'null' ? new Date(selectedQRIndividualProduct.manufacturingDate).toLocaleDateString() : (selectedQRIndividualProduct.productionDate) && selectedQRIndividualProduct.productionDate !== 'null' ? new Date(selectedQRIndividualProduct.productionDate).toLocaleDateString() : (selectedQRIndividualProduct.completionDate) && selectedQRIndividualProduct.completionDate !== 'null' ? new Date(selectedQRIndividualProduct.completionDate).toLocaleDateString() : 'N/A'}</p>
+                <p><strong>Inspector:</strong> {selectedQRIndividualProduct.inspector}</p>
+                <p><strong>Location:</strong> {selectedQRIndividualProduct.location || 'Not specified'}</p>
+              </div>
+              
+              <QRCodeDisplay
+                data={generateIndividualProductQRData(selectedQRIndividualProduct)}
+                type="individual"
+                title={`${selectedQRIndividualProduct.productName || product?.name} - Individual Product`}
+              />
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowQRCode(false)}>
+              Close
             </Button>
           </DialogFooter>
         </DialogContent>
