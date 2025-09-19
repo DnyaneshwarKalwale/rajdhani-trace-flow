@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  rajdhani-app:
+    build: .
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL}
+      - VITE_SUPABASE_ANON_KEY=${VITE_SUPABASE_ANON_KEY}
+    volumes:
+      - ./ssl:/etc/nginx/ssl:ro
+    restart: unless-stopped
+    container_name: rajdhani-erp
