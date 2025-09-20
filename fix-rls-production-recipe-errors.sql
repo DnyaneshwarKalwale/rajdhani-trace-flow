@@ -110,10 +110,7 @@ CREATE TABLE IF NOT EXISTS production_flow_steps (
 CREATE TABLE IF NOT EXISTS machines (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'inactive', 'maintenance')),
-    location TEXT,
-    specifications JSONB,
+    description TEXT,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -138,24 +135,24 @@ CREATE INDEX IF NOT EXISTS idx_production_flow_steps_order ON production_flow_st
 -- ==============================================
 
 -- Insert some default machines if the table is empty
-INSERT INTO machines (id, name, type, status, location) 
+INSERT INTO machines (id, name, description) 
 SELECT 
-    'MACHINE_001', 'Loom Machine 1', 'Weaving', 'active', 'Production Floor A'
+    'MACHINE_001', 'Loom Machine 1', 'Weaving machine for carpet production'
 WHERE NOT EXISTS (SELECT 1 FROM machines WHERE id = 'MACHINE_001');
 
-INSERT INTO machines (id, name, type, status, location) 
+INSERT INTO machines (id, name, description) 
 SELECT 
-    'MACHINE_002', 'Cutting Machine 1', 'Cutting', 'active', 'Production Floor A'
+    'MACHINE_002', 'Cutting Machine 1', 'Cutting machine for material processing'
 WHERE NOT EXISTS (SELECT 1 FROM machines WHERE id = 'MACHINE_002');
 
-INSERT INTO machines (id, name, type, status, location) 
+INSERT INTO machines (id, name, description) 
 SELECT 
-    'MACHINE_003', 'Dyeing Machine 1', 'Dyeing', 'active', 'Production Floor B'
+    'MACHINE_003', 'Dyeing Machine 1', 'Dyeing machine for color processing'
 WHERE NOT EXISTS (SELECT 1 FROM machines WHERE id = 'MACHINE_003');
 
-INSERT INTO machines (id, name, type, status, location) 
+INSERT INTO machines (id, name, description) 
 SELECT 
-    'MACHINE_004', 'Finishing Machine 1', 'Finishing', 'active', 'Production Floor B'
+    'MACHINE_004', 'Finishing Machine 1', 'Finishing machine for final processing'
 WHERE NOT EXISTS (SELECT 1 FROM machines WHERE id = 'MACHINE_004');
 
 -- ==============================================
