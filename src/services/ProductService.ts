@@ -9,6 +9,7 @@ export interface CreateProductData {
   name: string;
   category: string;
   color?: string;
+  size?: string;
   pattern?: string;
   unit?: string;
   individual_stock_tracking?: boolean;
@@ -20,6 +21,8 @@ export interface CreateProductData {
   thickness?: string;
   width?: string;
   height?: string;
+  selling_price?: number;
+  cost_price?: number;
 }
 
 export interface UpdateProductData extends Partial<CreateProductData> {

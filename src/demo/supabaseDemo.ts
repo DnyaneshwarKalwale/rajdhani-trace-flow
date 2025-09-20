@@ -312,10 +312,11 @@ export class SupabaseDemo {
     // Create a notification
     console.log('\n1. Creating a notification...');
     const notificationResult = await NotificationService.createNotification({
-      type: 'system_alert',
+      type: 'info',
       title: 'Demo Notification',
       message: 'This is a demo notification from the Supabase backend!',
       priority: 'medium',
+      status: 'unread',
       module: 'orders',
       created_by: 'demo_user'
     });

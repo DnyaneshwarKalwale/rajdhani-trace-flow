@@ -329,7 +329,7 @@ export default function ProductionDetail() {
               unit: material.unit,
               cost_per_unit: rawMaterial?.cost_per_unit || material.cost_per_unit || 0,
               supplier_name: rawMaterial?.supplier_name || material.supplier_name || "From Recipe",
-              status: (rawMaterial?.status || 'in-stock') as const,
+              status: (rawMaterial?.status || 'in-stock') as 'in-stock' | 'low-stock' | 'out-of-stock' | 'overstock' | 'in-transit',
               batch_number: rawMaterial?.batch_number || material.batch_number || '',
               selectedQuantity: material.quantity || 1
             };

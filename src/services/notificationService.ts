@@ -31,16 +31,22 @@ export class NotificationService {
   }
 
   // Get all notifications
-  static async getNotifications(): Promise<{ data: Notification[] | null; error: string | null }> {
+  static async getNotifications(options?: { limit?: number }): Promise<{ data: Notification[] | null; error: string | null }> {
     try {
       if (!supabase) {
         throw new Error('Supabase client not initialized');
       }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from('notifications')
         .select('*')
         .order('created_at', { ascending: false });
+
+      if (options?.limit) {
+        query = query.limit(options.limit);
+      }
+
+      const { data, error } = await query;
 
       if (error) throw error;
 
@@ -214,6 +220,48 @@ export class NotificationService {
     } catch (error) {
       console.error('Error checking notification existence:', error);
       return { exists: false, error: error.message || 'Failed to check notification existence' };
+    }
+  }
+
+  // Get notification statistics
+  static async getNotificationStats(): Promise<{
+    total: number;
+    unread: number;
+    byType: Record<string, number>;
+    byPriority: Record<string, number>;
+  }> {
+    try {
+      if (!supabase) {
+        throw new Error('Supabase client not initialized');
+      }
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('type, priority, status');
+
+      if (error) throw error;
+
+      const stats = {
+        total: data?.length || 0,
+        unread: data?.filter(n => n.status === 'unread').length || 0,
+        byType: {} as Record<string, number>,
+        byPriority: {} as Record<string, number>
+      };
+
+      data?.forEach(notification => {
+        stats.byType[notification.type] = (stats.byType[notification.type] || 0) + 1;
+        stats.byPriority[notification.priority] = (stats.byPriority[notification.priority] || 0) + 1;
+      });
+
+      return stats;
+    } catch (error) {
+      console.error('Error getting notification stats:', error);
+      return {
+        total: 0,
+        unread: 0,
+        byType: {},
+        byPriority: {}
+      };
     }
   }
 }

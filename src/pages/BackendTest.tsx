@@ -403,11 +403,13 @@ export default function BackendTest() {
       updateSuiteStatus('Notification Service Tests', 'running');
       await runTest('Notification Service Tests', 'Create Notification', async () => {
         const result = await NotificationService.createNotification({
-          type: 'system_alert',
+          type: 'info',
           title: 'Test Notification',
           message: 'This is a test notification',
           priority: 'medium',
-          module: 'orders'
+          status: 'unread',
+          module: 'orders',
+          created_by: 'test_user'
         });
         if (result.error) throw new Error(result.error);
         return result.data;
